@@ -1,9 +1,14 @@
 /* Shared presentation for the asset, investment and cash-flow surfaces. */
 body.app-shell {
-  --refresh-panel: #191a1d;
-  --refresh-border: rgba(255,255,255,.07);
-  --refresh-glass: rgba(108,110,117,.30);
-  --refresh-amber: #d9a13d;
+  --refresh-panel: var(--pams-bg-panel, #131722);
+  --refresh-border: var(--pams-line-subtle, rgba(255,255,255,.08));
+  --refresh-glass: rgba(71, 181, 255, 0.16);
+  --refresh-amber: #47b5ff;
+  --analysis-panel: var(--pams-bg-panel, #131722);
+  --analysis-rule: var(--pams-line-hairline, rgba(255,255,255,.055));
+  --ledger-overview-panel: var(--pams-bg-panel, #131722);
+  --ledger-overview-rule: var(--pams-line-hairline, rgba(255,255,255,.055));
+  --surface: var(--pams-bg-panel, #131722);
 }
 body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav, .import-modes)[hidden] { display: none !important; }
 
@@ -67,18 +72,18 @@ body.page-more #accountSyncPanel .accountInstitutionButton {
   flex: 0 0 64px;
   scroll-snap-align: start;
 }
-body.page-more #accountSyncPanel .accountSyncImport { color: #e5b45d; }
+body.page-more #accountSyncPanel .accountSyncImport { color: #62c2ff; }
 
-body.page-ledger #cashflow-workbench { --ledger-overview-accent: #d9a13d; }
+body.page-ledger #cashflow-workbench { --ledger-overview-accent: #47b5ff; --expense-accent: #47b5ff; }
 body.page-ledger .ledgerTextSwitch button[aria-pressed="true"] {
-  color: #f3f3f4;
+  color: #62c2ff;
   background: var(--refresh-glass);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.09);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
 }
 body.page-ledger .ledgerTextSwitch button + button::before { content: none; }
 body.page-ledger #cashflow-workbench .ledgerOverviewPeriod { margin-bottom: 8px; }
 body.page-ledger #cashflow-workbench .ledgerOverviewPeriod h3 { font-size: 15px; }
-body.page-account-import { --import-yellow: #d9a13d; }
+body.page-account-import { --import-yellow: #47b5ff; }
 body.page-account-import .import-file-label {
   background: var(--refresh-panel);
   border-color: var(--refresh-border);
@@ -228,7 +233,11 @@ body.page-ledger .ledgerStreamDay {
   background: transparent;
 }
 body.page-ledger .ledgerStreamDayHeader { padding: 12px 0 7px; }
-body.page-ledger .ledgerStreamCategoryIcon { background: #c89036; }
+body.page-ledger .ledgerStreamCategoryIcon {
+  background: rgba(71, 181, 255, 0.16);
+  color: #62c2ff;
+  border: 1px solid rgba(71, 181, 255, 0.22);
+}
 body.page-more #accountSyncPanel .accountSyncCompact {
   margin: 8px 0;
   padding: 8px 12px;
@@ -363,16 +372,16 @@ body.page-investments #holdings-smart-table:not(.showFinancing) .personalHolding
 }
 body.page-investments :is(.returnWindowSegment, .analysisSwitch) button.active,
 body.page-more .returnWindowSegment button.active {
-  padding-inline: 9px;
-  border-radius: 10px;
+  padding-inline: 11px;
+  border-radius: 999px;
   background: var(--refresh-glass);
-  color: #f3f3f4;
+  color: #62c2ff;
 }
 body.page-more #asset-overview .returnWindowSegment button.active,
 body.page-investments #return-trend .returnWindowSegment button.active {
-  border-radius: 10px;
+  border-radius: 999px;
   background: var(--refresh-glass);
-  color: #f3f3f4;
+  color: #62c2ff;
 }
 body.page-more #asset-overview .returnWindowSegment button + button::before,
 body.page-investments #return-trend .returnWindowSegment button + button::before { content: none; }
@@ -428,8 +437,8 @@ body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail
   gap: 2px;
   padding: 3px;
   border: 0;
-  border-radius: 12px;
-  background: #202124;
+  border-radius: 999px;
+  background: var(--pams-bg-elevated);
 }
 body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) button {
   min-height: 44px;
@@ -450,11 +459,11 @@ body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail
 body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch) button + button::before { content: none; }
 body.app-shell .holdingMarketDetail .hmBar button:disabled { opacity: .5; cursor: not-allowed; }
 body.page-more #asset-overview .returnWindowSegment,
-body.page-investments #return-trend .returnWindowSegment { gap: 2px; padding: 3px; border-radius: 12px; background: #202124; }
+body.page-investments #return-trend .returnWindowSegment { gap: 2px; padding: 3px; border-radius: 999px; background: var(--pams-bg-elevated); }
 body.page-more #asset-overview .returnWindowSegment button,
-body.page-investments #return-trend .returnWindowSegment button { min-height: 44px; padding: 0 8px; border-radius: 9px; }
+body.page-investments #return-trend .returnWindowSegment button { min-height: 36px; padding: 0 11px; border-radius: 999px; }
 body.page-more #asset-overview .returnWindowSegment button.active,
-body.page-investments #return-trend .returnWindowSegment button.active { border-radius: 9px; }
+body.page-investments #return-trend .returnWindowSegment button.active { border-radius: 999px; color: #62c2ff; }
 
 /* Shared identity and activity rows retain their domain-specific data. */
 .assetIdentityMark {
@@ -466,8 +475,8 @@ body.page-investments #return-trend .returnWindowSegment button.active { border-
   height: 36px;
   overflow: hidden;
   border-radius: 50%;
-  background: #30291f;
-  color: #e4b662;
+  background: rgba(71, 181, 255, 0.14);
+  color: #62c2ff;
   font-size: 11px;
   font-weight: 650;
 }
@@ -510,10 +519,780 @@ body.app-shell :is(.ledgerIconButton, .tradeFilterToggle) {
 }
 body.app-shell .tradeFilterToggle { min-width: 40px; }
 body.app-shell :is(.ledgerIconButton, .tradeFilterToggle):is(.active,[aria-pressed="true"]) {
-  background: var(--refresh-glass); color: #f5f5f6;
+  background: var(--refresh-glass); color: #62c2ff; border-radius: 999px;
 }
 body.app-shell :is(.ledgerIconButton, .tradeFilterToggle):focus-visible { outline: 2px solid #f5f5f6; outline-offset: -2px; }
 @media (max-width: 360px) {
   body.page-investments .tradeActivityRow { grid-template-columns: 36px minmax(0, 1fr) minmax(0, 48%); }
   body.page-investments .tradeActivityRow .unifiedActivitySide strong { font-size: 13px; }
+}
+
+/* ============================================================
+   TradingView (Investments) + iCost (Assets & Ledger) Upgrade
+   ============================================================ */
+body.app-shell {
+  -webkit-tap-highlight-color: transparent;
+  background-color: #000000;
+  background-image: none;
+}
+
+/* 1. Single Unified Slate Surface (#131722) Across All Pages & Cards */
+body.page-more :is(.assetCard, #asset-overview .returnNavPanel, .accountInstitutionPanel, .monthlyHero),
+body.page-investments :is(.investmentHero, .investmentPanel, .investmentAnalysisCard, .portfolioRiskCategory, #holdingReturnHero, #investment-ledger, .portfolioRiskPanel, .portfolioConfigPanel, .holdingMarketDetail .hmHero, .holdingMarketDetail .hmPanel, .holdingMarketDetail .hmBreakdown, .holdingMarketDetail details, .portfolioRiskBlock, .portfolioConfigBlock, .transactionOverview),
+body.page-ledger :is(.ledgerOverviewCard, .ledgerLoanCard) {
+  background: var(--pams-bg-panel);
+  border: 1px solid var(--pams-line-subtle);
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+/* Prevent double-boxed hero when mobilePortfolioHero sits inside .investmentHero */
+body.page-investments .investmentHero .mobilePortfolioHero {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+/* Unified pill navigation & segmented controls (outside reduced-transparency guard) */
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav) {
+  position: sticky;
+  top: 4px;
+  z-index: 60;
+}
+
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav, .import-modes) {
+  background: var(--pams-bg-panel);
+  border: 1px solid var(--pams-line-subtle);
+  border-radius: 999px;
+  padding: 3px;
+  box-shadow: none;
+}
+
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav) a,
+body.page-account-import .import-modes button {
+  min-height: 36px;
+  padding: 4px 2px;
+  font-size: 13px;
+  border-radius: 999px;
+  color: #8e8e93;
+}
+
+body.app-shell :is(.assetTabs a[aria-current], .investAnchorNav a.is-active, .ledgerAnchorNav a.is-active),
+body.page-account-import .import-modes [aria-pressed="true"]:enabled {
+  color: #62c2ff;
+  font-weight: 600;
+  background: rgba(71, 181, 255, 0.16);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) {
+  background: var(--pams-bg-elevated);
+  border: 1px solid var(--pams-line-subtle);
+  border-radius: 999px;
+  padding: 3px;
+  box-shadow: none;
+}
+
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) button {
+  border-radius: 999px;
+  color: #8e8e93;
+}
+
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) button:is(.active, [aria-pressed="true"]) {
+  color: #62c2ff;
+  font-weight: 600;
+  background: rgba(71, 181, 255, 0.16);
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+/* Unified subtle pill badges (e.g. 区间口径, 持仓占比, 状态标签) */
+body.app-shell :is(.statusBadge, .miniBadge, .accountSyncBadge) {
+  border-radius: 999px;
+  border: 1px solid var(--pams-line-subtle);
+  background: var(--pams-bg-elevated);
+  padding: 3px 10px;
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+
+body.page-investments .holdingMarketDetail .hmReadout {
+  background: var(--pams-bg-elevated);
+  border: 1px solid var(--pams-line-subtle);
+  border-radius: 12px;
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @media (prefers-reduced-transparency: no-preference) {
+    body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav, .import-modes) {
+      background: rgba(19, 23, 34, 0.80);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      backdrop-filter: blur(20px) saturate(160%);
+    }
+
+    /* Liquid Glass Bottom Sheet + iOS Grabber Handle */
+    body.app-shell .appBottomSheetBackdrop {
+      background: rgba(0, 0, 0, 0.58);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+
+    body.app-shell .appBottomSheetPanel {
+      position: relative;
+      background: var(--pams-glass-surface-elevated);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-bottom: 0;
+      border-radius: 26px 26px 0 0;
+      box-shadow: var(--pams-glass-specular-strong), 0 -24px 64px rgba(0, 0, 0, 0.80);
+      -webkit-backdrop-filter: var(--pams-glass-blur-sheet);
+      backdrop-filter: var(--pams-glass-blur-sheet);
+    }
+
+    body.app-shell .appBottomSheetPanel::before {
+      content: "";
+      display: block;
+      width: 38px;
+      height: 4px;
+      margin: 0 auto 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.24);
+    }
+
+    body.app-shell .appBottomSheetClose {
+      background: rgba(255, 255, 255, 0.09);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      box-shadow: var(--pams-glass-specular);
+      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(16px);
+    }
+  }
+}
+
+/* 2. Open Unified Hero Typography (no box-in-box clutter) */
+body.page-investments #holdingReturnHero {
+  padding: 20px 20px 18px;
+  margin-top: 4px;
+}
+
+body.page-investments #holdingReturnHero > small {
+  color: #8e8e93;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+body.page-investments #holdingReturnHero > strong {
+  font-size: clamp(28px, 7.6vw, 34px);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: #ffffff;
+  margin: 6px 0 18px;
+}
+
+body.page-investments #holdingReturnHero .returnStats {
+  position: relative;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding-top: 14px;
+  gap: 0;
+}
+
+body.page-investments #holdingReturnHero .returnStats > * {
+  padding: 2px 14px 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body.page-investments #holdingReturnHero .returnStats > * + * {
+  padding: 2px 0 2px 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+body.page-investments #holdingReturnHero .returnStats small {
+  color: #8e8e93;
+  font-size: 11.5px;
+  font-weight: 450;
+}
+
+body.page-investments #holdingReturnHero .returnStats strong,
+body.page-investments #holdingReturnHero .returnStats b {
+  font-size: 15px;
+  color: #e5e5ea;
+  margin-top: 5px;
+}
+
+/* Lighter sub-tabs: remove heavy full-width rule to reduce chrome stacking */
+body.page-investments #holdingReturnTabs {
+  gap: 20px;
+  border-bottom: 0;
+  margin: 2px 2px 6px;
+}
+
+body.page-investments #holdingReturnTabs button {
+  position: relative;
+  padding: 8px 0 10px;
+  border-bottom: 0;
+  font-size: 14px;
+  color: #7c7c82;
+}
+
+body.page-investments #holdingReturnTabs button[aria-pressed="true"] {
+  color: #f5f5f7;
+  font-weight: 600;
+}
+
+body.page-investments #holdingReturnTabs button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--pams-accent-blue);
+  box-shadow: 0 0 10px rgba(71, 181, 255, 0.45);
+}
+
+body.page-more .assetFigures {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  gap: 0;
+  margin: 16px 0 4px;
+  padding-top: 12px;
+}
+
+body.page-more .assetFigures a {
+  padding: 2px 14px 2px 0 !important;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body.page-more .assetFigures a + a {
+  padding: 2px 0 2px 16px !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.07) !important;
+}
+
+body.page-more .accountInstitutionButton[aria-pressed="true"] .accountInstitutionLogo {
+  outline: 1.5px solid var(--pams-accent-blue);
+  box-shadow: 0 0 12px var(--pams-accent-blue-glow);
+}
+
+/* 3. Unified Filter & Segment Pill Chips (borderless idle + soft blue pill active) */
+body.page-investments #mobileHoldingFilterChips,
+body.page-investments #holdingSegmentFilter:not([hidden]) {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  padding: 2px 20px 6px 0 !important;
+  margin: 2px 0 4px !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: none !important;
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 86%, transparent 100%);
+}
+
+body.page-investments #mobileHoldingFilterChips::-webkit-scrollbar,
+body.page-investments #holdingSegmentFilter::-webkit-scrollbar {
+  display: none !important;
+}
+
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter) :is(button, .chip) {
+  flex: 0 0 auto !important;
+  min-height: 30px !important;
+  padding: 4px 12px !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #8e8e93 !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+
+body.page-investments #holdingSegmentFilter :is(button, .chip) {
+  min-height: 28px !important;
+  padding: 3px 11px !important;
+  font-size: 12px !important;
+}
+
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter) :is(button, .chip):is(.active, [aria-pressed="true"]) {
+  color: #62c2ff !important;
+  font-weight: 600 !important;
+  background: rgba(71, 181, 255, 0.16) !important;
+  border-color: transparent !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+}
+
+/* 4. Clean Financial List Typography, Softened Logos & iOS Inset Separators */
+body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading {
+  border-bottom: 0;
+  padding: 12px 0 4px;
+  color: #f5f5f7;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.assetIdentityMark {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14), 0 3px 10px rgba(0, 0, 0, 0.50);
+}
+
+.assetIdentityMark img {
+  filter: brightness(0.91) contrast(1.04);
+}
+
+body.page-investments #mobileHoldingList button.personalPosition {
+  position: relative;
+  border-bottom: 0;
+  border-radius: 12px;
+  padding: 13px 6px;
+  margin-inline: -6px;
+}
+
+body.page-investments #mobileHoldingList button.personalPosition::after {
+  content: "";
+  position: absolute;
+  left: 52px;
+  right: 6px;
+  bottom: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.055);
+  pointer-events: none;
+}
+
+body.page-investments #mobileHoldingList button.personalPosition:last-child::after {
+  display: none;
+}
+
+body.page-investments #mobileHoldingList .personalPositionValues > b {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: #f5f5f7;
+}
+
+body.page-investments #mobileHoldingList .personalPositionWeight {
+  color: #a1a1a6;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+body.page-investments #mobileHoldingList .personalPositionValues small.up {
+  color: #2fd077;
+  font-weight: 500;
+}
+
+body.page-investments #mobileHoldingList .personalPositionValues small.down {
+  color: #ff6464;
+  font-weight: 500;
+}
+
+body.page-investments #mobileHoldingList .personalPositionValues small.muted {
+  color: rgba(161, 161, 166, 0.36);
+}
+
+/* Keep Hero-only PnL Glow Pills */
+body.page-investments .mobileHeroPrimaryMetric em.up {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--pams-profit-pill-bg);
+  border: 1px solid var(--pams-profit-pill-border);
+  color: #34d399;
+  font-style: normal;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(35, 194, 107, 0.14);
+}
+
+body.page-investments .mobileHeroPrimaryMetric em.down {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--pams-loss-pill-bg);
+  border: 1px solid var(--pams-loss-pill-border);
+  color: #fb7185;
+  font-style: normal;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(255, 91, 91, 0.14);
+}
+
+/* iCost-style grouped daily ledger cards & semantic flow icon tints */
+body.page-ledger .ledgerStreamDay,
+body.page-investments .recentTradeList .ledgerStreamDay {
+  margin-top: 12px;
+  padding: 2px 14px 4px;
+  border: 1px solid var(--pams-line-subtle);
+  border-radius: 18px;
+  background: var(--pams-bg-panel);
+}
+
+body.page-ledger .ledgerStreamDayHeader,
+body.page-investments .recentTradeList .ledgerStreamDayHeader {
+  padding: 11px 0 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  color: #8e8e93;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+body.page-ledger .ledgerStreamDay .ledgerListRow {
+  position: relative;
+  border-bottom: 0;
+  border-radius: 10px;
+  padding: 11px 2px;
+  margin-inline: 0;
+}
+
+body.page-ledger .ledgerStreamDay .ledgerListRow::after {
+  content: "";
+  position: absolute;
+  left: 46px;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+}
+
+body.page-ledger .ledgerStreamDay .ledgerListRow:last-of-type::after {
+  display: none;
+}
+
+/* iCost low-saturation semantic category icon tints */
+body.page-ledger .ledgerListRow:has(b.up) .ledgerStreamCategoryIcon {
+  background: rgba(35, 194, 107, 0.15);
+  color: #34d399;
+  border-color: rgba(35, 194, 107, 0.22);
+}
+
+body.page-ledger .ledgerListRow:has(b.down) .ledgerStreamCategoryIcon {
+  background: rgba(255, 91, 91, 0.14);
+  color: #ff7b7b;
+  border-color: rgba(255, 91, 91, 0.20);
+}
+
+body.page-ledger .ledgerListRow:has(.ledgerReviewHint) .ledgerStreamCategoryIcon {
+  background: rgba(245, 165, 36, 0.15);
+  color: #f5b952;
+  border-color: rgba(245, 165, 36, 0.24);
+}
+
+/* 5. Shimmer Skeleton & Subtle Entrance Motion */
+@keyframes pamsGlassShimmer {
+  0% { background-position: 180% 0; }
+  100% { background-position: -180% 0; }
+}
+
+@keyframes pamsSurfaceRise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+body.app-shell :is(.skeletonCard, .skeletonLine) {
+  background-image: linear-gradient(100deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.11) 50%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: 220% 100%;
+  animation: pamsGlassShimmer 1.6s ease-in-out infinite;
+}
+
+/* 6. iOS Spring Tactile Press Feedback */
+body.app-shell :is(
+  .assetTabs a,
+  .investAnchorNav a,
+  .ledgerAnchorNav a,
+  .import-modes button,
+  .returnWindowSegment button,
+  .ledgerTextSwitch button,
+  .btn,
+  .pill,
+  .ledgerActionBtn,
+  .reviewBtn,
+  .ledgerIconButton,
+  .tradeFilterToggle,
+  .appBottomSheetClose,
+  #mobileHoldingFilterChips button,
+  #mobileHoldingFilterChips .chip,
+  .monthlyOverview .metricTabs button
+) {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  body.page-more :is(.monthlyHero, .assetCard),
+  body.page-investments #holdingReturnHero,
+  body.page-ledger .ledgerOverviewCard {
+    animation: pamsSurfaceRise 220ms var(--pams-spring-smooth) both;
+  }
+
+  body.app-shell :is(
+    .assetTabs a,
+    .investAnchorNav a,
+    .ledgerAnchorNav a,
+    .import-modes button,
+    .returnWindowSegment button,
+    .ledgerTextSwitch button,
+    .btn,
+    .pill,
+    .ledgerActionBtn,
+    .reviewBtn,
+    .ledgerIconButton,
+    .tradeFilterToggle,
+    .appBottomSheetClose,
+    #mobileHoldingFilterChips button,
+    #mobileHoldingFilterChips .chip,
+    .monthlyOverview .metricTabs button,
+    #mobileHoldingList button.personalPosition,
+    .ledgerListRow
+  ) {
+    transition:
+      transform 190ms var(--pams-spring-smooth),
+      background-color 190ms ease,
+      border-color 190ms ease,
+      box-shadow 190ms ease,
+      color 190ms ease;
+  }
+
+  body.app-shell :is(
+    .assetTabs a,
+    .investAnchorNav a,
+    .ledgerAnchorNav a,
+    .import-modes button:enabled,
+    .returnWindowSegment button,
+    .ledgerTextSwitch button,
+    .btn,
+    .pill,
+    .ledgerActionBtn,
+    .reviewBtn,
+    .ledgerIconButton,
+    .tradeFilterToggle,
+    .monthlyOverview .metricTabs button
+  ):active {
+    transform: scale(0.96);
+  }
+
+  body.app-shell :is(
+    .appBottomSheetClose,
+    #mobileHoldingFilterChips button,
+    #mobileHoldingFilterChips .chip
+  ):active {
+    transform: scale(0.94);
+  }
+
+  body.page-investments #mobileHoldingList button.personalPosition:active,
+  body.page-ledger .ledgerListRow:active {
+    background: rgba(255, 255, 255, 0.055);
+    transform: scale(0.985);
+  }
+}
+
+/* ============================================================
+   7. Cross-Page Consistency Pass (Assets / Analysis / Risk / Ledger)
+   ============================================================ */
+
+/* 7.1 Assets -> Overview & Accounts */
+body.page-more .monthlyOverview {
+  --month-warm: #47b5ff;
+  --month-current: #62c2ff;
+}
+
+body.page-more .monthlyStatus:not([hidden]) {
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--pams-line-subtle);
+  background: var(--pams-bg-panel);
+  color: #8e8e93;
+  font-size: 13px;
+}
+
+body.page-more .monthlyOverview .metricTabs {
+  gap: 6px;
+}
+
+body.page-more .monthlyOverview .metricTabs button {
+  border-radius: 14px;
+  border: 1px solid var(--pams-line-subtle);
+  background: var(--pams-bg-panel);
+  color: #8e8e93;
+}
+
+body.page-more .monthlyOverview .metricTabs [aria-pressed="true"] {
+  background: rgba(71, 181, 255, 0.16);
+  color: #62c2ff;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+body.page-more .accountInstitutionPicker {
+  scrollbar-width: none;
+  padding-right: 18px;
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 88%, transparent 100%);
+}
+
+body.page-more .accountInstitutionPicker::-webkit-scrollbar {
+  display: none;
+}
+
+body.page-more #accountSyncPanel .accountInstitutionButton {
+  border-radius: 14px;
+  padding: 6px 4px;
+}
+
+body.page-more #accountSyncPanel .accountInstitutionButton[aria-pressed="true"] {
+  background: rgba(71, 181, 255, 0.14);
+  color: #62c2ff;
+}
+
+body.page-more .accountInstitutionButton[aria-pressed="true"] .accountInstitutionLogo {
+  outline: 1.5px solid rgba(98, 194, 255, 0.65);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+body.page-more #moreAdvanced {
+  margin-top: 12px;
+  padding: 2px 16px;
+  border: 1px solid var(--pams-line-subtle);
+  border-radius: 18px;
+  background: var(--pams-bg-panel);
+}
+
+/* 7.2 Investments -> Analysis & Risk */
+body.page-investments .analysisSwitch {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--pams-line-subtle);
+  border-radius: 999px;
+  background: var(--pams-bg-panel);
+}
+
+body.page-investments .analysisSwitch button {
+  min-height: 36px;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: #8e8e93 !important;
+  font-size: 13px !important;
+  box-shadow: none !important;
+}
+
+body.page-investments .analysisSwitch button + button::before {
+  content: none !important;
+}
+
+body.page-investments .analysisSwitch button:is(.active, [aria-selected="true"]) {
+  background: rgba(71, 181, 255, 0.16) !important;
+  color: #62c2ff !important;
+  font-weight: 600 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+}
+
+body.page-investments :is(.lookthroughTabs, .returnSeriesToggle) {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  padding: 2px 18px 6px 0 !important;
+  scrollbar-width: none !important;
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 88%, transparent 100%);
+}
+
+body.page-investments :is(.lookthroughTabs, .returnSeriesToggle)::-webkit-scrollbar {
+  display: none !important;
+}
+
+body.page-investments :is(.lookthroughTabs, .returnSeriesToggle) :is(button, .chip) {
+  flex: 0 0 auto !important;
+  min-height: 30px !important;
+  padding: 4px 12px !important;
+  border-radius: 999px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #8e8e93 !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+
+body.page-investments :is(.lookthroughTabs, .returnSeriesToggle) :is(button, .chip):is(.active, [aria-pressed="true"], [aria-selected="true"]) {
+  color: #62c2ff !important;
+  font-weight: 600 !important;
+  background: rgba(71, 181, 255, 0.16) !important;
+  border-color: transparent !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+}
+
+/* Prevent horizontal clipping inside Risk Exposure panel */
+body.page-investments .portfolioExposurePanel,
+body.page-investments .portfolioExposurePanel .lookthroughQuality,
+body.page-investments .portfolioExposurePanel .lookthroughList,
+body.page-investments .portfolioExposurePanel .lookthroughRow {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+body.page-investments .portfolioExposurePanel {
+  overflow: hidden;
+}
+
+/* 7.3 Ledger -> Overview & Recent Flow */
+body.page-ledger .ledgerTrendExpense::before {
+  background: #47b5ff;
+}
+
+body.page-ledger .ledgerFlowChips {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  padding: 2px 16px 6px 0 !important;
+  border-bottom: 0 !important;
+  scrollbar-width: none !important;
+  -webkit-mask-image: linear-gradient(to right, #000 0%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(to right, #000 0%, #000 88%, transparent 100%);
+}
+
+body.page-ledger .ledgerFlowChips::-webkit-scrollbar {
+  display: none !important;
+}
+
+body.page-ledger .ledgerFlowChips .ledgerFlowChip {
+  flex: 0 0 auto !important;
+  min-height: 30px !important;
+  padding: 4px 12px !important;
+  border: 1px solid transparent !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: #8e8e93 !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
+  box-shadow: none !important;
+}
+
+body.page-ledger .ledgerFlowChips .ledgerFlowChip::after {
+  content: none !important;
+}
+
+body.page-ledger .ledgerFlowChips .ledgerFlowChip:is(.active, [aria-pressed="true"]) {
+  color: #62c2ff !important;
+  font-weight: 600 !important;
+  background: rgba(71, 181, 255, 0.16) !important;
+  border-color: transparent !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
 }

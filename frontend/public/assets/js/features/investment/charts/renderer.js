@@ -1,4 +1,4 @@
-import { CHART_THEME, seriesAppearance } from '../../../shared/chart_theme.js';
+import { CHART_THEME, seriesAppearance, verticalAreaGradient } from '../../../shared/chart_theme.js';
 import { fmt2 } from '../../../api.js';
 import { formatCurrency, safeNum } from '../../../utils.js';
 import { RETURN_WINDOW_OPTIONS, buildInvestmentNavChartData } from './legacy_model.js';
@@ -112,11 +112,15 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       label: '总收益率',
       data: initialWindowData.totalData,
       borderColor: CHART_THEME.line,
-      backgroundColor: CHART_THEME.fill,
-      tension: 0.25,
-      fill: true,
+      backgroundColor: ctx => verticalAreaGradient(ctx),
+      tension: 0.22,
+      fill: 'origin',
       pointRadius: initialWindowData.totalPointRadius,
-      borderWidth: 2.4,
+      pointHoverRadius: 5,
+      pointHoverBackgroundColor: CHART_THEME.line,
+      pointHoverBorderColor: '#ffffff',
+      pointHoverBorderWidth: 2,
+      borderWidth: 2.2,
       order: 0,
     }, {
       returnSeriesKey: 'events',
@@ -197,7 +201,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                 return /^\d{4}-\d{2}-\d{2}$/.test(label) ? label.slice(5).replace('-', '/') : label;
               },
             },
-            grid: { color: CHART_THEME.grid },
+            grid: { display: false },
           },
           y: {
             ticks: {
@@ -210,6 +214,25 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
         },
       },
       plugins: [{
+        id: 'tradingViewZeroBaseline',
+        beforeDatasetsDraw(chart) {
+          const yScale = chart.scales?.y;
+          const area = chart.chartArea;
+          if (!yScale || !area || yScale.min > 0 || yScale.max < 0) return;
+          const zeroY = yScale.getPixelForValue(0);
+          if (!Number.isFinite(zeroY) || zeroY < area.top || zeroY > area.bottom) return;
+          const ctx = chart.ctx;
+          ctx.save();
+          ctx.beginPath();
+          ctx.setLineDash([4, 4]);
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = CHART_THEME.zeroLine;
+          ctx.moveTo(area.left, zeroY);
+          ctx.lineTo(area.right, zeroY);
+          ctx.stroke();
+          ctx.restore();
+        },
+      }, {
         id: 'returnEventHotspots',
         afterRender(chart) {
           renderReturnEventHotspots(chart, chartState);
@@ -465,14 +488,17 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
           navEstimateCounts: data.estimateCounts,
           navCashFxDates: data.cashFxDates,
           navLoanCoverage: data.loanCoverage,
-          borderColor: el.closest('#asset-overview') ? '#d9a13d' : CHART_THEME.line,
-          backgroundColor: el.closest('#asset-overview') ? 'rgba(217,161,61,.10)' : CHART_THEME.fill,
-          tension: 0,
+          borderColor: CHART_THEME.line,
+          backgroundColor: ctx => verticalAreaGradient(ctx),
+          tension: 0.16,
           fill: data.fill,
           spanGaps: true,
           borderDash: [],
           pointRadius: data.knownCount === 1 ? 2 : 0,
-          pointHoverRadius: 0,
+          pointHoverRadius: 4.5,
+          pointHoverBackgroundColor: CHART_THEME.line,
+          pointHoverBorderColor: '#ffffff',
+          pointHoverBorderWidth: 1.5,
           borderWidth: 2,
         }],
       },
