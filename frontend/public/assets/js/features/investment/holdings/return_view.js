@@ -29,13 +29,18 @@ export function createReturnView({document, scope, details, openPosition, showFi
     hero.hidden = !accountMode && group !== '全部';
     const amount = accountMode ? metricMoney(overview?.net_value)
       : (summary?.missing_values ? '已知 ' : '') + money(summary?.market_value_cny);
-    const dailyVal = summary?.daily_pnl_cny;
+    const recentDaily = overview?.recent_daily_pnl;
+    const dailyVal = summary?.daily_pnl_cny ?? (recentDaily?.value != null ? Number(recentDaily.value) : null);
     const dailyValued = Number(summary?.daily_pnl_valued_count || 0);
     const dailyTotal = Number(summary?.daily_pnl_total_count || 0);
-    const dailyLabel = dailyVal != null && dailyTotal > 0 && dailyValued < dailyTotal
-      ? `今日盈亏 · 已知 ${dailyValued}/${dailyTotal}` : '今日盈亏';
-    const dailyText = dailyVal == null ? '—' : formatSignedCurrency(dailyVal);
-    const dailySub = signedPct(summary?.daily_pnl_ratio);
+    const dailyLabel = summary?.daily_pnl_cny != null
+      ? (dailyTotal > 0 && dailyValued < dailyTotal ? `今日盈亏 · 已知 ${dailyValued}/${dailyTotal}` : '今日盈亏')
+      : (recentDaily?.value != null
+        ? `最近一日盈亏${recentDaily.as_of ? ` · ${String(recentDaily.as_of).slice(5)}` : ''}`
+        : '今日盈亏');
+    const dailyText = dailyVal == null ? '—'
+      : (summary?.daily_pnl_cny == null && recentDaily?.status === 'partial' ? '已知 ' : '') + formatSignedCurrency(dailyVal);
+    const dailySub = summary?.daily_pnl_cny != null ? signedPct(summary?.daily_pnl_ratio) : '';
     const floatVal = summary?.floating_pnl_cny;
     const floatLabel = floatVal != null && Number(summary?.floating_pnl_missing || 0) > 0 ? '持仓浮盈 · 已知' : '持仓浮盈';
     const floatText = floatVal == null ? '—' : formatSignedCurrency(floatVal);
