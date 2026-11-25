@@ -36,7 +36,7 @@ def test_historical_cash_can_bind_original_statement_in_isolation(monkeypatch):
     from psycopg2.extras import RealDictCursor
     from domain.imports import source_records_v2 as sources,holding_publication_v2 as publication, isolation
     from domain.imports import historical_statement_balance as adapter
-    from domain.investments.position_nav_projection import load_position_nav_estimates
+    from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
     dsn=os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn: pytest.skip('requires explicitly isolated PostgreSQL')
     monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY','12'*32)
@@ -58,8 +58,8 @@ def test_historical_cash_can_bind_original_statement_in_isolation(monkeypatch):
                 result=load_position_nav_estimates(cur,**args)
                 assert result[date(2025,12,31)]['bank_test'][0]==Decimal('100')
                 assert 'bank_test' not in result.get(date(2026,1,1),{})
-                from domain.investments import statement_period_nav as periods
-                from domain.investments.valuation_nav import _apply_historical_cash_points
+                from domain.investments.valuation import statement_period_nav as periods
+                from domain.investments.valuation.valuation_nav import _apply_historical_cash_points
                 monkeypatch.setattr(periods, 'profiles', lambda: {'bank_test': [{'currency': 'CNY'}]})
                 monkeypatch.setattr(periods, 'read_original_debit_statement', lambda **_: (_report(), '1234'))
                 days = [date(2026,1,1),date(2026,1,6),date(2026,5,31),date(2026,6,1)]

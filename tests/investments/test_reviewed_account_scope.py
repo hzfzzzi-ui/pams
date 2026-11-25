@@ -5,15 +5,17 @@ from uuid import uuid4
 
 import pytest
 
-from domain.investments import account_total_evidence as totals, reviewed_account_scope as scopes
-from domain.investments.valuation_nav import _apply_account_totals
+from domain.investments.valuation import account_total_evidence as totals
+
+from domain.investments.valuation import reviewed_account_scope as scopes
+from domain.investments.valuation.valuation_nav import _apply_account_totals
 
 
 def test_attested_partial_members_are_dated_and_replayable():
     import psycopg2
     from psycopg2.extras import RealDictCursor
     from domain.imports import isolation, source_records_v2 as sources
-    from domain.investments.account_snapshot_evidence import record_source_scope
+    from domain.investments.holdings.account_snapshot_evidence import record_source_scope
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:
         pytest.skip('requires explicitly isolated PostgreSQL')

@@ -1,0 +1,845 @@
+"""Data-access helpers for investment return calculations.
+
+This module owns SQL reads and raw source normalization used by
+``domain.investments.returns.investment_returns``.  It intentionally does not own return formulas
+or endpoint payload assembly.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import date as Date, timedelta
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
+from domain.investments.returns.investment_return_math import dec, ibkr_return_effective_date
+from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE, _table_exists
+
+
+from domain.market.quote_valuation import gold_close_join, gold_market_value, uses_gold_close
+
+
+FX_UNAVAILABLE = object()
+
+
+class FlowEvents(list):
+    """Flows retain the reason an amount cannot be valued."""
+    def __init__(self):
+        super().__init__()
+        self.missing_fx = False
+
+
+def exact_fx_rate_at(timelines, currency, as_of, base_currency):
+    """Only an explicit same-day rate or base-currency identity is usable."""
+    if not isinstance(currency,str) or not currency.strip():
+        return None
+    quote=currency.strip().upper()
+    if quote==str(base_currency).upper():
+        return Decimal('1')
+    rates=[value for day,value in timelines.get(quote,[]) if day==as_of]
+    if len(rates)!=1:
+        return None
+    try:
+        rate=Decimal(str(rates[0]))
+        return rate if rate.is_finite() and rate>0 else None
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+SECTION_RETURN_CONFIG: dict[str, dict[str, Any]] = {
+    "a_stock": {
+        "label": "A股个股",
+        "major_category": "A股",
+        "minor_category": "A股",
+    },
+    "a_fund": {
+        "label": "A股基金",
+        "major_category": "A股",
+        "minor_category": "A股基金",
+    },
+    "us_stock": {
+        "label": "美股",
+        "major_category": "美股",
+        "minor_category": None,
+    },
+    "precious_metal": {
+        "label": "贵金属",
+        "major_category": "贵金属",
+        "minor_category": None,
+    },
+}
+
+INVESTMENT_RETURN_CATEGORIES = ("A股", "美股", "贵金属", "ESOP")
+INVESTMENT_RETURN_SNAPSHOT_EXCLUDE = {"tonghuashun", "huawei_stock", "ibkr", "ccb_cny"}
+IBKR_EQUITY_MARKETS = (
+    "STK",
+    "\u7f8e\u80a1",
+    "\u7f8e\u80a1\u57fa\u91d1",
+    "\u6e2f\u80a1",
+    "\u97e9\u80a1",
+    "\u6b27\u80a1",
+    "\u6d77\u5916\u4e2a\u80a1",
+    "\u6d77\u5916ETF",
+)
+
+
+TRADE_FACT_MAJOR_EXPR = """
+    COALESCE(
+        NULLIF(asset_major_category, ''),
+        NULLIF(raw_json #>> '{source_row,major_category}', ''),
+        NULLIF(market, ''),
+        trade_type
+    )
+"""
+
+TRADE_FACT_MINOR_EXPR = """
+    COALESCE(
+        NULLIF(asset_minor_category, ''),
+        NULLIF(raw_json #>> '{source_row,minor_category}', ''),
+        NULLIF(market, ''),
+        trade_type
+    )
+"""
+
+
+def _reported_account_return_adjustments(
+    cur,
+    dates: list[Date],
+    base_currency: str,
+    *,
+    reported_returns_cfg: dict[str, Any],
+    owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
+) -> dict[Date, Decimal]:
+    """Return per-date PnL adjustments needed to match confirmed platform return anchors."""
+    adjustments = {d: Decimal("0") for d in dates}
+    account_perf = reported_returns_cfg.get("account_performance") or {}
+    if not dates or not isinstance(account_perf, dict):
+        return adjustments
+
+    owner_sql, owner_params = owner_ratio_case_sql("h")
+    categories = list(INVESTMENT_RETURN_CATEGORIES)
+    for code, item in account_perf.items():
+        if not isinstance(item, dict) or item.get("total_ytd_pnl") is None:
+            continue
+        as_of_raw = item.get("as_of") or reported_returns_cfg.get("as_of")
+        try:
+            anchor_date = Date.fromisoformat(str(as_of_raw))
+        except (TypeError, ValueError):
+            continue
+        target_pnl = Decimal(str(item["total_ytd_pnl"]))
+        cur.execute(
+            f"""
+            WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, latest AS (
+                SELECT MAX(hs.as_of) AS as_of
+                FROM pams_holdings_snapshot hs
+                JOIN complete_account_snapshot cas
+                  ON cas.account_code = hs.account_code
+                 AND cas.as_of = hs.as_of
+                WHERE hs.account_code = %s
+                  AND hs.as_of <= %s
+                  AND asset_liability = '资产'
+                  AND major_category = ANY(%s::text[])
+            )
+            SELECT CASE WHEN COUNT(*) FILTER (WHERE h.cost IS NULL OR COALESCE(fx_identity.rate, fx_hist.rate) IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(
+                (h.market_value - h.cost)
+                * COALESCE(fx_identity.rate, fx_hist.rate)
+                * {owner_sql}
+            ), 0) END AS computed_pnl
+            FROM pams_holdings_snapshot h
+            JOIN latest l ON h.as_of = l.as_of
+            LEFT JOIN LATERAL (
+                SELECT rate
+                FROM pams_fx_rates_daily fx
+                WHERE fx.base_currency = %s
+                  AND fx.quote_currency = h.currency
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = h.as_of
+                ORDER BY fx.as_of DESC
+                LIMIT 1
+            ) fx_hist ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT CASE WHEN h.currency = %s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
+            WHERE h.account_code = %s
+              AND h.asset_liability = '资产'
+              AND h.major_category = ANY(%s::text[])
+            """,
+            (
+                anchor_date,
+                str(item.get("account_code") or code),
+                anchor_date,
+                categories,
+                *owner_params,
+                base_currency,
+                base_currency,
+                str(item.get("account_code") or code),
+                categories,
+            ),
+        )
+        row = cur.fetchone()
+        if row and row['computed_pnl'] is None:
+            for sample_date in dates:
+                if sample_date >= anchor_date:
+                    adjustments[sample_date] = None
+            continue
+        computed_pnl = dec(row["computed_pnl"] if row else 0)
+        delta = target_pnl - computed_pnl
+        if abs(delta) < Decimal("0.005"):
+            continue
+        for sample_date in dates:
+            if sample_date >= anchor_date:
+                if adjustments[sample_date] is not None:
+                    adjustments[sample_date] += delta
+    return adjustments
+
+
+def _tonghuashun_cost_series(
+    cur,
+    *,
+    dates: list[Date],
+    account_owner_ratio: Callable[[str], Decimal],
+    account_initial_capital_cny: Callable[[str], Decimal | None],
+) -> dict[Date, Decimal]:
+    """Return the personal cumulative capital deposited into the A-share account."""
+    values = {d: Decimal("0") for d in dates}
+    owner_ratio = account_owner_ratio("tonghuashun")
+
+    cur.execute(
+        """
+        WITH series_dates AS (
+            SELECT unnest(%s::date[]) AS date
+        ), deposits AS (
+            SELECT
+                trade_date AS event_date,
+                COALESCE(
+                    NULLIF(ABS(net_cash_cny), 0),
+                    NULLIF(ABS(gross_amount) * fx_rate_to_cny, 0),
+                    NULLIF(ABS(net_cash) * fx_rate_to_cny, 0),
+                    0
+                ) AS amount
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'tonghuashun'
+              AND LOWER(COALESCE(NULLIF(side, ''), trade_type)) IN ('deposit', 'cash_deposit', 'transfer_in')
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+        )
+        SELECT d.date, COALESCE(SUM(dep.amount), 0) AS gross_cost_cny, COUNT(dep.event_date) AS event_count
+        FROM series_dates d
+        LEFT JOIN deposits dep ON dep.event_date <= d.date
+        GROUP BY d.date
+        ORDER BY d.date
+        """,
+        ([d.isoformat() for d in dates],),
+    )
+    has_deposits = False
+    for row in cur.fetchall():
+        values[row["date"]] = dec(row["gross_cost_cny"]) * owner_ratio
+        has_deposits = has_deposits or int(row.get("event_count") or 0) > 0
+    if not has_deposits:
+        initial_capital = account_initial_capital_cny("tonghuashun")
+        if initial_capital is None:
+            return values
+        return {d: initial_capital * owner_ratio for d in dates}
+    return values
+
+
+def _section_first_activity_date(cur, section: str) -> Date | None:
+    """Return the first transaction or snapshot date available for an investment section."""
+    cfg = SECTION_RETURN_CONFIG[section]
+    if _table_exists(cur, 'source_records'):
+        if section == 'a_stock':
+            cur.execute("""SELECT MIN(trade_date) AS start_date FROM pams_investment_trade_fact
+                WHERE account_code='tonghuashun'""")
+            return (cur.fetchone() or {}).get('start_date')
+        # The range can start at the earliest observed row. Amounts are verified
+        # separately before a trade contributes to returns.
+        market_names = [cfg['major_category']]
+        if section == 'a_fund':
+            market_names = [cfg['minor_category'], 'CN_FUND']
+        elif section == 'us_stock':
+            market_names.extend(IBKR_EQUITY_MARKETS)
+        cur.execute("""SELECT MIN(day) AS start_date FROM (
+            SELECT MIN(as_of) AS day FROM pams_holdings_snapshot WHERE major_category=%s
+                AND (%s::text IS NULL OR minor_category=%s)
+            UNION ALL
+            SELECT MIN(trade_date) FROM pams_investment_trade_fact
+                WHERE market=ANY(%s::text[]) AND (gross_amount IS NOT NULL OR (%s AND net_cash IS NOT NULL))
+        ) observed""", (cfg['major_category'], cfg.get('minor_category'), cfg.get('minor_category'), market_names,
+                          section == "precious_metal"))
+    elif section == "a_stock":
+        cur.execute(
+            """
+            SELECT MIN(trade_date) AS start_date
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'tonghuashun'
+              AND (
+                trade_type IN ('buy', 'sell', 'dividend')
+                OR LOWER(COALESCE(side, '')) IN ('deposit', 'withdraw', 'buy', 'sell', 'dividend')
+              )
+            """
+        )
+    elif section == "us_stock":
+        cur.execute(
+            """
+            SELECT MIN(trade_date) AS start_date
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'ibkr'
+              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
+              AND quantity IS NOT NULL
+            """,
+            (list(IBKR_EQUITY_MARKETS),),
+        )
+    else:
+        minor = cfg.get("minor_category")
+        minor_filter = f"AND {TRADE_FACT_MINOR_EXPR} = %s" if minor else ""
+        params: list[Any] = [cfg["major_category"]]
+        if minor:
+            params.append(minor)
+        cur.execute(
+            f"""
+            SELECT MIN(trade_date) AS start_date
+            FROM pams_investment_trade_fact
+            WHERE {TRADE_FACT_MAJOR_EXPR} = %s
+              {minor_filter}
+              AND gross_amount IS NOT NULL
+            """,
+            params,
+        )
+    row = cur.fetchone()
+    return row["start_date"] if row and row.get("start_date") else None
+
+
+def _snapshot_category_value_series(
+    cur,
+    *,
+    dates: list[Date],
+    base_currency: str,
+    major_category: str,
+    owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
+    excluded_holding_accounts: set[str],
+    minor_category: str | None = None,
+    account_codes: list[str] | None = None,
+) -> dict[Date, Decimal | None]:
+    """Return observed holding values, leaving dates before coverage absent."""
+    from domain.investments.valuation.valuation_nav import ValuationEvidenceSeries
+
+    values = ValuationEvidenceSeries(missing_fx_dates=())
+    if not dates:
+        return values
+
+    owner_ratio_sql, owner_ratio_params = owner_ratio_case_sql("h")
+    latest_filters = [
+        "hs.asset_liability = %s",
+        "hs.major_category = %s",
+        "NOT (hs.account_code = ANY(%s::text[]))",
+    ]
+    latest_params: list[Any] = ["资产", major_category, sorted(excluded_holding_accounts)]
+    h_filters = [
+        "h.asset_liability = %s",
+        "h.major_category = %s",
+        "NOT (h.account_code = ANY(%s::text[]))",
+    ]
+    h_params: list[Any] = ["资产", major_category, sorted(excluded_holding_accounts)]
+
+    if minor_category:
+        latest_filters.append("hs.minor_category = %s")
+        latest_params.append(minor_category)
+        h_filters.append("h.minor_category = %s")
+        h_params.append(minor_category)
+    if account_codes:
+        latest_filters.append("hs.account_code = ANY(%s::text[])")
+        latest_params.append(account_codes)
+        h_filters.append("h.account_code = ANY(%s::text[])")
+        h_params.append(account_codes)
+
+    gold_join = gold_close_join("h", "h.date") if major_category == "贵金属" else ""
+    market_value = gold_market_value("h") if gold_join else "h.market_value"
+    missing_price = (
+        f"({uses_gold_close('h')} AND h.quantity <> 0 AND gold_close.price IS NULL)"
+        if gold_join else "FALSE"
+    )
+    cur.execute(
+        f"""
+        WITH series_dates AS (
+            SELECT unnest(%s::date[]) AS date
+        ), {COMPLETE_ACCOUNT_SNAPSHOT_CTE}, complete_holding_snapshot AS (
+            SELECT hs.*
+            FROM pams_holdings_snapshot hs
+            JOIN complete_account_snapshot cas
+              ON cas.account_code = hs.account_code
+             AND cas.as_of = hs.as_of
+        ), account_latest AS (
+            SELECT d.date, hs.account_code, MAX(hs.as_of) AS as_of
+            FROM series_dates d
+            JOIN complete_holding_snapshot hs ON hs.as_of <= d.date
+            WHERE {' AND '.join(latest_filters)}
+            GROUP BY d.date, hs.account_code
+        ), h AS (
+            SELECT al.date, hs.*
+            FROM account_latest al
+            JOIN complete_holding_snapshot hs
+              ON hs.account_code = al.account_code
+             AND hs.as_of = al.as_of
+        ), marked AS (
+            SELECT
+                h.date,
+                {missing_price} AS missing_price,
+                COALESCE(fx_identity.rate, fx_hist.rate) IS NULL AS missing_fx,
+                {market_value} * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql} AS value_cny
+            FROM h
+            {gold_join}
+            LEFT JOIN LATERAL (
+                SELECT rate
+                FROM pams_fx_rates_daily fx
+                WHERE fx.base_currency = %s
+                  AND fx.quote_currency = h.currency
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+                  AND fx.as_of = h.date
+                ORDER BY fx.as_of DESC
+                LIMIT 1
+            ) fx_hist ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT CASE WHEN h.currency = %s THEN 1::numeric END AS rate
+            ) fx_identity ON TRUE
+            WHERE {' AND '.join(h_filters)}
+        )
+        SELECT date, CASE WHEN COUNT(*) FILTER (WHERE value_cny IS NULL)>0 THEN NULL ELSE SUM(value_cny) END AS value_cny,
+               BOOL_OR(missing_price) AS missing_price, BOOL_OR(missing_fx) AS missing_fx
+        FROM marked
+        GROUP BY date
+        ORDER BY date
+        """,
+        (
+            [d.isoformat() for d in dates],
+            dates[-1],
+            *latest_params,
+            *owner_ratio_params,
+            base_currency,
+            base_currency,
+            *h_params,
+        ),
+    )
+    for row in cur.fetchall():
+        day = row["date"]
+        values[day] = dec(row["value_cny"]) if row["value_cny"] is not None else None
+        if row.get("missing_price"):
+            values.missing_price_dates.add(day)
+        if row.get("missing_fx"):
+            values.missing_fx_dates.add(day)
+    return values
+
+
+def _restore_single_purchase_gold_history(
+    cur, *, dates, values, ownership_ratio, excluded_accounts,
+) -> tuple[Date, Decimal] | None:
+    """Recover the span before the first snapshot for an evidenced, unchanged position."""
+    from domain.investments.trades.trade_read_v2 import load_trade_rows
+
+    cur.execute(f"""
+        SELECT h.id,h.as_of,h.account_code,h.asset_id,h.symbol,h.quantity,h.cost,
+               {uses_gold_close("h")} AS uses_gold
+        FROM pams_holdings_snapshot h
+        WHERE h.major_category=%s AND h.asset_liability=%s
+          AND NOT (h.account_code=ANY(%s::text[])) AND h.as_of<=%s
+        ORDER BY h.as_of,h.id
+    """, ("贵金属", "资产", sorted(excluded_accounts), dates[-1]))
+    holdings = cur.fetchall()
+    if not holdings:
+        return None
+    anchor = holdings[0]
+    if not anchor["uses_gold"] or anchor["as_of"] <= dates[0] or not anchor["quantity"] or not anchor["cost"]:
+        return None
+    identity = ("account_code", "asset_id", "symbol", "quantity", "cost")
+    if any(any(row[key] != anchor[key] for key in identity) for row in holdings):
+        return None
+    account, symbol, asset_id = anchor["account_code"], anchor["symbol"], anchor["asset_id"]
+    # Count all applicable facts, even if source verification later excludes them.
+    cur.execute("""
+        SELECT trade_id FROM pams_investment_trade_fact
+        WHERE account_code=%s AND (asset_id=%s OR symbol=%s)
+          AND trade_type=ANY(%s::text[]) AND trade_date<=%s
+        LIMIT 2
+    """, (account, asset_id, symbol, [
+        "buy", "sell", "fund_subscription", "fund_redemption", "split", "corporate_action",
+        "transfer_in_kind", "transfer_out_kind", "position_adjustment",
+    ], dates[-1]))
+    facts = cur.fetchall()
+    if len(facts) != 1:
+        return None
+    trades = load_trade_rows(
+        cur, account_code=account, start=Date.min, end=anchor["as_of"],
+        fact_id=facts[0]["trade_id"],
+    )
+    if len(trades) != 1:
+        return None
+    opening = trades[0]
+    if (opening["source_evidence_status"] != "verified" or opening["trade_type"] != "buy"
+            or opening["currency"] != "CNY" or opening["quantity"] != anchor["quantity"]
+            or opening["net_cash"] != -anchor["cost"] or opening["trade_date"] >= anchor["as_of"]):
+        return None
+    first_day = opening["trade_date"]
+    missing_dates = [day for day in dates if first_day <= day < anchor["as_of"]]
+    if not missing_dates:
+        return None
+    ratio = ownership_ratio(account)
+    cur.execute(f"""
+        SELECT d.day, {gold_market_value("h")} * %s AS value
+        FROM unnest(%s::date[]) AS d(day)
+        CROSS JOIN pams_holdings_snapshot h
+        {gold_close_join("h", "d.day")}
+        WHERE h.id=%s
+    """, (ratio, missing_dates, anchor["id"]))
+    for row in cur.fetchall():
+        values[row["day"]] = row["value"]
+        if row["value"] is None:
+            values.missing_price_dates.add(row["day"])
+    return first_day, anchor["cost"] * ratio
+
+
+def _exact_snapshot_category_value(
+    cur,
+    *,
+    as_of: Date,
+    base_currency: str,
+    major_category: str,
+    owner_ratio_case_sql: Callable[[str], tuple[str, list[Any]]],
+    excluded_holding_accounts: set[str],
+    minor_category: str | None = None,
+    account_codes: list[str] | None = None,
+) -> Decimal | None:
+    """Return same-date holding value for a category, without carrying prior snapshots forward."""
+    filters = [
+        "h.as_of = %s",
+        "h.asset_liability = %s",
+        "h.major_category = %s",
+        "NOT (h.account_code = ANY(%s::text[]))",
+    ]
+    params: list[Any] = [as_of, "资产", major_category, sorted(excluded_holding_accounts)]
+    if minor_category:
+        filters.append("h.minor_category = %s")
+        params.append(minor_category)
+    if account_codes:
+        filters.append("h.account_code = ANY(%s::text[])")
+        params.append(account_codes)
+
+    owner_ratio_sql, owner_ratio_params = owner_ratio_case_sql("h")
+    cur.execute(
+        f"""
+        WITH {COMPLETE_ACCOUNT_SNAPSHOT_CTE}
+        SELECT CASE WHEN COUNT(*) FILTER (WHERE COALESCE(fx_identity.rate, fx_hist.rate) IS NULL)>0 THEN NULL ELSE SUM(
+            h.market_value * COALESCE(fx_identity.rate, fx_hist.rate) * {owner_ratio_sql}
+        ) END AS value_cny,
+        COUNT(*) AS row_count
+        FROM pams_holdings_snapshot h
+        JOIN complete_account_snapshot cas
+          ON cas.account_code = h.account_code
+         AND cas.as_of = h.as_of
+        LEFT JOIN LATERAL (
+            SELECT rate
+            FROM pams_fx_rates_daily fx
+            WHERE fx.base_currency = %s
+              AND fx.quote_currency = h.currency
+                  AND NULLIF(BTRIM(fx.source), '') IS NOT NULL
+                  AND fx.rate > 0 AND fx.rate NOT IN ('NaN'::numeric, 'Infinity'::numeric)
+              AND fx.as_of = h.as_of
+            ORDER BY fx.as_of DESC
+            LIMIT 1
+        ) fx_hist ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT CASE WHEN h.currency = %s THEN 1::numeric END AS rate
+        ) fx_identity ON TRUE
+        WHERE {' AND '.join(filters)}
+        """,
+        (
+            as_of,
+            *owner_ratio_params,
+            base_currency,
+            base_currency,
+            *params,
+        ),
+    )
+    row = cur.fetchone()
+    if not row or int(row.get("row_count") or 0) <= 0:
+        return None
+    return FX_UNAVAILABLE if row.get("value_cny") is None else dec(row["value_cny"])
+
+
+
+def _source_record_section_flows(cur, start_date, end_date, major_category, minor_category, account_codes):
+    """Match flows to evidenced section membership and attach source verification."""
+    from domain.investments.trades.trade_read_v2 import load_trade_rows
+
+    gold = uses_gold_close("h")
+    filters = ['h.major_category=%s', "h.asset_liability='资产'",
+               f"""((h.as_of BETWEEN f.trade_date - INTERVAL '10 days' AND f.trade_date AND h.market_value<>0)
+                    OR ({gold} AND h.as_of<=f.trade_date AND h.quantity IS NOT NULL
+                        AND f.trade_type IN ('buy','sell')))"""]
+    params = [start_date, end_date, major_category]
+    if minor_category:
+        filters.append('h.minor_category=%s')
+        params.append(minor_category)
+    if account_codes:
+        filters.append('h.account_code=ANY(%s::text[])')
+        params.append(account_codes)
+    cur.execute("""SELECT DISTINCT f.trade_id,f.account_code FROM pams_investment_trade_fact f
+        JOIN pams_holdings_snapshot h ON h.account_code=f.account_code
+        WHERE f.trade_date BETWEEN %s AND %s
+          AND f.trade_type IN ('buy','sell','fund_subscription','fund_redemption','deposit','withdraw')
+          AND (h.asset_id=f.asset_id OR (f.asset_id IS NULL AND h.symbol=f.symbol AND h.currency=f.currency)
+              OR (f.trade_type IN ('deposit','withdraw') AND f.market=h.major_category))
+          AND """ + ' AND '.join(filters), params)
+    ids_by_account = {}
+    for row in cur.fetchall():
+        ids_by_account.setdefault(row['account_code'], set()).add(row['trade_id'])
+    rows = [row for account, ids in ids_by_account.items()
+            for row in load_trade_rows(cur, account_code=account, start=start_date, end=end_date)
+            if row['trade_id'] in ids]
+    for row in rows:
+        row['side'] = {'fund_subscription': 'subscribe', 'fund_redemption': 'redeem'}.get(
+            row['trade_type'], row['side'] or row['trade_type'])
+    return sorted(rows, key=lambda row: (row['trade_date'], row['trade_id']))
+
+
+def _investment_transaction_flow_events(
+    cur,
+    *,
+    start_date: Date,
+    end_date: Date,
+    base_currency: str,
+    fx_timelines: dict[str, list[tuple[Date, Decimal]]],
+    account_owner_ratio: Callable[[str], Decimal],
+    major_category: str,
+    minor_category: str | None = None,
+    account_codes: list[str] | None = None,
+) -> list[tuple[Date, Decimal]]:
+    """Return section-level investment cash flows that should be excluded from returns."""
+    if _table_exists(cur, 'source_records'):
+        rows = _source_record_section_flows(cur, start_date, end_date, major_category, minor_category, account_codes)
+    else:
+        filters = [
+            "trade_date >= %s",
+            "trade_date <= %s",
+            f"{TRADE_FACT_MAJOR_EXPR} = %s",
+            "gross_amount IS NOT NULL",
+            "COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void', 'pending', 'pending_settlement', 'in_transit')",
+        ]
+        params: list[Any] = [start_date, end_date, major_category]
+        if minor_category:
+            filters.append(f"{TRADE_FACT_MINOR_EXPR} = %s")
+            params.append(minor_category)
+        if account_codes:
+            filters.append("account_code = ANY(%s::text[])")
+            params.append(account_codes)
+
+        coverage_filters = [
+            "hs.account_code = pams_investment_trade_fact.account_code",
+            "hs.as_of BETWEEN pams_investment_trade_fact.trade_date - INTERVAL '10 days' AND pams_investment_trade_fact.trade_date",
+            "hs.asset_liability = %s",
+            "hs.major_category = %s",
+            "COALESCE(hs.market_value, 0) <> 0",
+        ]
+        coverage_params: list[Any] = ["资产", major_category]
+        if minor_category:
+            coverage_filters.append("hs.minor_category = %s")
+            coverage_params.append(minor_category)
+        filters.append(
+            f"""
+            EXISTS (
+                SELECT 1
+                FROM pams_holdings_snapshot hs
+                WHERE {' AND '.join(coverage_filters)}
+            )
+            """
+        )
+        params.extend(coverage_params)
+
+        cur.execute(
+            f"""
+            SELECT
+                account_code,
+                trade_date,
+                COALESCE(NULLIF(side, ''), trade_type) AS side,
+                gross_amount,
+                fee_amount, tax_amount, net_cash, raw_json,
+                currency
+            FROM pams_investment_trade_fact
+            WHERE {' AND '.join(filters)}
+            ORDER BY trade_date, trade_id
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    positive_sides = {"buy", "subscribe", "purchase", "deposit", "transfer_in", "in"}
+    negative_sides = {"sell", "redeem", "redemption", "withdraw", "withdrawal", "cancel", "transfer_out", "out"}
+    events = FlowEvents()
+    for row in rows:
+        if row.get('source_evidence_status', 'verified') != 'verified' or (
+                row.get('gross_amount') is None and row.get('net_cash') is None):
+            events.append((row['trade_date'], None))
+            continue
+        side = str(row.get("side") or "").strip().lower()
+        amount = abs(dec(row.get("gross_amount")))
+        from domain.investments.trades.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
+        fees = known_trade_charges(row)
+        if unconverted_ibkr_fee(row):
+            events.append((row['trade_date'], None))
+            continue
+        net_cash = row.get('net_cash')
+        if net_cash is not None:
+            signed_native = -dec(net_cash)
+        elif fees is None:
+            events.append((row['trade_date'], None))
+            continue
+        elif side in positive_sides:
+            signed_native = amount + fees
+        elif side in negative_sides:
+            signed_native = -(amount - fees)
+        else:
+            continue
+        trade_date = row["trade_date"]
+        currency = row.get("currency")
+        rate = exact_fx_rate_at(fx_timelines,currency,trade_date,base_currency)
+        if rate is None:
+            events.missing_fx = True
+            events.append((trade_date,None))
+            continue
+        signed = signed_native * rate * account_owner_ratio(str(row.get("account_code") or ""))
+        events.append((trade_date, signed))
+    return events
+
+
+def _tonghuashun_external_flow_events(
+    cur,
+    *,
+    start_date: Date,
+    end_date: Date,
+    base_currency: str,
+    fx_timelines: dict[str, list[tuple[Date, Decimal]]],
+    account_owner_ratio: Callable[[str], Decimal],
+) -> list[tuple[Date, Decimal]]:
+    """Return external capital flows for the Tonghuashun account."""
+    if _table_exists(cur, 'source_records'):
+        from domain.investments.trades.trade_read_v2 import load_trade_rows
+        rows = [row for row in load_trade_rows(cur, account_code='tonghuashun', start=start_date, end=end_date)
+                if row['trade_type'] in {'deposit','withdraw'}]
+    else:
+        cur.execute(
+            """
+            SELECT trade_date, COALESCE(NULLIF(side, ''), trade_type) AS side, gross_amount, net_cash, currency
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'tonghuashun'
+              AND trade_date >= %s
+              AND trade_date <= %s
+              AND LOWER(COALESCE(NULLIF(side, ''), trade_type)) IN ('deposit', 'withdraw', 'cash_deposit', 'cash_withdrawal', 'transfer_in', 'transfer_out')
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            ORDER BY trade_date, trade_id
+            """,
+            (start_date, end_date),
+        )
+        rows = cur.fetchall()
+    events = FlowEvents()
+    owner_ratio = account_owner_ratio("tonghuashun")
+    for row in rows:
+        if row.get('source_evidence_status', 'verified') != 'verified' or (
+                row.get('gross_amount') is None and row.get('net_cash') is None):
+            events.append((row['trade_date'], None))
+            continue
+        side = str(row.get("side") or "").strip().lower()
+        amount = abs(dec(row.get("gross_amount")) or dec(row.get("net_cash")))
+        signed_native = -amount if side in {"withdraw", "cash_withdrawal", "transfer_out"} else amount
+        trade_date = row["trade_date"]
+        rate = exact_fx_rate_at(fx_timelines,row.get("currency"),trade_date,base_currency)
+        if rate is None:
+            events.missing_fx = True
+            events.append((trade_date,None))
+            continue
+        signed = signed_native * rate * owner_ratio
+        events.append((trade_date, signed))
+    return events
+
+
+def source_record_ibkr_equity_trades(cur, start_date: Date, end_date: Date):
+    from domain.investments.trades.trade_read_v2 import load_trade_rows
+
+    rows = load_trade_rows(cur, account_code='ibkr', start=start_date, end=end_date)
+    trades = []
+    for row in rows:
+        if row['market'] not in IBKR_EQUITY_MARKETS or row['trade_type'] not in {'buy', 'sell'}:
+            continue
+        if row['quantity'] is None or row['quantity'] <= 0:
+            row['source_evidence_status'] = 'unknown'
+        elif row['trade_type'] == 'sell':
+            row['quantity'] = -row['quantity']
+        trades.append(row)
+    return trades
+
+
+def _ibkr_trade_flow_events(
+    cur,
+    *,
+    start_date: Date,
+    end_date: Date,
+    base_currency: str,
+    fx_timelines: dict[str, list[tuple[Date, Decimal]]],
+) -> list[tuple[Date, Decimal]]:
+    """Return stock/ETF trade cash flows for the IBKR section."""
+    if _table_exists(cur, 'source_records'):
+        rows = source_record_ibkr_equity_trades(cur, start_date - timedelta(days=1), end_date)
+    else:
+        cur.execute(
+            """
+            SELECT
+                trade_date,
+                quantity,
+                gross_amount,
+                fee_amount, tax_amount, raw_json,
+                net_cash,
+                currency
+            FROM pams_investment_trade_fact
+            WHERE account_code = 'ibkr'
+              AND COALESCE(NULLIF(market, ''), NULLIF(asset_minor_category, ''), NULLIF(asset_major_category, '')) = ANY(%s::text[])
+              AND quantity IS NOT NULL
+              AND trade_date >= %s
+              AND trade_date <= %s
+              AND COALESCE(LOWER(review_status), 'confirmed') NOT IN ('cancelled', 'canceled', 'void')
+            ORDER BY trade_date, trade_id
+            """,
+            (list(IBKR_EQUITY_MARKETS), start_date - timedelta(days=1), end_date),
+        )
+        rows = cur.fetchall()
+    events = FlowEvents()
+    for row in rows:
+        qty = dec(row.get("quantity"))
+        gross = abs(dec(row.get("gross_amount")))
+        from domain.investments.trades.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
+        commission = known_trade_charges(row)
+        net_cash = dec(row.get("net_cash"))
+        currency = str(row.get("currency") or "").upper()
+        trade_date = ibkr_return_effective_date(row["trade_date"], currency)
+        if trade_date < start_date or trade_date > end_date:
+            continue
+        if row.get('source_evidence_status', 'verified') != 'verified' or unconverted_ibkr_fee(row):
+            events.append((trade_date, None))
+            continue
+        if row.get('net_cash') is None and (commission is None or row.get('gross_amount') is None):
+            events.append((trade_date, None))
+            continue
+        commission = commission if commission is not None else Decimal('0')
+        if row.get('net_cash') is not None:
+            signed_native = -net_cash
+        elif qty > 0:
+            signed_native = gross + commission
+        elif qty < 0:
+            signed_native = -max(gross - commission, Decimal("0"))
+        else:
+            continue
+        rate = exact_fx_rate_at(fx_timelines,currency,trade_date,base_currency)
+        if rate is None:
+            events.missing_fx = True
+            events.append((trade_date,None))
+            continue
+        signed = signed_native * rate
+        events.append((trade_date, signed))
+    return events

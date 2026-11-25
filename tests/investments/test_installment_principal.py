@@ -1,9 +1,9 @@
 from datetime import date
 from decimal import Decimal as D
 
-from domain.investments.installment_principal import _principal_steps
+from domain.investments.trades.installment_principal import _principal_steps
 from domain.accounts.dated_valuation import AccountValuation
-from domain.investments.valuation_nav import _apply_historical_cash_points
+from domain.investments.valuation.valuation_nav import _apply_historical_cash_points
 
 
 def test_same_day_funding_and_verified_principal_exclude_billed_amounts_and_interest():

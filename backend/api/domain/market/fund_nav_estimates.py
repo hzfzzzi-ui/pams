@@ -27,10 +27,10 @@ from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 import requests
-from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
+from domain.investments.returns.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 from domain.imports.isolation import source_enabled
-from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
-from domain.investments.snapshot_coverage import point_in_time_visible_sql, load_account_snapshot_coverage
+from domain.investments.holdings.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
+from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql, load_account_snapshot_coverage
 
 
 MONEY = Decimal("0.01")

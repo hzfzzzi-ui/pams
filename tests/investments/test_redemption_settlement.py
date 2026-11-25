@@ -9,8 +9,8 @@ import pytest
 
 from domain.imports.isolation import source_enabled
 from domain.imports import holding_publication_v2 as publication, source_records_v2 as sources
-from domain.investments import redemption_settlement as settlement
-from domain.investments.position_nav_projection import load_position_nav_estimates
+from domain.investments.trades import redemption_settlement as settlement
+from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 
 
 def test_redeemed_units_require_a_dated_confirmed_receipt_and_matching_net_proceeds(monkeypatch):
@@ -46,7 +46,7 @@ def test_dated_receivable_and_remaining_position_are_counted_once(monkeypatch):
     code = 'redemption_test'
     claim = dict(account_code=code, currency='CNY', asset_id='A', symbol='A', amount=D(20),
                  confirmation=day, receipt=receipt, trade_id=42)
-    monkeypatch.setattr('domain.investments.position_nav_projection.load_redemption_receivables',lambda *args:[claim])
+    monkeypatch.setattr('domain.investments.holdings.position_nav_projection.load_redemption_receivables',lambda *args:[claim])
     dates = [date(2026,1,4), day, date(2026,1,6), receipt]
     with psycopg2.connect(dsn) as conn:
         try:

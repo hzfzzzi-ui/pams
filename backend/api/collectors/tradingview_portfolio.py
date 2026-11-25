@@ -443,7 +443,7 @@ def sync_portfolio_to_db(
 ) -> None:
     """Write holdings only after each input trade has a verified source fact."""
 
-    from domain.investments import holding_write_evidence as evidence
+    from domain.investments.holdings import holding_write_evidence as evidence
     if not evidence.enabled(conn):
         raise TradingViewImportError('TradingView sync requires isolated source evidence')
     evidence.lock_account(conn, result.account_code)
@@ -519,7 +519,7 @@ def sync_portfolio_to_db(
         def finish():
             evidence.capture_written_holdings(conn, account_code=result.account_code, business_date=result.as_of,
                                               names=names, origin='tradingview', transactions=transactions)
-            from domain.investments.account_snapshot_evidence import record_partial
+            from domain.investments.holdings.account_snapshot_evidence import record_partial
             with conn.cursor() as cur:
                 cur.execute("SELECT id FROM pams_holdings_snapshot WHERE account_code=%s AND as_of=%s AND name=ANY(%s::text[]) ORDER BY id",
                             (result.account_code,result.as_of,names))
@@ -535,7 +535,7 @@ def sync_portfolio_to_db(
 
 def _write_portfolio_holdings(conn, result: PortfolioCalcResult, *, before_commit) -> None:
     """Write verified holdings without recreating a legacy transaction source."""
-    from domain.investments import holding_write_evidence as evidence
+    from domain.investments.holdings import holding_write_evidence as evidence
     if not evidence.enabled(conn):
         raise TradingViewImportError('TradingView sync requires isolated source evidence')
     evidence.lock_account(conn, result.account_code)

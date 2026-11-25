@@ -613,7 +613,7 @@ def _write_holdings(conn, rows: list[dict[str, Any]], *, account_code: str, as_o
     named = [row['name'] for row in rows if isinstance(row.get('name'), str) and row['name']]
     if len(set(named)) != len(named):
         raise ValueError('holding result set is ambiguous: duplicate names')
-    from domain.investments import holding_write_evidence as evidence
+    from domain.investments.holdings import holding_write_evidence as evidence
     isolated = evidence.enabled(conn)
     evidence.lock_account(conn, account_code)
     if not isolated:
@@ -1028,7 +1028,7 @@ def sync_ibkr_flex_to_db(
     ensure_sync_table(conn)
     if holding_retirement_sources is None:
         holding_retirement_sources = {}
-    from domain.investments import holding_write_evidence as evidence
+    from domain.investments.holdings import holding_write_evidence as evidence
     if not evidence.enabled(conn):
         raise ValueError('unified source synchronization requires isolated mode')
     for table in ('source_batches', 'source_items', 'pams_investment_trade_fact', 'pams_fx_rates_daily'):
@@ -1121,7 +1121,7 @@ def sync_ibkr_flex_to_db(
                 "raw_file": raw_reference, "reference_code": reference["reference_code"],
                 "sync_run": record, "expected_statement_as_of": expected.isoformat(),
             }
-        from domain.investments.holding_write_evidence import lock_account
+        from domain.investments.holdings.holding_write_evidence import lock_account
         lock_account(conn, account_code)
         isolated_account, isolated_trades, isolated_trade_stats = _validated_isolated_report_trades(
             parsed, observed, account_code, xml_text, publication['sha256'])

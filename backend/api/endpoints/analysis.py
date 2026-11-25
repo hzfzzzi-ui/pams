@@ -11,8 +11,8 @@ from pydantic import BaseModel, Field
 
 from domain.assets.asset_master import AmbiguousAssetIdentityError, AssetMasterSchemaUnavailable
 from domain.assets.lookthrough_state import build_lookthrough_payload
-from domain.investments.portfolio_state import get_conn
-from domain.investments.return_attribution import build_return_attribution_payload
+from domain.investments.valuation.portfolio_state import get_conn
+from domain.investments.attribution.return_attribution import build_return_attribution_payload
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])

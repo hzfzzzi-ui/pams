@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from domain.investments.monthly_overview import _conversion_spreads
+from domain.investments.valuation.monthly_overview import _conversion_spreads
 from domain.ledger.conversion_settlement import monthly_conversion_settlements
 
 

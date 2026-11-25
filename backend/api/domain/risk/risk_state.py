@@ -17,9 +17,9 @@ import pandas as pd
 import psycopg2
 import psycopg2.extras
 
-from domain.investments.portfolio_state import build_portfolio_state  # noqa: E402
-from domain.investments.holdings_view import latest_complete_snapshot_date  # noqa: E402
-from domain.investments.portfolio_valuation_state import (  # noqa: E402
+from domain.investments.valuation.portfolio_state import build_portfolio_state  # noqa: E402
+from domain.investments.holdings.holdings_view import latest_complete_snapshot_date  # noqa: E402
+from domain.investments.valuation.portfolio_valuation_state import (  # noqa: E402
     is_published_valuation_fresh_for_date,
     latest_published_portfolio_valuation_state,
     published_valuation_state_meta,

@@ -30,7 +30,7 @@ def test_credit_bridge_uses_transaction_day_and_both_posting_cycles():
         credit_statement_bridge(first, later, **{**args, 'following_previous': D('76')})
     with pytest.raises(ValueError, match='不衔接'):
         credit_statement_bridge(first, later, **{**args, 'first_previous': D('49')})
-    from domain.investments import statement_period_nav
+    from domain.investments.valuation import statement_period_nav
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(statement_period_nav, 'read_original_credit_pair',
                       lambda **_: [(first, D('50'), None), (later, D('75'), D('0.20'))])
@@ -91,7 +91,7 @@ def test_credit_bridge_publication_preserves_partial_date_and_fx(monkeypatch, do
     from psycopg2.extras import RealDictCursor
     from domain.imports import isolation, source_records_v2 as sources, holding_publication_v2 as publication
     from domain.imports import historical_statement_balance as adapter
-    from domain.investments.position_nav_projection import load_position_nav_estimates
+    from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:
@@ -134,7 +134,7 @@ def test_credit_bridge_publication_preserves_partial_date_and_fx(monkeypatch, do
                     owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: D(1), rate_at=lambda *_:D('7'))
                 assert values[day]['test_credit'][0] == D('-539')
                 assert 'test_credit' not in values.get(date(2026,1,1), {})
-                from domain.investments.valuation_nav import _apply_historical_cash_points
+                from domain.investments.valuation.valuation_nav import _apply_historical_cash_points
                 bucket = {day:{'assets':D('1000'), 'liabilities':D('70'), 'net_worth':D('930'),
                                'account_values':{'test_credit':D('-70')}, 'available_accounts':['test_credit']}}
                 _apply_historical_cash_points(cur, bank_series=bucket,

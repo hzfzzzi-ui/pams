@@ -12,7 +12,7 @@ from fastapi import APIRouter
 from domain.accounts.account_overview import _view_as_of
 from domain.accounts.valuation_book import read_account_view
 from domain.accounts.sync_status import read_account_sync, review_records
-from domain.investments.portfolio_state import _load_accounts_config
+from domain.investments.valuation.portfolio_state import _load_accounts_config
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 

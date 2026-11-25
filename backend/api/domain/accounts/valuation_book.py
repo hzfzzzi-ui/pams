@@ -7,9 +7,9 @@ from domain.accounts.account_history import read_account_history
 from domain.accounts.account_policy import excluded_accounts
 from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
 from domain.accounts.dated_valuation import AccountValuation
-from domain.investments.account_total_evidence import load as account_totals
-from domain.investments.capital_ownership import account_contribution_ratios
-from domain.investments.personal_loan_nav import apply_personal_loan_coverage
+from domain.investments.valuation.account_total_evidence import load as account_totals
+from domain.investments.valuation.capital_ownership import account_contribution_ratios
+from domain.investments.valuation.personal_loan_nav import apply_personal_loan_coverage
 from domain.market.month_end_marks import month_end_fx
 from domain.market.valuation_fx import fx_rate_at, load_fx_timelines
 
@@ -19,7 +19,7 @@ ONE = Decimal(1)
 
 def _cash_candidates(cur, account, cfg, days):
     """Native currency, before ownership. Only cash-like accounts may use ledger reconstruction."""
-    from domain.investments import valuation_nav as nav
+    from domain.investments.valuation import valuation_nav as nav
     code = account['account_code']
     unit = account.get('base_currency') or 'CNY'
     card = account.get('account_type') in ('credit_card', 'liability')
@@ -38,7 +38,7 @@ def _cash_candidates(cur, account, cfg, days):
                                         fx_timelines={}, base_currency=unit)
     from domain.accounts.dated_valuation import statement_valuations
     from domain.accounts.credit_card_debt import uses_table_net_reference
-    from domain.investments.installment_principal import load_unbilled_principal
+    from domain.investments.trades.installment_principal import load_unbilled_principal
     specs = {code: (unit, card)}
     periods = statement_valuations(cur, specs, days, table_cards=[code] if card and uses_table_net_reference(code, cfg, cur) else [])
     contracts = load_unbilled_principal(cur, [code], days) if card else {}
@@ -85,8 +85,8 @@ def _observations(cur, account, config, days, owner_ratio):
         calendar = get_calendar('XSHG')
     member_estimates = {}
     if card or cfg.get('account_type') == 'fund_platform':
-        from domain.investments.position_nav_projection import load_position_nav_estimates
-        from domain.investments.installment_principal import load_unbilled_principal
+        from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
+        from domain.investments.trades.installment_principal import load_unbilled_principal
         native_rates = load_fx_timelines(cur, unit)
         missing_days = [d for d in days if points.get(d, {}).get('signed_balance' if card else 'net_value') is None]
         member_estimates = load_position_nav_estimates(cur, accounts={code: cfg}, dates=missing_days,
@@ -250,7 +250,7 @@ def _daily_row(day, values, records, fx, base):
 
 def read_account_book(cur, *, accounts, config, start, end, evidence_through, base, owner_ratio, full_portfolio=True):
     """Evaluate one native series per account before projecting the requested reporting window."""
-    from domain.investments.valuation_nav import _apply_account_totals, series_dates
+    from domain.investments.valuation.valuation_nav import _apply_account_totals, series_dates
     cur.execute("""SELECT least((SELECT min(as_of) FROM pams_holdings_snapshot),
                          (SELECT min(event_date) FROM pams_cashflow_fact),
                          (SELECT min(trade_date) FROM pams_investment_trade_fact)) AS first""")
@@ -373,8 +373,8 @@ def read_account_view(cur, view, business_date, *, member=None, accounts=None):
     """Serve the published view, or build it from the same account book on cold start."""
     from domain.accounts import account_overview
     from domain.accounts.account_policy import owner_ratio_lookup
-    from domain.investments import page_projection
-    from domain.investments.nav_period_comparison import period_starts
+    from domain.investments.valuation import page_projection
+    from domain.investments.valuation.nav_period_comparison import period_starts
 
     published = page_projection.read_page(cur, view, business_date=business_date, member=member)
     if published is not None:

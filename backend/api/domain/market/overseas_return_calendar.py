@@ -7,7 +7,7 @@ from typing import Any
 
 import exchange_calendars as xcals
 
-from domain.investments.investment_view_date import daily_pnl_window_date
+from domain.investments.returns.investment_view_date import daily_pnl_window_date
 
 MARKET_CALENDARS = {"us": "XNYS", "hk": "XHKG", "kr": "XKRX", "se": "XSTO", "ch": "XSWX"}
 MARKET_CURRENCIES = {"us": "USD", "hk": "HKD", "kr": "KRW", "se": "SEK", "ch": "CHF"}

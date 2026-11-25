@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock
 
-from domain.investments import installment_principal
+from domain.investments.trades import installment_principal
 from domain.ledger.investment_receipts import counted_receipt_ids
 
 

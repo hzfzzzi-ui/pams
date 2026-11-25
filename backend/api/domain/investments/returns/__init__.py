@@ -1,0 +1,1 @@
+"""Investments returns subpackage."""

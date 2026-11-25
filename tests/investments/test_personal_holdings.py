@@ -1,7 +1,7 @@
 import json
 from unittest import TestCase
 
-from domain.investments.personal_holdings import holding_filter_weights, personal_holdings
+from domain.investments.holdings.personal_holdings import holding_filter_weights, personal_holdings
 
 
 class PersonalHoldingsTest(TestCase):

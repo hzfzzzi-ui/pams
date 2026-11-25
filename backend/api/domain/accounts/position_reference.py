@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 
 from domain.accounts.balance_reference import historical_balance
-from domain.investments.snapshot_coverage import point_in_time_visible_sql
+from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 
 
 REFERENCE_CATEGORIES = {'fund': 'A股基金', 'precious_metal': '贵金属'}

@@ -83,7 +83,7 @@ def _position(cur, *, batch_id, item_id, holding_id, published):
         (batch['date_to'],row['symbol'],row['currency']))
     if cur.fetchone()['n']!=1:
         raise ValueError('identity holding is ambiguous')
-    from domain.investments.valuation_input_evidence import _hash as holding_hash
+    from domain.investments.valuation.valuation_input_evidence import _hash as holding_hash
     return {'holding_id':holding_id,'holding_hash':holding_hash(holding),
             'conid':conid,'source_account_id':account,'source_sha256':digest,'business_date':batch['date_to'].isoformat(),
             'identity_authentication':'unknown'},item

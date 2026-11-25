@@ -9,8 +9,8 @@ import pytest
 
 from domain.imports import holding_publication_v2 as publication, source_records_v2 as sources
 from domain.imports.isolation import source_enabled
-from domain.investments.personal_loan_nav import _apply_principal_references, annotate_personal_loans, apply_personal_loan_coverage
-from domain.investments.valuation_nav import format_weekly_nav_payload
+from domain.investments.valuation.personal_loan_nav import _apply_principal_references, annotate_personal_loans, apply_personal_loan_coverage
+from domain.investments.valuation.valuation_nav import format_weekly_nav_payload
 
 
 def test_borrowing_does_not_become_net_worth_growth_or_an_opening_balance():

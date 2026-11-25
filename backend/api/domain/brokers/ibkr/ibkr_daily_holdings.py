@@ -10,7 +10,7 @@ from domain.brokers.ibkr.ibkr_daily_close import _document, _day, _rows, _number
 from domain.brokers.ibkr.ibkr_instrument_types import SECURITY_COMPONENTS, SECURITY_LABELS
 from domain.imports import source_records_v2
 from domain.imports.holding_publication_v2 import publish_validated_holdings
-from domain.investments.holding_evidence_writer import lock_holding_accounts
+from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
 
 ACCOUNT = 'ibkr'
 SOURCE = 'ibkr_daily_holdings'

@@ -4,8 +4,8 @@ from functools import lru_cache
 import psycopg2.extras
 
 from domain.assets.lookthrough_state import build_lookthrough_payload
-from domain.investments.portfolio_state import current_risk_position_state, get_conn, load_current_portfolio_inputs
-from domain.investments.portfolio_valuation_state import latest_published_portfolio_valuation_state
+from domain.investments.valuation.portfolio_state import current_risk_position_state, get_conn, load_current_portfolio_inputs
+from domain.investments.valuation.portfolio_valuation_state import latest_published_portfolio_valuation_state
 from domain.risk.portfolio_config import _asset_label_lookup, _asset_lookup_candidates, build_portfolio_config_payload_from_inputs
 from domain.risk.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload_from_inputs
 from domain.risk.risk_state import build_risk_state

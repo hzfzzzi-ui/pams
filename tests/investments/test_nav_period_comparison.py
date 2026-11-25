@@ -1,11 +1,11 @@
 from datetime import date
 from decimal import Decimal
 
-from domain.investments.valuation_nav import (
+from domain.investments.valuation.valuation_nav import (
     _add_known_display_values, _apply_account_totals, _bank_backcast_series,
     current_nav_account_values_from_parts, format_weekly_nav_payload,
 )
-from domain.investments.nav_period_comparison import apply_terminal_breakdown, position_member, terminal_comparison_basis
+from domain.investments.valuation.nav_period_comparison import apply_terminal_breakdown, position_member, terminal_comparison_basis
 
 
 def report(*rows):

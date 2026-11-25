@@ -18,8 +18,8 @@ import psycopg2.extras
 import yaml
 
 from domain.accounts.account_policy import excluded_accounts as _excluded_accounts, owner_ratio as owner_ratio_for_account
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
-from domain.investments.snapshot_coverage import point_in_time_visible_sql
+from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 from domain.imports.source_row_read import source_row_relation
 
 
@@ -447,7 +447,7 @@ def _fetch_holding_balances(cur) -> dict[str, list[dict[str, Any]]]:
         (_view_as_of(),),
     )
     rows = [dict(row) for row in cur.fetchall()]
-    from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+    from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
     coverage = load_account_snapshot_coverage(cur, {(str(row['account_code']), row['as_of']) for row in rows if row['as_of']})
     by_account: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in rows:
@@ -779,7 +779,7 @@ def _overview_payload(cur=None, *, include_transfers=True, valuation_balances=No
     from domain.brokers.ibkr import ibkr_daily_close_read
     from domain.accounts.balance_snapshot import load_verified_bank_balances
     from domain.imports.source_original_read import SourceOriginals
-    from domain.investments import portfolio_state
+    from domain.investments.valuation import portfolio_state
 
     account_cfg = _load_accounts_config()
     bank_cfg = _load_bank_config()

@@ -13,8 +13,8 @@ from domain.accounts.position_valuation import (
 )
 from domain.accounts.position_reference import historical_position_reference, position_reference_config
 from domain.accounts.recorded_positions import recorded_event_dates, recorded_history
-from domain.investments.broker_account_history import broker_history_rows
-from domain.investments.installment_principal import load_unbilled_principal
+from domain.investments.valuation.broker_account_history import broker_history_rows
+from domain.investments.trades.installment_principal import load_unbilled_principal
 from domain.ledger.cashflow_read_v2 import load_cash_rows
 
 
@@ -150,7 +150,7 @@ def read_account_history(cur, *, account_code, account_config, start_date, end_d
         if cash:
             points = _cash_observations(cur, account_code, cfg, currency, dates, points, card, statements)
         elif mode == 'reconciled_trade_cash':
-            from domain.investments.broker_account_history import reconstructed_history_rows
+            from domain.investments.valuation.broker_account_history import reconstructed_history_rows
             for point in reconstructed_history_rows(cur, account_code=account_code, currency=currency,
                                                     start_date=start_date, end_date=end_date):
                 if points.get(point['date'], {}).get('net_value_status') != 'confirmed':

@@ -30,10 +30,10 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import psycopg2.extras
 from domain.imports.isolation import source_enabled
-from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
-from domain.investments.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
+from domain.investments.holdings.holding_evidence_writer import finish_holding_change, lock_holding_accounts, prepare_holding_change
+from domain.investments.returns.daily_return_state import quote_snapshot_from_market_daily, upsert_quote_snapshot
 from domain.market.fund_nav_estimates import refresh_fund_nav_estimates as _refresh_fund_nav_estimates
-from domain.investments.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
+from domain.investments.returns.investment_view_date import daily_pnl_window_date as _daily_pnl_window_date
 from domain.brokers.ibkr.ibkr_report_state import expected_statement_date
 from domain.market.quote_valuation import GOLD_BENCHMARK_ASSET, GOLD_CLOSE_SOURCE
 from domain.market.price_history import (
@@ -342,7 +342,7 @@ def _roll_forward_a_stock_position(base_row: dict, trades: list[dict]) -> dict[s
         if trade_qty <= 0:
             continue
         if _is_a_stock_buy_trade(trade):
-            from domain.investments.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
+            from domain.investments.trades.trade_cost_evidence import known_trade_charges, unconverted_ibkr_fee
             fees = known_trade_charges(trade)
             quantity += trade_qty
             if unconverted_ibkr_fee(trade) or (fees is None and (trade.get("net_cash") is None or _dec(trade.get("net_cash")) >= 0)):
@@ -454,7 +454,7 @@ def _a_stock_trade_net_quantities_before(cur, keys: set[tuple[str, str]], as_of)
     if source_filter is None:
         return {}
     if source_filter == '__redesigned__':
-        from domain.investments.trade_read_v2 import prior_trade_quantities
+        from domain.investments.trades.trade_read_v2 import prior_trade_quantities
         values, unknown = prior_trade_quantities(cur, keys=keys, as_of=as_of)
         return _TradeQuantities(values, unverified_keys=unknown)
     linked_source = "source_item_id IS NOT NULL" if "source_item_id" in source_filter else "FALSE"
@@ -508,7 +508,7 @@ def _same_day_a_stock_trades(cur, keys: set[tuple[str, str]], as_of) -> dict[tup
     if source_filter is None:
         return {}
     if source_filter == '__redesigned__':
-        from domain.investments.trade_read_v2 import same_day_trade_groups
+        from domain.investments.trades.trade_read_v2 import same_day_trade_groups
         values, unknown = same_day_trade_groups(cur, keys=keys, as_of=as_of)
         return _TradeQuantities(values, unverified_keys=unknown)
 

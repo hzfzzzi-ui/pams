@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal as D
 
 from domain.accounts.valuation_book import _daily_row, current_balances, render_histories
-from domain.investments.valuation_nav import _apply_account_totals
+from domain.investments.valuation.valuation_nav import _apply_account_totals
 
 
 def test_native_ownership_debt_and_partial_platform_are_accounted_once():

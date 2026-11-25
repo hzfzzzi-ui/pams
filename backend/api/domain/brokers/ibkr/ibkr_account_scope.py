@@ -8,7 +8,7 @@ from psycopg2.extras import Json, execute_values
 
 from domain.imports.ibkr_holding_source import _extract, _read_source_report, _scope_is_well_formed, _number
 from domain.imports.source_fact_evidence import _reviewed_snapshot
-from domain.investments.valuation_input_evidence import _hash as holding_hash
+from domain.investments.valuation.valuation_input_evidence import _hash as holding_hash
 
 from domain.brokers.ibkr.ibkr_instrument_types import SECURITY_COMPONENTS, SECURITY_LABELS
 
@@ -221,7 +221,7 @@ def record_complete(cur,batch_id):
         raise ValueError('published account scope required')
     if not verify_source(cur,batch,att):
         raise ValueError('published account scope evidence changed')
-    from domain.investments.account_snapshot_evidence import _unresolved_prior_holdings
+    from domain.investments.holdings.account_snapshot_evidence import _unresolved_prior_holdings
     if _unresolved_prior_holdings(cur,'ibkr',batch['date_to']):
         raise ValueError('previous account members remain unresolved')
     identifier=uuid4()
@@ -267,7 +267,7 @@ def verified_complete(cur,version):
     if (not batch or batch['scope_attestation']!=att or batch['published_source_hash']!=version['source_sha256'] or
         batch['revision']!=version['source_revision'] or batch['date_to']!=version['as_of'] or not verify_source(cur,batch,att)):
         return False
-    from domain.investments.account_snapshot_evidence import _unresolved_prior_holdings
+    from domain.investments.holdings.account_snapshot_evidence import _unresolved_prior_holdings
     if _unresolved_prior_holdings(cur,'ibkr',version['as_of']): return False
     cur.execute('''SELECT holding_id,source_item_id,holding_row_hash FROM account_snapshot_member
         WHERE version_id=%s ORDER BY holding_id''',(version['version_id'],))

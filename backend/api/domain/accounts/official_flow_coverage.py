@@ -12,7 +12,7 @@ import os
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
 
 
 _TOLERANCE = Decimal("0.01")

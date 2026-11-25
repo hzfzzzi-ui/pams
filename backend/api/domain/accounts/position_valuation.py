@@ -4,10 +4,10 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from domain.accounts.position_reference import position_reference_config
-from domain.investments.account_snapshot_evidence import _complete_member_proven
-from domain.investments.account_total_evidence import load as load_account_totals, prior_single_account_total
-from domain.investments.position_nav_projection import load_position_nav_estimates
-from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+from domain.investments.holdings.account_snapshot_evidence import _complete_member_proven
+from domain.investments.valuation.account_total_evidence import load as load_account_totals, prior_single_account_total
+from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
+from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
 from domain.market.valuation_fx import fx_rate_at, load_fx_timelines
 from domain.market.quote_valuation import gold_close_join, gold_market_value
 
@@ -131,7 +131,7 @@ def _position_estimates(cur, code, cfg, dates, points):
     positions_only = cfg.get('latest_position_evidence') == 'fund_snapshot_without_cash'
     unit = cfg.get('base_currency', 'CNY')
     if cfg.get('account_type') == 'fund_platform' and unit == 'CNY':
-        from domain.investments.account_position_history import load_account_trade_marks
+        from domain.investments.holdings.account_position_history import load_account_trade_marks
         prior = (prior_single_account_total(cur, code, dates[0], unit)
                  if not positions_only and points.get(dates[0], {}).get('net_value') is None else None)
         if not prior and not positions_only and not any(p.get('net_value') is not None for p in points.values()):

@@ -4,7 +4,7 @@ from uuid import uuid4
 import os
 import pytest
 
-from domain.investments.capital_ownership import contribution_ratios, load_contribution_ratios
+from domain.investments.valuation.capital_ownership import contribution_ratios, load_contribution_ratios
 
 
 def test_partial_deposit_and_other_investor_withdrawal():
@@ -21,9 +21,9 @@ def test_partial_deposit_and_other_investor_withdrawal():
 
 
 def test_later_trades_preserve_ownership_until_first_unreviewed_funding(monkeypatch):
-    from domain.investments import nav_trade_source_v2 as nav
-    from domain.investments import capital_ownership
-    from domain.investments.valuation_nav import ValuationEvidenceSeries
+    from domain.investments.trades import nav_trade_source_v2 as nav
+    from domain.investments.valuation import capital_ownership
+    from domain.investments.valuation.valuation_nav import ValuationEvidenceSeries
     from unittest.mock import Mock
 
     days = [date(2026, 1, day) for day in range(1, 6)]
@@ -90,8 +90,8 @@ def test_only_original_backed_cash_contributes_on_receipt():
 
 def test_personal_positions_use_dated_shares_without_counting_ownership_changes_as_market_gains(monkeypatch):
     from collections import defaultdict
-    from domain.investments import position_performance as perf
-    from domain.investments.capital_ownership import monthly_profit_reallocations
+    from domain.investments.holdings import position_performance as perf
+    from domain.investments.valuation.capital_ownership import monthly_profit_reallocations
     from unittest.mock import Mock
 
     days = [date(2030, 1, day) for day in (1, 2, 3)]

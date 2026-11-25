@@ -10,7 +10,7 @@ from psycopg2.extras import Json, RealDictCursor
 import pytest
 
 from domain.imports.isolation import source_enabled
-from domain.investments.position_nav_projection import load_position_nav_estimates
+from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 
 
 def test_point_in_time_partial_is_not_carried_forward():
@@ -88,7 +88,7 @@ def test_point_in_time_partial_is_not_carried_forward():
 def test_conflicting_backcast_stops_until_next_reconciled_point_or_anchor():
     from decimal import Decimal as D
     from datetime import date, timedelta
-    from domain.investments.valuation_nav import _apply_historical_cash_points
+    from domain.investments.valuation.valuation_nav import _apply_historical_cash_points
     start = date(2025, 12, 31)
     dates = [start + timedelta(days=n) for n in range(5)]
     account = {'account_code':'wallet', 'base_currency':'CNY', 'primary_balance':{'as_of':dates[-1]}}

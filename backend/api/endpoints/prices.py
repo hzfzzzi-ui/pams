@@ -206,7 +206,7 @@ def refresh_a_stock():
     if source_mode() == "development":
         raise HTTPException(status_code=409, detail="External synchronization is disabled in development mode")
     result = _refresh_category("A股", _fetch_a_stock_prices, exclude_minor_categories=("A股基金",))
-    from domain.investments.ths_nav_history_refresh import refresh_history
+    from domain.investments.returns.ths_nav_history_refresh import refresh_history
     try:
         history = refresh_history(_get_conn, now=datetime.now(ZoneInfo("Asia/Shanghai")))
     except (OSError, ValueError, psycopg2.Error) as exc:
@@ -307,7 +307,7 @@ def refresh_fund_nav_history(start: date, preview: bool = True):
     """Preview or explicitly archive historical unit NAVs for portfolio funds."""
     from fastapi import HTTPException
     from domain.imports.isolation import source_mode
-    from domain.investments.fund_return_history import load_fund_history_inputs
+    from domain.investments.returns.fund_return_history import load_fund_history_inputs
     from domain.market.fund_nav_archive import archive_fund_nav_history
     from domain.market.fund_nav_estimates import current_china_fund_date
 

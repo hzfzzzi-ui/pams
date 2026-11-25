@@ -1149,7 +1149,7 @@ def _load_investment_trade_account_rows(cur, *, start: date, end: date, base_cur
 def _load_investment_account_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None,
                                   decisions=None) -> list[dict[str, Any]]:
     if _table_exists(cur, 'source_records'):
-        from domain.investments.trade_read_v2 import load_trade_rows
+        from domain.investments.trades.trade_read_v2 import load_trade_rows
         cur.execute("""SELECT DISTINCT account_code FROM pams_investment_trade_fact
             WHERE trade_date BETWEEN %s AND %s AND trade_type IN ('deposit','withdraw')""", (start, end))
         accounts = [row['account_code'] for row in cur.fetchall()]
@@ -1848,8 +1848,8 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
 
         omitted = set()
         if redesigned:
-            from domain.investments.installment_principal import load_principal_cash_ids
-            from domain.investments.subscription_settlement import subscription_cash_ids
+            from domain.investments.trades.installment_principal import load_principal_cash_ids
+            from domain.investments.trades.subscription_settlement import subscription_cash_ids
             from domain.ledger.investment_receipts import counted_receipt_ids
             omitted = load_principal_cash_ids(cur, configured_accounts, ytd_start)
             omitted.update(counted_receipt_ids(cur, ytd_rows, counted_income_sources))

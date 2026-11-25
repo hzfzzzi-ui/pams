@@ -1,7 +1,7 @@
 from decimal import Decimal
 from unittest import TestCase
 
-from domain.investments.investment_overview import holdings_overview_card
+from domain.investments.valuation.investment_overview import holdings_overview_card
 
 
 def holding(account, group, value, daily=None, day="2026-11-19", **extra):

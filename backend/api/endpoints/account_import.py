@@ -536,7 +536,7 @@ def publish_trade_source_record(source_id: UUID, body: TradeSourcePublish, reque
 
 @router.post('/trade-snapshot/preview')
 def preview_trade_snapshot(body: TradeSnapshotPreview, request: Request):
-    from domain.investments import trade_snapshot_http
+    from domain.investments.trades import trade_snapshot_http
     access.same_origin(request)
     return execute(request, lambda cur: trade_snapshot_http.preview(cur, body.account_code),
                    serializable=True, allow_source_records=True)
@@ -544,7 +544,7 @@ def preview_trade_snapshot(body: TradeSnapshotPreview, request: Request):
 
 @router.post('/trade-snapshot/publish')
 def publish_trade_snapshot(body: TradeSnapshotPublish, request: Request):
-    from domain.investments import trade_snapshot_http
+    from domain.investments.trades import trade_snapshot_http
     if not source.enabled():
         raise HTTPException(403, detail={'code': 'publish_disabled', 'message': '持仓发布未启用'})
     return execute(request, lambda cur: trade_snapshot_http.publish(
