@@ -1409,19 +1409,22 @@ html[data-privacy="1"] :is(
 .accountSyncCompactFoot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 7px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  justify-content: flex-start;
+  margin-top: 6px;
+  padding-bottom: 2px;
 }
-.accountSyncCompactFoot small { color: var(--pams-text-muted); font-size: 11px; }
 .accountSyncCompactImport {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: #62c2ff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   text-decoration: none;
-  padding: 2px 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(71, 181, 255, 0.11);
+  border: 1px solid rgba(71, 181, 255, 0.24);
 }
 
 .accountCoverageMatrix {

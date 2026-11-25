@@ -289,13 +289,11 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     if (status !== 'inactive' && openAccount && row.can_import) {
       const foot = make('div');
       foot.className = 'accountSyncCompactFoot';
-      const latest = data.balance_as_of || data.latest_cashflow_on || data.latest_trade_on || data.latest_source_on || '';
-      const meta = make('small', latest ? `最近记录 ${latest}` : '尚无记录');
-      const quickImport = make('a', '去导入 ›');
+      const quickImport = make('a', `导入 ${label} ›`);
       quickImport.className = 'accountSyncCompactImport';
       quickImport.href = subaccountImportHref(row.account_code);
       quickImport.setAttribute('aria-label', '导入资料 · ' + row.label);
-      foot.append(meta, quickImport);
+      foot.append(quickImport);
       item.append(foot);
     }
     if (status !== 'inactive' && !openAccount) {
