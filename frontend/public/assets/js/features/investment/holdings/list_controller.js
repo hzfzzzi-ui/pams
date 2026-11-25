@@ -46,6 +46,29 @@ export function mount(root, context) {
   const savedView = memory?.read('view', variant);
   const refreshNote = document.getElementById('holdingViewRefresh');
   const cashNote = document.getElementById('holdingCashStatus');
+  const reviewPill = document.getElementById('pendingReviewPill');
+  if (reviewPill) {
+    scope.listen(reviewPill, 'click', () => {
+      const txTab = document.querySelector('[data-invest-tab="transactions"]');
+      if (txTab) txTab.click();
+      else window.location.hash = '#investment-ledger';
+    });
+  }
+  async function loadPendingReviewCount() {
+    if (!reviewPill || !scope.active) return;
+    try {
+      const queue = await scope.get('/api/investment-transactions/auto-review/queue?kind=needs_human_review&limit=1');
+      if (!scope.active) return;
+      const counts = queue?.counts || {};
+      const pending = Number(counts.needs_human_review ?? counts.needs_review ?? (queue?.items?.length || 0));
+      if (pending > 0) {
+        reviewPill.innerHTML = `<span class="pamsTodoDot" aria-hidden="true"></span><span>待复盘交易 · <strong>${pending}</strong> 笔</span><span class="pamsTodoArrow" aria-hidden="true">›</span>`;
+        reviewPill.hidden = false;
+      } else {
+        reviewPill.hidden = true;
+      }
+    } catch { /* Non-blocking reminder pill. */ }
+  }
   function showCashStatus(missing = []) {
     if (!cashNote) return;
     cashNote.hidden = !missing.length;
@@ -192,6 +215,7 @@ export function mount(root, context) {
     restorePageScroll(window, savedView?.scroll, () => scope.active);
   }
   instance.ready = load();
+  void loadPendingReviewCount();
   watchPageRead(scope, window, load);
   return instance;
 }

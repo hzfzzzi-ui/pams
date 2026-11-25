@@ -147,6 +147,86 @@ function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, pref
     entries.find(entry => entry.button.dataset.institution === preferredGroup) || entries[0]);
 }
 
+function freshnessInfo(data = {}) {
+  const candidates = [
+    data.valuation_updated_at,
+    data.last_synced_at,
+    data.balance_as_of,
+    data.latest_cashflow_on,
+    data.latest_trade_on,
+    data.latest_source_on,
+    data.last_synced_on,
+  ].filter(Boolean);
+  let latestMs = null;
+  for (const raw of candidates) {
+    const text = String(raw);
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(text) ? Date.parse(`${text}T12:00:00+08:00`) : Date.parse(text);
+    if (Number.isFinite(parsed) && (latestMs === null || parsed > latestMs)) latestMs = parsed;
+  }
+  if (latestMs === null) return { label: '未同步', tone: 'stale' };
+  const days = Math.max(0, Math.floor((Date.now() - latestMs) / 86400000));
+  if (days === 0) return { label: '今日', tone: 'fresh' };
+  if (days <= 7) return { label: `${days}天前`, tone: 'fresh' };
+  if (days <= 30) return { label: `${days}天前`, tone: 'warn' };
+  return { label: `${days}天前`, tone: 'stale' };
+}
+
+function recentSixMonths() {
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i -= 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    months.push({ key: `${y}-${m}`, label: `${Number(m)}月` });
+  }
+  return months;
+}
+
+function buildCoverageMatrix(doc, groups) {
+  const activeRows = groups.flatMap(g => g.rows).filter(r => r.active !== false);
+  if (!activeRows.length) return null;
+  const months = recentSixMonths();
+  const details = element(doc, 'details');
+  details.className = 'accountCoverageMatrix';
+  const summary = element(doc, 'summary', '近 6 个月数据覆盖');
+  const gapCount = activeRows.reduce((acc, row) => {
+    const set = new Set(row.summary?.covered_months || []);
+    return acc + months.filter(m => !set.has(m.key)).length;
+  }, 0);
+  const meta = element(doc, 'small', gapCount > 0 ? `${gapCount} 处月份缺口` : '全部已覆盖');
+  summary.append(meta);
+  details.append(summary);
+  const table = element(doc, 'div');
+  table.className = 'coverageGrid';
+  const header = element(doc, 'div');
+  header.className = 'coverageRow coverageHead';
+  header.append(element(doc, 'span', '账户'));
+  for (const m of months) header.append(element(doc, 'span', m.label));
+  table.append(header);
+  for (const row of activeRows) {
+    const covered = new Set(row.summary?.covered_months || []);
+    const line = element(doc, row.can_import ? 'a' : 'div');
+    line.className = 'coverageRow';
+    if (row.can_import) {
+      line.href = subaccountImportHref(row.account_code);
+      line.title = `前往导入 · ${row.label}`;
+    }
+    const nameEl = element(doc, 'span', row.label);
+    nameEl.className = 'coverageAccount';
+    line.append(nameEl);
+    for (const m of months) {
+      const dot = element(doc, 'span', covered.has(m.key) ? '●' : '○');
+      dot.className = covered.has(m.key) ? 'coverageDot is-hit' : 'coverageDot is-gap';
+      dot.setAttribute('aria-label', `${row.label} ${m.key} ${covered.has(m.key) ? '有数据' : '无数据'}`);
+      line.append(dot);
+    }
+    table.append(line);
+  }
+  details.append(table);
+  return details;
+}
+
 export function renderAccountSync(panel, groups, loadAnomalies, { compact = false, openReview, openAccount, targetAccount, targetInstitution } = {}) {
   if (!Array.isArray(groups)) throw new Error('账户同步状态格式异常');
   const previousGroup = compact
@@ -182,6 +262,12 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
       title.replaceChildren(button);
     }
     name.append(title, badge);
+    if (status !== 'inactive') {
+      const fresh = freshnessInfo(data);
+      const freshBadge = make('span', fresh.label);
+      freshBadge.className = `accountFreshnessBadge is-${fresh.tone}`;
+      name.append(freshBadge);
+    }
     const amount = data.balance_amount;
     const balance = make('span', amount == null ? '—' :
       new Intl.NumberFormat('zh-CN', { style: 'currency', currency: data.balance_currency || row.currency }).format(amount));
@@ -200,6 +286,18 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     }
     item.classList.add('accountSyncCompact');
     item.append(heading);
+    if (status !== 'inactive' && openAccount && row.can_import) {
+      const foot = make('div');
+      foot.className = 'accountSyncCompactFoot';
+      const latest = data.balance_as_of || data.latest_cashflow_on || data.latest_trade_on || data.latest_source_on || '';
+      const meta = make('small', latest ? `最近记录 ${latest}` : '尚无记录');
+      const quickImport = make('a', '去导入 ›');
+      quickImport.className = 'accountSyncCompactImport';
+      quickImport.href = subaccountImportHref(row.account_code);
+      quickImport.setAttribute('aria-label', '导入资料 · ' + row.label);
+      foot.append(meta, quickImport);
+      item.append(foot);
+    }
     if (status !== 'inactive' && !openAccount) {
       item.append(accountSyncMetadata(doc, data, { compact: true }));
       const action = make(row.can_import ? 'a' : 'button', '导入资料');
@@ -217,6 +315,8 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
   }
   if (compact && groups.length) {
     renderInstitutionPicker(panel, groups, compactEntry, targetAccount, previousGroup || targetInstitution);
+    const matrix = buildCoverageMatrix(doc, groups);
+    if (matrix) panel.append(matrix);
     return;
   }
   for (const group of groups) {
