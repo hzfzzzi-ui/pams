@@ -174,16 +174,6 @@ body.app-shell .appWorkHeader p {
   line-height: 1.5;
 }
 
-body.app-shell .appWorkEyebrow {
-  display: inline-flex;
-  align-items: center;
-  color: var(--pams-text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-
 body.app-shell .appWorkLinks {
   display: flex;
   flex-wrap: wrap;
@@ -278,13 +268,6 @@ body.app-shell .basisBadge {
   justify-content: center;
   gap: 5px;
   white-space: nowrap;
-}
-
-body.app-shell .flowTag {
-  min-width: 64px;
-  padding: 2px 8px;
-  font-size: var(--fs-xs);
-  font-weight: 600;
 }
 
 body.app-shell .ledgerActionBtn,
@@ -461,10 +444,6 @@ body.app-shell .skeletonCard {
 body.app-shell .skeletonLine {
   height: 18px;
   max-width: 420px;
-}
-
-body.app-shell .skeletonList {
-  height: 150px;
 }
 
 body.app-shell .appBottomSheet {
@@ -899,12 +878,6 @@ body.app-shell .appWorkHeader h2 {
 
 body.app-shell .appWorkHeader p {
   display: none;
-}
-
-body.app-shell .appWorkEyebrow {
-  color: var(--pams-muted);
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 body.app-shell .kpi-label,
