@@ -75,3 +75,28 @@ def test_personal_summary_handles_all_missing_daily():
     assert summary["daily_pnl_valued_count"] == 0
     assert summary["daily_pnl_total_count"] == 1
     assert summary["floating_pnl_cny"] is None
+
+
+def test_personal_summary_uses_recent_confirmed_return_when_stale():
+    payload = {
+        "rows": [
+            {
+                "symbol": "QQQ",
+                "name": "QQQ",
+                "major_category": "美股",
+                "market_value_cny": 100000.0,
+                "cost_cny": 110000.0,
+                "daily_pnl_stale": True,
+                "daily_return_status": "pending",
+                "recent_confirmed_return": {
+                    "status": "confirmed",
+                    "fields": {"daily_total_pnl_cny": -2000.0},
+                },
+            }
+        ]
+    }
+    summary = personal_holdings(payload, classes={})["personal_summary"]
+    assert summary["daily_pnl_cny"] == -2000.0
+    assert summary["daily_pnl_valued_count"] == 1
+    assert summary["daily_pnl_total_count"] == 1
+    assert round(summary["daily_pnl_ratio"], 6) == round(-2000.0 / 102000.0, 6)

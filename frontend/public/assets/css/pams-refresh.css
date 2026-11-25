@@ -1299,8 +1299,8 @@ body.page-ledger .ledgerFlowChips .ledgerFlowChip:is(.active, [aria-pressed="tru
 
 
 /* P0 UX polish: investment Hero PnL tones, holding sort control, global privacy mode, bottom nav clearance. */
-.returnStats strong.up, .returnStatSub.up { color: var(--pams-profit); }
-.returnStats strong.down, .returnStatSub.down { color: var(--pams-loss); }
+body.page-investments #holdingReturnHero .returnStats strong.up, .returnStats strong.up, .returnStatSub.up { color: var(--pams-profit); }
+body.page-investments #holdingReturnHero .returnStats strong.down, .returnStats strong.down, .returnStatSub.down { color: var(--pams-loss); }
 .returnStatSub {
   display: inline-block;
   margin-top: 2px;
