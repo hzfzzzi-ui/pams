@@ -75,7 +75,7 @@ def reconcile_bank_dividend(cur, *, cashflow_id, event_date, expected_amount, ac
     """Publish one ESOP dividend backed by an explicitly identified bank receipt."""
     from uuid import uuid4
 
-    from domain.imports import source_records_v2 as source
+    from domain.imports.sources import source_records_v2 as source
     from domain.ledger.cashflow_read_v2 import load_cash_rows
 
     if apply:

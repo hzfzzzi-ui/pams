@@ -100,7 +100,7 @@ def test_billed_table_uses_closed_period_then_latest_statement_without_double_co
 
 def test_reviewed_statement_documents_and_native_table_feed_one_billed_value():
     from uuid import uuid4
-    from domain.imports import source_records_v2 as sources
+    from domain.imports.sources import source_records_v2 as sources
     dsn = os.environ.get('PAMS_TEST_POSTGRES_DSN')
     if not dsn:
         pytest.skip('requires explicitly isolated PostgreSQL')

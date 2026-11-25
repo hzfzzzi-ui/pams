@@ -4,9 +4,9 @@ import json
 from uuid import UUID, uuid5
 from psycopg2.extras import Json
 from domain.imports import isolation
-from domain.imports.ibkr_holding_source import _extract, _read_source_report, _scope_is_well_formed
-from domain.imports.unified_source import lock_source_review, review_item
-from domain.imports.fact_associations import check_all_source_links
+from domain.imports.sources.ibkr_holding_source import _extract, _read_source_report, _scope_is_well_formed
+from domain.imports.sources.unified_source import lock_source_review, review_item
+from domain.imports.publication.fact_associations import check_all_source_links
 from domain.brokers.ibkr.ibkr_holding_identity import _position, review_holding_identity
 
 
@@ -25,7 +25,7 @@ def _load(cur,batch_id):
         batch['status'] not in {'draft','review','published'} or batch['date_from']!=batch['date_to']):
         raise ValueError('holding review batch unavailable')
     if batch['status']=='published':
-        from domain.imports.source_fact_evidence import _reviewed_snapshot
+        from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
         if not _reviewed_snapshot(cur,batch,str(batch_id),locking=True,snapshot_cache={}):
             raise ValueError('published holding source snapshot mismatch')
         check_all_source_links(cur,batch_id,[])

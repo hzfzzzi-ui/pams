@@ -6,8 +6,8 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 
-from domain.imports.source_original_read import SourceOriginals
-from domain.imports.ths_asset_candidates import MARKETS, PROFILE
+from domain.imports.sources.source_original_read import SourceOriginals
+from domain.imports.sources.ths_asset_candidates import MARKETS, PROFILE
 
 
 def _asset_matches(row, fields):

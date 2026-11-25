@@ -71,7 +71,8 @@ def test_bound_principal_is_estimated_and_source_conflict_disables_config_fallba
     from psycopg2.extras import RealDictCursor
     import pytest
     from domain.accounts.balance_reference import load_bound_balance_references
-    from domain.imports import isolation, source_records_v2 as sources
+    from domain.imports import isolation
+    from domain.imports.sources import source_records_v2 as sources
     from domain.investments.valuation.valuation_input_evidence import _bound_input, _hash, record_result_version
     from domain.investments.valuation import valuation_input_evidence
     from domain.investments.holdings.position_nav_projection import load_position_nav_estimates

@@ -39,7 +39,7 @@ def rows(cur, *, since=None, limit=1000):
           AND (%s::date IS NULL OR f.event_date >= %s::date)
         ORDER BY f.event_date DESC,f.cashflow_id DESC LIMIT %s''', (since,since,limit))
     result = [dict(r) for r in cur.fetchall()]
-    from domain.imports.source_fact_evidence import NativeFactVerifier
+    from domain.imports.sources.source_fact_evidence import NativeFactVerifier
     verifier = NativeFactVerifier(cur)
     for row in result:
         proof = verifier.verify(table='pams_cashflow_fact', fact_id=row['cashflow_id'])

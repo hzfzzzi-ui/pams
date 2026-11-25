@@ -18,7 +18,7 @@ from typing import Any, Iterable, Mapping
 
 import yaml
 from domain.accounts.account_identity import account_display
-from domain.imports.source_row_read import source_row_relation
+from domain.imports.sources.source_row_read import source_row_relation
 from domain.ledger.cashflow_classification import classification_hint
 from domain.ledger.category_insights import category_insights
 
@@ -870,7 +870,7 @@ def _visible_fact_sql(cur, *, alias: str, cashflow: bool) -> str:
 
 
 def _source_fact_verifier(cur):
-    from domain.imports.source_fact_evidence import NativeFactVerifier
+    from domain.imports.sources.source_fact_evidence import NativeFactVerifier
     native=NativeFactVerifier(cur)
     from domain.brokers.ibkr.ibkr_fact_source_verification import EvidenceCache, verify_ibkr_fact
 
@@ -1747,7 +1747,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
 
     redesigned = _table_exists(cur, 'source_records')
     verifier = None if redesigned else _source_fact_verifier(cur)
-    from domain.imports.source_original_read import SourceOriginals
+    from domain.imports.sources.source_original_read import SourceOriginals
     original_args = {'originals': SourceOriginals(cur)} if redesigned else {}
     latest_date = _load_latest_statement_date(cur, verifier=verifier, **original_args)
     month_start, month_end = _month_bounds(month, latest_date)

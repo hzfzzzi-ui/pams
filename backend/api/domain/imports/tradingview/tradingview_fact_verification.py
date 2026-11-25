@@ -5,9 +5,9 @@ from hashlib import sha256
 from typing import Any
 
 from collectors.tradingview_portfolio import TradingViewImportError
-from domain.imports.source_fact_evidence import _reviewed_snapshot
-from domain.imports.tradingview_source import _prepare
-from domain.imports.tradingview_source_publish import source_row_from_item
+from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
+from domain.imports.tradingview.tradingview_source import _prepare
+from domain.imports.tradingview.tradingview_source_publish import source_row_from_item
 from domain.investments.trades.investment_trade_fact import _STRICT_FACT_COLUMNS, build_investment_trade_fact
 
 

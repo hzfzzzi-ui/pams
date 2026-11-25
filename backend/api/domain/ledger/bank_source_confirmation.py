@@ -6,7 +6,7 @@ from domain.imports.isolation import source_enabled
 
 
 def evidence(cur, *, cashflow_id, source_item_id, lock=False):
-    from domain.imports.source_fact_evidence import _reviewed_snapshot, verify_native_fact
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot, verify_native_fact
     proof = verify_native_fact(cur, table='pams_cashflow_fact', fact_id=cashflow_id)
     if proof.get('status') != 'verified' or proof.get('source_role') != 'derived_bank_leg':
         raise ValueError('derived bank leg source evidence is unavailable or inconsistent')

@@ -110,8 +110,8 @@ def reject_identity_conflicts(conn, *, account_code, business_date, incoming):
 
 def _ibkr_retirement_replayed(cur, *, old, ref, business_date, report_sha256, read_only=False):
     """Accept a replay only when immutable before/after evidence matches both sources."""
-    from domain.imports.ibkr_holding_source import retirement_status
-    from domain.imports.source_fact_evidence import _reviewed_snapshot
+    from domain.imports.sources.ibkr_holding_source import retirement_status
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
     from domain.investments.valuation.valuation_input_evidence import _bound_input, verify_recorded_version, versions_for_source_item
     if any(old.get(k) is None or old[k]!=0 for k in ('quantity','cost','market_value')):
         return False
@@ -160,7 +160,7 @@ def _ibkr_retirement_replayed(cur, *, old, ref, business_date, report_sha256, re
 def verify_ibkr_retirements(conn, *, account_code, business_date, incoming_names, sources,
                             expected_report_sha256=None):
     """Preserve verified existing zero rows; never infer identity for a new exit."""
-    from domain.imports.ibkr_holding_source import retirement_status
+    from domain.imports.sources.ibkr_holding_source import retirement_status
     from domain.investments.valuation.valuation_input_evidence import current_holding_source
 
     if not isinstance(sources, dict):
@@ -236,7 +236,7 @@ def verify_ibkr_retirements(conn, *, account_code, business_date, incoming_names
 def apply_ibkr_retirements(conn, retirements):
     """Recheck every source and capture the old value before explicit zeroing."""
     from domain.brokers.ibkr.ibkr_holding_identity import verified_holding_identity
-    from domain.imports.ibkr_holding_source import retirement_status
+    from domain.imports.sources.ibkr_holding_source import retirement_status
     from domain.investments.holdings.holding_evidence_writer import finish_holding_change
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         for item in retirements:
@@ -326,7 +326,7 @@ def _proven_tradingview_trade(cur, account_code, tx, file_cache):
         row['side'] != tx.side.lower() or row['quantity'] != tx.quantity or row['price'] != tx.fill_price or
         row['fee_amount'] != abs(tx.commission) or row['currency'] != 'CNY'):
         return None
-    from domain.imports.tradingview_source import _prepare
+    from domain.imports.tradingview.tradingview_source import _prepare
     from collectors.tradingview_portfolio import TradingViewImportError
     if tx.source_hash not in file_cache:
         content = bytes(row['file_content'])
@@ -349,7 +349,7 @@ def _proven_tradingview_trade(cur, account_code, tx, file_cache):
     if (source != exact or row['evidence_hash'] != digest or row['evidence_uid'] != f'{tx.source_hash}:{first}:{last}'
         or row['evidence_method'] != 'template'):
         return None
-    from domain.imports.tradingview_source_publish import source_row_from_item
+    from domain.imports.tradingview.tradingview_source_publish import source_row_from_item
     from domain.investments.trades.investment_trade_fact import _STRICT_FACT_COLUMNS, build_investment_trade_fact
     item = {'source_item_id': row['source_item_id'], 'source_uid': row['evidence_uid']}
     expected = build_investment_trade_fact(source_row_from_item({'account_code': account_code}, item,

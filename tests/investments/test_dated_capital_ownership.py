@@ -54,7 +54,8 @@ def test_later_trades_preserve_ownership_until_first_unreviewed_funding(monkeypa
 def test_only_original_backed_cash_contributes_on_receipt():
     import psycopg2
     from psycopg2.extras import RealDictCursor, Json
-    from domain.imports import source_records_v2 as sources, isolation
+    from domain.imports.sources import source_records_v2 as sources
+    from domain.imports import isolation
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:
         pytest.skip('requires explicitly isolated PostgreSQL')

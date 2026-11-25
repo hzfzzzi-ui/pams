@@ -3,9 +3,9 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from domain.imports.source_fact_evidence import _digest
-from domain.imports.source_original_read import SourceOriginals
-from domain.imports.trade_supplemental_evidence import read as read_trade_evidence
+from domain.imports.sources.source_fact_evidence import _digest
+from domain.imports.sources.source_original_read import SourceOriginals
+from domain.imports.publication.trade_supplemental_evidence import read as read_trade_evidence
 
 
 def load(cur, trade):

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from domain.imports.historical_statement_balance import statement_opening_balance
+from domain.imports.publication.historical_statement_balance import statement_opening_balance
 
 
 def _report():
@@ -34,8 +34,10 @@ def test_historical_cash_can_bind_original_statement_in_isolation(monkeypatch):
     from uuid import uuid4
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    from domain.imports import source_records_v2 as sources,holding_publication_v2 as publication, isolation
-    from domain.imports import historical_statement_balance as adapter
+    from domain.imports.sources import source_records_v2 as sources
+    from domain.imports.publication import holding_publication_v2 as publication
+    from domain.imports import isolation
+    from domain.imports.publication import historical_statement_balance as adapter
     from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
     dsn=os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn: pytest.skip('requires explicitly isolated PostgreSQL')

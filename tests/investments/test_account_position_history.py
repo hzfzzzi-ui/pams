@@ -11,7 +11,7 @@ from domain.accounts.account_history import read_account_history
 from domain.accounts.position_valuation import _position_estimates
 from domain.investments.valuation.valuation_nav import _add_dated_account_observations
 from decimal import Decimal
-from domain.imports import source_records_v2 as sources
+from domain.imports.sources import source_records_v2 as sources
 from domain.imports.isolation import source_enabled
 from domain.investments.valuation.account_total_evidence import publish as publish_total
 from domain.market.quote_valuation import GOLD_BENCHMARK_ASSET, GOLD_CLOSE_SOURCE

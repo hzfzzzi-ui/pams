@@ -124,7 +124,7 @@ def verify_scope(cur, value, fields):
 
 def record(cur, *, account, day, currency, basis, members, net_asset, note):
     """Publish or replay one dated owner confirmation without creating ledger entries."""
-    from domain.imports import source_records_v2 as sources
+    from domain.imports.sources import source_records_v2 as sources
     from domain.imports.isolation import source_enabled
     from domain.investments.valuation import account_total_evidence as totals
     if cur.connection.autocommit or not source_enabled(cur) or not isinstance(note,str) or not note.strip():

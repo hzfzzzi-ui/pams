@@ -15,9 +15,9 @@ from uuid import UUID, uuid5
 from domain.brokers.ibkr.ibkr_cash_events import _business_date, normalize_cash_event
 from domain.brokers.ibkr.ibkr_daily_close import _document
 from domain.brokers.ibkr.ibkr_report_batch import NAMESPACE
-from domain.imports.source_fact_evidence import _reviewed_snapshot
+from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
 from domain.imports import isolation
-from domain.imports.unified_source import _json_value
+from domain.imports.sources.unified_source import _json_value
 from domain.investments.trades.investment_trade_fact import _is_fx_pair_symbol
 
 

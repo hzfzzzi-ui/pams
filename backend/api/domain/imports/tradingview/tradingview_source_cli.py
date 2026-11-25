@@ -13,8 +13,8 @@ from psycopg2.extensions import parse_dsn
 from psycopg2.extras import RealDictCursor
 
 from domain.imports import isolation
-from domain.imports.tradingview_source import stage_csvs
-from domain.imports.tradingview_source_publish import inspect_batch, publish, review_row
+from domain.imports.tradingview.tradingview_source import stage_csvs
+from domain.imports.tradingview.tradingview_source_publish import inspect_batch, publish, review_row
 
 
 def main(argv=None):

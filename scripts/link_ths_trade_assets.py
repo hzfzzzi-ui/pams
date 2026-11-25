@@ -9,9 +9,9 @@ from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend/api'))
 from domain.assets.asset_master import asset_id_for
-from domain.imports.account_import_store import get_conn
+from domain.imports.account_import.account_import_store import get_conn
 from domain.imports.isolation import account_import_scope, source_enabled
-from domain.imports.ths_asset_candidates import collect_candidates, find_identities, initialize
+from domain.imports.sources.ths_asset_candidates import collect_candidates, find_identities, initialize
 from domain.investments.trades.trade_read_v2 import load_trade_rows
 
 

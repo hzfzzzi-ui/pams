@@ -1328,7 +1328,7 @@ def _source_record_income_ids(cur, end_date):
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
     if not (cur.fetchone() or {}).get('redesigned'):
         return None
-    from domain.imports.source_fact_evidence import NativeFactVerifier
+    from domain.imports.sources.source_fact_evidence import NativeFactVerifier
 
     cur.execute("""SELECT trade_id FROM pams_investment_trade_fact
         WHERE trade_date <= %s AND trade_type IN ('dividend','interest','coupon')""", (end_date,))

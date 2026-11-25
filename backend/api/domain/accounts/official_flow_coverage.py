@@ -79,7 +79,7 @@ def _source(cur, account_code: str, day: date) -> dict[str, Any] | None:
     account_id, digest = raw.get("source_account_id"), raw.get("source_sha256")
     if not isinstance(account_id, str) or not account_id or digest != att.get("source_sha256"):
         return None
-    from domain.imports.ibkr_holding_source import _read_source_report
+    from domain.imports.sources.ibkr_holding_source import _read_source_report
     try:
         content = _read_source_report(cur, batch, scope, locking=False)
         return {"account_id":account_id, "digest":digest, "content":content, "nav":nav}

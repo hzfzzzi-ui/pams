@@ -178,7 +178,7 @@ def _verify_deferred_source(cur, source_id, item):
 
 def publish_cash_source(cur, *, source_id: UUID, expected_revision: int, verified_ibkr_ids=False) -> dict:
     """Atomically publish reviewed cash facts without making classification decisions."""
-    from domain.imports.cash_preview_v2 import plan_cash
+    from domain.imports.publication.cash_preview_v2 import plan_cash
 
     plan = plan_cash(cur, source_id=source_id, expected_revision=expected_revision,
                      for_write=True, verified_ibkr_ids=verified_ibkr_ids)
@@ -287,7 +287,7 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
     cols=('source_item_id','source_uid','raw_fields','parsed_fields','record_hash','review_status',
           'parse_method','source_position','review_note')
     items=[dict(row) if isinstance(row,Mapping) else dict(zip(cols,row)) for row in cur.fetchall()]
-    from domain.imports.account_import_ths import PROFILE
+    from domain.imports.account_import.account_import_ths import PROFILE
     template = (account == 'tonghuashun' and src['acquisition_method'] == 'file' and bool(items)
                 and all(item['parse_method'] == 'template'
                         and (item['raw_fields'].get('source') or {}).get('profile') == PROFILE
@@ -407,7 +407,7 @@ def publish_trade_source(cur, *, source_id: UUID, expected_revision: int, previe
 
 def publish_ready_cash_source(cur, *, source_id: UUID, expected_revision: int) -> dict:
     """Publish unambiguous cashflows and defer other evidence atomically."""
-    from domain.imports.cash_preview_v2 import plan_cash
+    from domain.imports.publication.cash_preview_v2 import plan_cash
 
     plan = plan_cash(cur, source_id=source_id, expected_revision=expected_revision, for_write=True)
     return apply_cash_plan(cur, source_id=source_id, plan=plan, defer_unresolved=True)

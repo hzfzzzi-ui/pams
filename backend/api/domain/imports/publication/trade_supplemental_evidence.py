@@ -7,15 +7,15 @@ from pathlib import PurePath
 
 from psycopg2.extras import Json
 
-from domain.imports.source_fact_evidence import verify_native_fact
+from domain.imports.sources.source_fact_evidence import verify_native_fact
 from domain.investments.trades.investment_trade_fact import classify_trade_type
 
 
 def stage(cur, *, trade_id, filename, content):
     from io import BytesIO
     from PIL import Image
-    from domain.imports.account_import_ocr import _validate_image
-    from domain.imports.source_records_v2 import create_source
+    from domain.imports.account_import.account_import_ocr import _validate_image
+    from domain.imports.sources.source_records_v2 import create_source
     if (cur.connection.autocommit or type(trade_id) is not int or trade_id <= 0
             or not filename or len(filename) > 180 or any(c in filename for c in ('/', '\\', '\x00', '\r', '\n'))):
         raise ValueError('invalid trade source')

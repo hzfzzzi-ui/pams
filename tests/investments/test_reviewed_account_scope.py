@@ -14,7 +14,8 @@ from domain.investments.valuation.valuation_nav import _apply_account_totals
 def test_attested_partial_members_are_dated_and_replayable():
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    from domain.imports import isolation, source_records_v2 as sources
+    from domain.imports import isolation
+    from domain.imports.sources import source_records_v2 as sources
     from domain.investments.holdings.account_snapshot_evidence import record_source_scope
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:

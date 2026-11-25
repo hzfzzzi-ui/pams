@@ -8,8 +8,10 @@ from domain.brokers.ibkr.ibkr_cash_event_sync import _cash_scope_ok
 from domain.brokers.ibkr.ibkr_cash_events import _business_date, normalize_cash_event
 from domain.brokers.ibkr.ibkr_daily_close import _day, _document, _rows
 from domain.brokers.ibkr.ibkr_report_trade_source import _row
-from domain.imports import isolation, native_source, source_records_v2
-from domain.imports.source_original_read import SourceOriginals
+from domain.imports import isolation
+from domain.imports.sources import native_source
+from domain.imports.sources import source_records_v2
+from domain.imports.sources.source_original_read import SourceOriginals
 
 SOURCE = 'ibkr_historical_flex'
 DAILY_FACTS_SOURCE = 'ibkr_daily_facts'

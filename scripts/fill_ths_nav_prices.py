@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from psycopg2.extras import RealDictCursor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend/api'))
-from domain.imports.account_import_store import get_conn
+from domain.imports.account_import.account_import_store import get_conn
 from domain.imports.isolation import account_import_scope, source_enabled
 from domain.investments.trades.nav_trade_source_v2 import CALENDAR, read_reconciled_events, securities_by_symbol
 from domain.market.tencent_stock_history import fetch_history, publish_history

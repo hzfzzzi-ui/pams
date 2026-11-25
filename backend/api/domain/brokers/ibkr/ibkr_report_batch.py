@@ -14,8 +14,8 @@ from uuid import UUID, uuid5
 
 from psycopg2.extras import Json
 from domain.imports import isolation
-from domain.imports.unified_source import add_item, attach_file, create_batch, lock_source_review
-from domain.imports.fact_associations import check_all_source_links
+from domain.imports.sources.unified_source import add_item, attach_file, create_batch, lock_source_review
+from domain.imports.publication.fact_associations import check_all_source_links
 from domain.investments.trades.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
 from domain.brokers.ibkr.ibkr_cash_event_sync import _stored_equal
 from domain.brokers.ibkr.ibkr_report_trade_source import _row
@@ -31,7 +31,7 @@ def _digest(value):
 
 def _report_original(cur,batch,scope):
     """Resolve a report's local or frozen same-account original file."""
-    from domain.imports.ibkr_holding_source import _read_source_report
+    from domain.imports.sources.ibkr_holding_source import _read_source_report
     raw=scope.get('raw_fields') or {}
     adapter={**scope,'raw_fields':{'source_account_id':raw.get('source_account_id'),
                                    'source_sha256':raw.get('sha256')}}
@@ -104,7 +104,7 @@ def _cash_supplement(cur, *, original_batch, original_file, original_scope, repo
     content=_report_original(cur,original,scope)
     if sha256(content).hexdigest()!=report_sha256:
         raise ValueError('IBKR cash supplement original hash mismatch')
-    from domain.imports.source_fact_evidence import _reviewed_snapshot
+    from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
     if not _reviewed_snapshot(cur,original,str(original_batch),locking=True,snapshot_cache={}):
         raise ValueError('IBKR cash supplement original snapshot mismatch')
     from domain.brokers.ibkr.ibkr_daily_close import _document
@@ -287,7 +287,7 @@ def publish_report_batch(cur, *, report_bytes:bytes, source_account_id:str, day,
         file_id=UUID(str(existing_scope.get('file_id') or existing_scope.get('origin_file_id')))
         if _report_original(cur,prior,existing_scope)!=report_bytes:
             raise ValueError('IBKR report batch source mismatch')
-        from domain.imports.source_fact_evidence import _reviewed_snapshot
+        from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
         if not _reviewed_snapshot(cur,prior,str(batch_id),locking=True,snapshot_cache={}):
             raise ValueError('IBKR report snapshot mismatch')
         saved=prior['published_result'] or {}
@@ -418,7 +418,7 @@ def publish_report_batch(cur, *, report_bytes:bytes, source_account_id:str, day,
                 if old_error: raise ValueError('existing IBKR report is unsafe')
                 old_parsed=parse_flex_report(old_text,account_code='ibkr')
                 _,old_trades,_=_validated_isolated_report_trades(old_parsed,day,'ibkr',old_text,old_digest)
-                from domain.imports.source_fact_evidence import _reviewed_snapshot
+                from domain.imports.sources.source_fact_evidence import _reviewed_snapshot
                 if not original_batch or not _reviewed_snapshot(cur,original_batch,old_batch_id,locking=True,snapshot_cache={}):
                     raise ValueError('existing IBKR report source snapshot mismatch')
                 verified_originals[old_batch_id]=[t.get('raw') for t in old_trades]

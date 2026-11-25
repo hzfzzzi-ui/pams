@@ -5,7 +5,7 @@ import re
 from datetime import date
 
 from domain.imports.isolation import source_enabled
-from domain.imports.source_fact_evidence import NativeFactVerifier
+from domain.imports.sources.source_fact_evidence import NativeFactVerifier
 
 
 def load_verified_equity_events(cur, account_code, *, for_write=False):

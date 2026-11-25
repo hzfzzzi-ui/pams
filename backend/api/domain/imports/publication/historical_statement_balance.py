@@ -25,7 +25,7 @@ def statement_row_balance(raw):
 
 
 def verify_original_row(*, content, filename, account, raw, day):
-    from domain.imports.account_import_statement import parse
+    from domain.imports.account_import.account_import_statement import parse
     parsed = parse(bytes(content), filename, account, 'cash')
     expected = (raw.get('source') or {}).get('statement_row')
     observed = []
@@ -118,7 +118,7 @@ def read_original_debit_statement(*, content, filename, cfg, currency):
 
 
 def verify_original_opening(*, content, filename, account, day, currency):
-    from domain.imports.account_import_statement import profiles
+    from domain.imports.account_import.account_import_statement import profiles
     configs = profiles().get(account, [])
     if len(configs) != 1:
         raise ValueError('账单账户设置不唯一')
@@ -278,7 +278,7 @@ def reconcile_following_statement(later, previous, original_interest, supplement
 
 
 def verify_original_credit_bridge(*, originals, account, day, currency, supplement=None):
-    from domain.imports.account_import_statement import profiles
+    from domain.imports.account_import.account_import_statement import profiles
     configs = profiles().get(account, [])
     if len(configs) != 1:
         raise ValueError('信用卡账单来源不唯一')
@@ -296,9 +296,9 @@ def publish_statement_pair(cur, *, source_ids, account, day, currency, expected)
     from pathlib import Path
     from tempfile import TemporaryDirectory
     from collectors.bank_statement_parser import parse_statement
-    from domain.imports.account_import_statement import profiles
+    from domain.imports.account_import.account_import_statement import profiles
     from domain.imports.isolation import source_enabled
-    from domain.imports.source_original_read import SourceOriginals
+    from domain.imports.sources.source_original_read import SourceOriginals
     if cur.connection.autocommit or not source_enabled(cur) or len(source_ids) != 2 or len(set(source_ids)) != 2:
         raise ValueError('账单证据需要受保护事务和两份独立原件')
     cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('account-import:' + account,))

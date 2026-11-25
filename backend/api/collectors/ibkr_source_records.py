@@ -12,7 +12,7 @@ from collectors.ibkr_flex import IBKRFlexError, parse_flex_report, _validated_is
 from domain.brokers.ibkr.ibkr_daily_close import _document
 from domain.brokers.ibkr.ibkr_report_state import ReportRejected, inspect_report
 from domain.brokers.ibkr.ibkr_report_trade_source import _row
-from domain.imports.source_records_v2 import add_item, create_source
+from domain.imports.sources.source_records_v2 import add_item, create_source
 
 
 def stage_trade_report(cur, *, report_bytes: bytes, expected_source_account: str) -> dict:

@@ -15,9 +15,9 @@ from domain.accounts.dated_valuation import anchored_table_valuations
 from domain.accounts.credit_card_debt import confirmed_table_net, uses_table_net_reference
 from domain.accounts.position_reference import historical_position_reference
 from domain.accounts.recorded_positions import recorded_components
-from domain.imports.account_import_statement import profiles as statement_profiles
-from domain.imports.account_import_store import supported_import_modes
-from domain.imports.source_original_read import SourceOriginals
+from domain.imports.account_import.account_import_statement import profiles as statement_profiles
+from domain.imports.account_import.account_import_store import supported_import_modes
+from domain.imports.sources.source_original_read import SourceOriginals
 from domain.investments.holdings.account_snapshot_evidence import _complete_member_proven
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 from domain.investments.valuation.portfolio_state import _excluded_accounts, _owner_ratio

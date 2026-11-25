@@ -34,7 +34,7 @@ def pending_import_identities():
 @router.post('/asset-import-review/{asset_id}')
 def confirm_import_identity(asset_id: str, body: ImportIdentityConfirmation, request: Request):
     from domain.assets import import_identity_review
-    from domain.imports.account_import_access import same_origin
+    from domain.imports.account_import.account_import_access import same_origin
     same_origin(request)
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

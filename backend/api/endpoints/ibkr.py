@@ -113,7 +113,7 @@ def _holding_review_call(request: Request, response: Response, action):
 @router.post('/holding-review/stage')
 def holding_review_stage(req: HoldingReviewStage, request: Request, response: Response):
     from uuid import uuid4
-    from domain.imports.ibkr_holding_source import stage_report
+    from domain.imports.sources.ibkr_holding_source import stage_report
     return _holding_review_call(request,response,lambda cur: stage_report(cur,batch_id=uuid4(),account_code='ibkr',
         source_account_id=req.source_account_id,business_date=req.business_date,content=req.xml_text.encode('utf-8')))
 

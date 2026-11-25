@@ -8,7 +8,8 @@ from psycopg2.extras import RealDictCursor
 import pytest
 
 from domain.imports.isolation import source_enabled
-from domain.imports import holding_publication_v2 as publication, source_records_v2 as sources
+from domain.imports.publication import holding_publication_v2 as publication
+from domain.imports.sources import source_records_v2 as sources
 from domain.investments.trades import redemption_settlement as settlement
 from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 

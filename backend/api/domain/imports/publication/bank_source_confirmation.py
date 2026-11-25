@@ -2,7 +2,7 @@
 
 from decimal import InvalidOperation
 
-from domain.imports.cash_preview_v2 import _fields
+from domain.imports.publication.cash_preview_v2 import _fields
 
 
 SOURCE_ONLY_ACCOUNTS = frozenset({'ccb_7332', 'ccb_credit_0453', 'gf_7443', 'gf_9711', 'santander'})
@@ -21,7 +21,7 @@ def confirm(cur, source_id, revision):
     if source['acquisition_method'] == 'manual':
         raise ValueError('手工流水请重新预检并确认入账')
     if source['status'] != 'draft' or source['revision'] != revision:
-        from domain.imports.source_records_v2 import SourceRevisionConflict
+        from domain.imports.sources.source_records_v2 import SourceRevisionConflict
         raise SourceRevisionConflict('来源资料已变化')
     cur.execute("""SELECT parsed_fields,raw_fields,review_status FROM public.source_items
         WHERE source_id=%s FOR UPDATE""", (str(source_id),))

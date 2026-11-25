@@ -3,8 +3,8 @@
 from collections import defaultdict
 from uuid import uuid4
 
-from domain.imports.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
-from domain.imports.source_records_v2 import add_item, create_source
+from domain.imports.publication.bank_source_confirmation import SOURCE_ONLY_ACCOUNTS
+from domain.imports.sources.source_records_v2 import add_item, create_source
 
 
 BANK_DUPLICATE_REVIEW_SOURCE = 'bank_duplicate_review'

@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 from domain.assets.alias_policy import is_identity_alias
-from domain.imports.unified_source import _json_value
+from domain.imports.sources.unified_source import _json_value
 from domain.ledger.cashflow_fact import make_source_hash
 
 
