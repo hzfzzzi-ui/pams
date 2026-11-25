@@ -21,7 +21,7 @@ from domain.imports.sources.source_fact_evidence import NativeFactVerifier, _dig
 from domain.imports.sources.unified_source import add_item, attach_file, create_batch, lock_source_review
 from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
 from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
-from domain.accounts.official_flow_coverage import _view_date
+from domain.accounts.monthly.official_flow_coverage import _view_date
 
 
 NAMESPACE = UUID('c58a1418-d2ab-4918-9bf0-79b50564a8e6')

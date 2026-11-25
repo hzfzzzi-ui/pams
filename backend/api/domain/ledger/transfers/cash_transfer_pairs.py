@@ -4,9 +4,9 @@ from datetime import date
 from decimal import Decimal
 import re
 
-from domain.ledger.cashflow_read_v2 import load_cash_rows
-from domain.ledger import confirmed_transfers_v2 as confirmation
-from domain.ledger.confirmed_transfers_v2 import is_independent_equal_pair, is_independent_opposite_pair, occupied_cashflow_ids
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
+from domain.ledger.transfers import confirmed_transfers_v2 as confirmation
+from domain.ledger.transfers.confirmed_transfers_v2 import is_independent_equal_pair, is_independent_opposite_pair, occupied_cashflow_ids
 from domain.imports.sources.source_original_read import SourceOriginals
 
 
@@ -65,7 +65,7 @@ def is_cross_currency_card_repayment(source, target, profiles):
 
 
 def suggest(rows, profiles, occupied, *, limit=None):
-    from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
+    from domain.ledger.cashflow.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
 
     available = [row for row in rows if row['id'] not in occupied and row['source_evidence_status'] == 'verified'
                  and row['amount'] and row['currency'] and row['transaction_date']

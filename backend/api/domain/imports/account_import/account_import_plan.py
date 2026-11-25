@@ -1,5 +1,5 @@
 """Exact financial write intents shared by preflight and publication."""
-from domain.ledger.cashflow_fact import _cashflow_flags, make_source_hash
+from domain.ledger.cashflow.cashflow_fact import _cashflow_flags, make_source_hash
 
 
 def bank_leg(batch, row, fact):

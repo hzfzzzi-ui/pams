@@ -2,7 +2,7 @@
 from datetime import date
 from decimal import Decimal
 from typing import Any
-from domain.ledger.bank_statement_rules import _row_transfer_amount, _amount_close
+from domain.ledger.evidence.bank_statement_rules import _row_transfer_amount, _amount_close
 
 
 def _row_text(row: dict[str, Any]) -> str:
@@ -522,11 +522,12 @@ def list_candidates(cur, config, *, limit=1000):
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
     state = cur.fetchone()
     if state and state.get('redesigned'):
-        from domain.ledger import cash_transfer_pairs
-        from domain.ledger.ledger_view import _load_accounts_config
+        from domain.ledger.transfers import cash_transfer_pairs
+        from domain.ledger.cashflow.ledger_view import _load_accounts_config
         suggestions = cash_transfer_pairs.list_candidates(cur, _load_accounts_config().get('accounts') or {}, limit=limit)
         if len(suggestions) < limit:
-            from domain.ledger import bank_source_read, confirmed_transfers_v2
+            from domain.ledger.evidence import bank_source_read
+            from domain.ledger.transfers import confirmed_transfers_v2
             linked = confirmed_transfers_v2.occupied_cashflow_ids(cur)
             bank_rows = []
             for item in bank_source_read.rows(cur, limit=limit):
@@ -552,11 +553,12 @@ def list_candidates(cur, config, *, limit=1000):
                     and left['amount'] == right['amount'] < 0)
                 suggestions.append(candidate)
         return suggestions[:limit]
-    from domain.ledger import bank_source_read, confirmed_transfers
+    from domain.ledger.evidence import bank_source_read
+    from domain.ledger.transfers import confirmed_transfers
     existing = confirmed_transfers.read(cur, limit=10000)
     linked = {leg['id'] for record in existing if record['evidence_status'] == 'confirmed'
               for leg in (record['from_evidence'], record['to_evidence']) if leg['kind'] == 'cashflow'}
-    from domain.ledger.payment_proxy_confirmation import decisions
+    from domain.ledger.evidence.payment_proxy_confirmation import decisions
     for record in decisions(cur):
         if record['evidence_status'] == 'confirmed':
             linked.update((record['from_cashflow_id'],record['to_cashflow_id']))

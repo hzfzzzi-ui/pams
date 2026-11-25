@@ -14,8 +14,8 @@ from domain.imports.sources import source_records_v2 as sources
 from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 from domain.investments.holdings.holding_evidence_writer import verify_historical_holding_source
 from domain.investments.holdings.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
-from domain.accounts.sync_status import _latest_cash_snapshots, _manual_position_value
-from domain.accounts.accounts_view import build_account_detail_payload
+from domain.accounts.views.sync_status import _latest_cash_snapshots, _manual_position_value
+from domain.accounts.views.accounts_view import build_account_detail_payload
 
 
 def test_reviewed_historical_holding_publish_and_nav(monkeypatch):
@@ -190,7 +190,7 @@ def test_historical_foreign_statement_balance_stays_on_its_day(monkeypatch):
                 assert buckets[day]['account_values'][code] == 0
                 assert code not in buckets[day]['unavailable_accounts'] + buckets[day]['estimated_accounts']
                 assert code in buckets[later]['unavailable_accounts']
-                from domain.accounts.balance_snapshot import load_verified_bank_balances
+                from domain.accounts.balances.balance_snapshot import load_verified_bank_balances
                 bank_config = {'accounts': {code: {'account_type':'funding','truth_source':'bank_statement','base_currency':'MXN'}}}
                 assert load_verified_bank_balances(cur, bank_config, day)[code]['amount'] == 0
                 assert code not in load_verified_bank_balances(cur, bank_config, later)

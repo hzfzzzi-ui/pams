@@ -12,7 +12,7 @@ from datetime import date as Date
 from decimal import Decimal
 from typing import Any
 
-from domain.accounts.account_balance import _cash_delta_cny, load_account_balance_basis
+from domain.accounts.balances.account_balance import _cash_delta_cny, load_account_balance_basis
 from domain.investments.returns.investment_return_math import (
     annualized_rate,
     apply_reported_display_anchor,
@@ -1926,8 +1926,8 @@ def build_account_performance_payload(
     # Reviewed holdings do not prove complete external-flow coverage. A
     # published official report may prove it independently; observed rows alone
     # never do so and an unverified initial-capital date cannot define a period.
-    from domain.accounts.official_flow_coverage import IBKRSourceConflict, latest_verified_ibkr_period, verified_ibkr_period
-    from domain.accounts.flow_coverage import latest_verified_period, verified_period
+    from domain.accounts.monthly.official_flow_coverage import IBKRSourceConflict, latest_verified_ibkr_period, verified_ibkr_period
+    from domain.accounts.monthly.flow_coverage import latest_verified_period, verified_period
     daily_conflict = False
     try:
         daily_proof = (latest_verified_ibkr_period(cur, account_code=account_code, end=as_of,

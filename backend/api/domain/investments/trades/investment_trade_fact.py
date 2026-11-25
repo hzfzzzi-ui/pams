@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence
 
 import psycopg2.extras
 
-from domain.ledger.cashflow_fact import make_source_hash
+from domain.ledger.cashflow.cashflow_fact import make_source_hash
 from domain.brokers.ibkr.ibkr_fee_currency import explicit_ibkr_fee_currency
 
 logger = logging.getLogger(__name__)

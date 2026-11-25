@@ -30,7 +30,7 @@ from domain.investments.holdings.holding_evidence_writer import (
     verify_historical_holding_source,
 )
 from domain.investments.trades.investment_trade_fact import insert_investment_trade_facts
-from domain.ledger.cashflow_fact import insert_cashflow_facts, make_source_hash
+from domain.ledger.cashflow.cashflow_fact import insert_cashflow_facts, make_source_hash
 
 
 def _require(cur):
@@ -312,7 +312,7 @@ def _replay(cur, batch_id, revision, source_sha256):
             if bank_sources:
                 if len(bank_sources) != 1 or cash or trade or holding:
                     raise ValueError('published bank source confirmation identity differs')
-                from domain.ledger.bank_source_confirmation import verified
+                from domain.ledger.evidence.bank_source_confirmation import verified
                 if not verified(cur, bank_sources[0]['confirmation_id']):
                     raise ValueError('published bank source confirmation is invalidated')
                 cash = [bank_sources[0]['cashflow_id']]
@@ -341,7 +341,7 @@ def _replay(cur, batch_id, revision, source_sha256):
                     pairs = pairs_by_facts.get((trade[0], leg), [])
                     if cash or len(pairs) != 1:
                         raise ValueError('published funding leg differs')
-                    from domain.ledger.confirmed_transfers import read_one
+                    from domain.ledger.transfers.confirmed_transfers import read_one
                     pair = read_one(cur, pairs[0]['transfer_id'])
                     if not pair or pair['evidence_status'] != 'confirmed':
                         raise ValueError('published bank confirmation is revoked or invalidated')
@@ -509,11 +509,11 @@ def publish_native(cur, *, batch_id: UUID, revision: int, source_sha256: str,
         cur.execute("UPDATE source_batches SET status='published',published_source_hash=%s,published_preview_token=%s,published_result=%s,updated_at=now() WHERE batch_id=%s",
                     (source_sha256, published_token, Json(saved), str(batch_id)))
         if bank_source_confirmations:
-            from domain.ledger.bank_source_confirmation import confirm as confirm_bank_source
+            from domain.ledger.evidence.bank_source_confirmation import confirm as confirm_bank_source
             for item in bank_source_confirmations:
                 confirm_bank_source(cur, **item)
         if confirmed_pairs:
-            from domain.ledger.confirmed_transfers import confirm
+            from domain.ledger.transfers.confirmed_transfers import confirm
             for pair in confirmed_pairs:
                 bank_id, trade_id, side = pair['bank_id'], pair['trade_id'], pair['side']
                 if side == 'deposit':

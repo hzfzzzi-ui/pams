@@ -7,7 +7,7 @@ def rows(cur, *, since=None, limit=1000):
     state = cur.fetchone()
     if state and state.get('redesigned'):
         from datetime import date
-        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
         facts = load_cash_rows(cur, start=since or date.min, end=date.max, base_currency='CNY')
         verified = {row['id']: row for row in facts}
         cur.execute('''SELECT f.cashflow_id,f.account_code,f.event_date,f.posting_date,f.amount,f.currency,
@@ -57,7 +57,7 @@ def rows(cur, *, since=None, limit=1000):
         WHERE c.confirmation_type='bank_source' AND c.revoked_at IS NULL AND (%s::date IS NULL OR f.event_date >= %s::date)
         ORDER BY f.event_date DESC,f.cashflow_id DESC LIMIT %s""", (since,since,limit))
     indirect = [dict(r) for r in cur.fetchall()]
-    from domain.ledger.bank_source_confirmation import verified
+    from domain.ledger.evidence.bank_source_confirmation import verified
     for row in indirect:
         row['source_evidence_status'] = 'verified' if verified(cur, row['confirmation_id']) else 'unknown'
         row['source_evidence_reason'] = None if row['source_evidence_status'] == 'verified' else 'bank_source_unavailable'
@@ -122,11 +122,11 @@ def imports(cur):
 def unmatched(cur, *, since, limit):
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
     if cur.fetchone()['redesigned']:
-        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+        from domain.ledger.transfers import confirmed_transfers_v2 as confirmed_transfers
     else:
-        from domain.ledger import confirmed_transfers
+        from domain.ledger.transfers import confirmed_transfers
     recorded = confirmed_transfers.read(cur, limit=10000)
-    from domain.ledger.confirmed_transfers_v2 import decision_legs
+    from domain.ledger.transfers.confirmed_transfers_v2 import decision_legs
 
     linked = {leg['id'] for match in recorded if match['evidence_status'] == 'confirmed'
               for leg in decision_legs(match) if leg['kind'] == 'cashflow'}

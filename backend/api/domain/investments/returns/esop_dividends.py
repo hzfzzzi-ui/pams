@@ -76,7 +76,7 @@ def reconcile_bank_dividend(cur, *, cashflow_id, event_date, expected_amount, ac
     from uuid import uuid4
 
     from domain.imports.sources import source_records_v2 as source
-    from domain.ledger.cashflow_read_v2 import load_cash_rows
+    from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
     if apply:
         cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("account-import:" + account,))

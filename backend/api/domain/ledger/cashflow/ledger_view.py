@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import yaml
-from domain.accounts.account_identity import account_display
+from domain.accounts.views.account_identity import account_display
 from domain.imports.sources.source_row_read import source_row_relation
-from domain.ledger.cashflow_classification import classification_hint
-from domain.ledger.category_insights import category_insights
+from domain.ledger.cashflow.cashflow_classification import classification_hint
+from domain.ledger.cashflow.category_insights import category_insights
 
 
 ACCOUNTS_CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
@@ -390,7 +390,7 @@ def classify_ledger_row(
 
 
 def _classify_cash_direction(row: Mapping[str, Any], matched_cash_ids: set[int], reversal_ids: set[int] | None = None) -> dict[str, Any]:
-    from domain.ledger.cashflow_classification import PERSONAL_LOAN_PRINCIPAL, loan_repayment_needs_split, personal_loan_principal
+    from domain.ledger.cashflow.cashflow_classification import PERSONAL_LOAN_PRINCIPAL, loan_repayment_needs_split, personal_loan_principal
 
     amount = row["amount"]
     if amount == 0:
@@ -809,7 +809,7 @@ def _trend(rows: list[dict[str, Any]], start: date, end: date, grain: str) -> li
 
 def _load_latest_statement_date(cur, verifier=None, originals=None) -> date | None:
     if _table_exists(cur, 'source_records'):
-        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
         before = None
         while True:
@@ -944,7 +944,7 @@ def _mark_fact_source(cur, rows, *, table: str, verifier=None):
 def _load_cash_rows(cur, *, start: date, end: date, base_currency: str, verifier=None, originals=None,
                     include_pair_evidence: bool = False) -> list[dict[str, Any]]:
     if _table_exists(cur, 'source_records'):
-        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
         rows = load_cash_rows(cur, start=start, end=end, base_currency=base_currency, originals=originals,
                               include_pair_evidence=include_pair_evidence)
         for row in rows:
@@ -1292,12 +1292,12 @@ def _load_investment_account_rows(cur, *, start: date, end: date, base_currency:
 def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
     """Read immutable decisions and recheck both source-backed facts."""
     if _table_exists(cur, 'source_records'):
-        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+        from domain.ledger.transfers import confirmed_transfers_v2 as confirmed_transfers
         decisions = confirmed_transfers.read(cur, limit=None, originals=originals)
     else:
-        from domain.ledger import confirmed_transfers
+        from domain.ledger.transfers import confirmed_transfers
         decisions = confirmed_transfers.read(cur, limit=None)
-    from domain.ledger.confirmed_transfers_v2 import transfer_accounting_identity
+    from domain.ledger.transfers.confirmed_transfers_v2 import transfer_accounting_identity
 
     result = []
     for item in decisions:
@@ -1313,8 +1313,8 @@ def _confirmed_transfer_records(cur, *, start: date, end: date, originals=None):
 
 def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, cash_pairs_only: bool = False,
                            account_profiles=None, decisions=None) -> list[dict[str, Any]]:
-    from domain.ledger.cash_transfer_pairs import cash_pair_type
-    from domain.ledger.confirmed_transfers_v2 import (
+    from domain.ledger.transfers.cash_transfer_pairs import cash_pair_type
+    from domain.ledger.transfers.confirmed_transfers_v2 import (
         BANK_REDEMPTION_PURPOSE, FX_PAIR, MANUAL_FUNDING_PAIR, REDEMPTION_PURPOSE, transfer_accounting_identity,
     )
 
@@ -1346,10 +1346,10 @@ def _load_transfer_matches(cur, *, start: date, end: date, base_currency: str, c
         fx = cur.fetchone()['fx_rate']
         group = {}
         if right.get('additional_targets'):
-            from domain.ledger.confirmed_transfers_v2 import decision_legs
+            from domain.ledger.transfers.confirmed_transfers_v2 import decision_legs
 
             targets = sorted(decision_legs(item)[1:], key=lambda leg: leg['account_code'])
-            from domain.ledger.cashflow_read_v2 import load_cash_rows
+            from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
             cash = load_cash_rows(cur, start=match_day, end=match_day, base_currency=base_currency,
                                   account_codes=[leg['account_code'] for leg in targets])
@@ -1413,9 +1413,9 @@ def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None,
                                  account_profiles=None) -> list[dict[str, Any]]:
     """Expose known open bank facts and invalidated decisions without confirming them."""
     if _table_exists(cur, 'source_records'):
-        from domain.ledger.cash_transfer_pairs import has_transfer_hint, suggest
-        from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
-        from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
+        from domain.ledger.transfers.cash_transfer_pairs import has_transfer_hint, suggest
+        from domain.ledger.cashflow.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
+        from domain.ledger.transfers.confirmed_transfers_v2 import occupied_cashflow_ids
 
         if decisions is None:
             decisions = _confirmed_transfer_records(cur, start=start, end=end)
@@ -1455,7 +1455,7 @@ def _load_pending_transfer_cases(cur, *, start: date, end: date, cash_rows=None,
         for case in cases:
             case['total_count'] = total
         return cases[:200]
-    from domain.ledger import bank_source_read
+    from domain.ledger.evidence import bank_source_read
 
     decisions = _confirmed_transfer_records(cur, start=start, end=end)
     pending = []
@@ -1784,21 +1784,21 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
         if isinstance(row_id, int)
     }
     if redesigned:
-        from domain.ledger.cash_reversals import confirmed_cashflow_ids
+        from domain.ledger.transfers.cash_reversals import confirmed_cashflow_ids
         reversal_ids = confirmed_cashflow_ids(cur)
     else:
         reversal_ids = set()
 
     confirmed_proxy_roles = {}
     if not redesigned and _table_exists(cur, 'evidence_confirmation'):
-        from domain.ledger.payment_proxy_confirmation import decisions
+        from domain.ledger.evidence.payment_proxy_confirmation import decisions
         for decision in decisions(cur):
             if decision['evidence_status'] == 'confirmed':
                 confirmed_proxy_roles[decision['from_cashflow_id']] = 'source'
                 confirmed_proxy_roles[decision['to_cashflow_id']] = 'target'
     cycle_cash_ids = set()
     if redesigned:
-        from domain.ledger.loan_cycle_evidence import principal_ids, read as read_loan_cycles
+        from domain.ledger.evidence.loan_cycle_evidence import principal_ids, read as read_loan_cycles
         cycle_cash_ids = principal_ids(read_loan_cycles(cur))
     enriched_rows: list[dict[str, Any]] = []
     for raw in cash_rows:
@@ -1834,7 +1834,7 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
     if view == 'transfers':
         manual_pending = []
         if redesigned and include_manual_pending:
-            from domain.ledger.manual_transfer_pairs import pending_rows
+            from domain.ledger.transfers.manual_transfer_pairs import pending_rows
             manual_pending = pending_rows(cur, start=ytd_start, end=month_end, **original_args)
         return {
             'month': month_start.strftime('%Y-%m'),
@@ -1844,13 +1844,13 @@ def build_ledger_workbench_payload(cur, *, month: str | None = None, base_curren
             **({'manual_pending': manual_pending} if include_manual_pending else {}),
         }
     if view == 'monthly_close':
-        from domain.ledger.conversion_settlement import monthly_conversion_settlements
+        from domain.ledger.transfers.conversion_settlement import monthly_conversion_settlements
 
         omitted = set()
         if redesigned:
             from domain.investments.trades.installment_principal import load_principal_cash_ids
             from domain.investments.trades.subscription_settlement import subscription_cash_ids
-            from domain.ledger.investment_receipts import counted_receipt_ids
+            from domain.ledger.evidence.investment_receipts import counted_receipt_ids
             omitted = load_principal_cash_ids(cur, configured_accounts, ytd_start)
             omitted.update(counted_receipt_ids(cur, ytd_rows, counted_income_sources))
             omitted.update(subscription_cash_ids(cur, {row['id'] for row in ytd_rows}))

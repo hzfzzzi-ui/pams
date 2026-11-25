@@ -71,7 +71,7 @@ def test_historical_cash_can_bind_original_statement_in_isolation(monkeypatch):
                                               dates=days, rate_at=lambda *_:Decimal(1))
                 assert [buckets[d]['net_worth'] for d in days] == [100,90,81,0]
                 assert [buckets[d]['unavailable_accounts'] for d in days] == [[],[],[],['bank_test']]
-                from domain.accounts.account_history import read_account_history
+                from domain.accounts.views.account_history import read_account_history
                 series = read_account_history(cur, account_code='bank_test',
                     account_config={'accounts': {}},
                     start_date=date(2025,12,31), end_date=days[-1])

@@ -458,7 +458,7 @@ def deferred_bank_candidates(cur, batch: dict, row: dict) -> list[dict]:
     matches = [record['cashflow_id'] for record in cur.fetchall()]
     if len(matches) > 100:
         return []
-    from domain.ledger.confirmed_transfers import _leg
+    from domain.ledger.transfers.confirmed_transfers import _leg
     candidates = []
     for identifier in matches:
         try:
@@ -545,7 +545,7 @@ def preview(cur, batch: dict) -> dict:
                         row["status"] = "blocked"
                         row["issues"].append(issue("bank_cashflow_id", "bank_confirmation_required", "同额银行流水须唯一且由用户明确核准关联；歧义保持待处理"))
                     else:
-                        from domain.ledger.confirmed_transfers import _leg
+                        from domain.ledger.transfers.confirmed_transfers import _leg
                         try:
                             source = _leg(cur, 'cashflow', int(selected))
                             if source['counter_account_code'] not in (None, batch['account_code']):

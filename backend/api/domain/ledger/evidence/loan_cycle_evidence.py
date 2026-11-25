@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from domain.imports.sources.source_fact_evidence import _digest
 from domain.imports.sources.source_records_v2 import add_manual_item, create_source, review_item
-from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
 
 PURPOSE = 'borrower_cycle_v1'
@@ -69,7 +69,7 @@ def read(cur, *, paired=None):
     sources = _sources(cur)
     if not sources:
         return []
-    from domain.ledger.confirmed_transfers_v2 import paired_cashflow_ids
+    from domain.ledger.transfers.confirmed_transfers_v2 import paired_cashflow_ids
     occupied = paired if paired is not None else paired_cashflow_ids(cur)
     claims = Counter()
     for record in sources:
@@ -125,7 +125,7 @@ def record(cur, *, account_code, loan, scope, start, end, cash_ids, declaration,
                     and any(c['source_item_id'] == str(previous['source_item_id']) for c in read(cur))):
                 return str(previous['source_item_id']), False
             raise ValueError('既有借款声明与本次确认冲突')
-    from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
+    from domain.ledger.transfers.confirmed_transfers_v2 import occupied_cashflow_ids
     if occupied_cashflow_ids(cur).intersection(cash_ids):
         raise ValueError('现金原件已绑定其他资金关系')
     source_id, item_id = uuid4(), uuid4()

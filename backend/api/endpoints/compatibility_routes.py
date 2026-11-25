@@ -5,12 +5,12 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
-from domain.accounts.position_reference import read_historical_position_references
+from domain.accounts.balances.position_reference import read_historical_position_references
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.returns.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.valuation.investment_overview import holdings_overview_card
-from domain.accounts.valuation_book import current_balances, read_account_view
+from domain.accounts.monthly.valuation_book import current_balances, read_account_view
 from domain.investments.holdings.holdings_account_cards import build_holdings_account_cards
 from domain.investments.holdings.holding_market_history import holding_history, holding_price_comparison
 from domain.investments.holdings.personal_holdings import personal_holdings
@@ -308,7 +308,7 @@ def create_compatibility_router(
         )
         if payload is not None:
             return _apply_reported_account_performance(payload, account_code)
-        from domain.accounts.accounts_view import build_account_detail_payload
+        from domain.accounts.views.accounts_view import build_account_detail_payload
         detail = build_account_detail_payload(cur, account_code=account_code)
         if detail is None:
             raise HTTPException(status_code=404, detail=f"Account {account_code} does not exist")

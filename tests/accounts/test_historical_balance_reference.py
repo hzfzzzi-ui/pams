@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from domain.accounts.balance_reference import historical_account_balance
+from domain.accounts.balances.balance_reference import historical_account_balance
 
 
 def test_reference_retains_native_currency_and_ownership():
@@ -70,7 +70,7 @@ def test_bound_principal_is_estimated_and_source_conflict_disables_config_fallba
     import psycopg2
     from psycopg2.extras import RealDictCursor
     import pytest
-    from domain.accounts.balance_reference import load_bound_balance_references
+    from domain.accounts.balances.balance_reference import load_bound_balance_references
     from domain.imports import isolation
     from domain.imports.sources import source_records_v2 as sources
     from domain.investments.valuation.valuation_input_evidence import _bound_input, _hash, record_result_version

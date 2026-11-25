@@ -6,8 +6,8 @@ import psycopg2
 import pytest
 from psycopg2.extras import RealDictCursor
 
-from domain.accounts import dated_valuation as valuation
-from domain.accounts.account_history import read_account_history
+from domain.accounts.monthly import dated_valuation as valuation
+from domain.accounts.views.account_history import read_account_history
 from domain.imports.isolation import source_enabled
 from domain.investments.valuation.valuation_nav import build_nav_weekly_payload
 
@@ -50,7 +50,7 @@ def test_only_a_whole_dated_value_can_be_converted_to_personal_nav():
 
 
 def test_month_end_billed_cash_uses_posting_date_and_audited_interest_only_once():
-    from domain.accounts.monthly_cash_bridge import posted_balances
+    from domain.accounts.monthly.monthly_cash_bridge import posted_balances
     start, end, cutoff = date(2026, 3, 2), date(2026, 4, 2), date(2026, 3, 31)
     bounds = [dict(as_of=start, amount='-12'), dict(as_of=end, amount='-22')]
     def flow(value, posted):
@@ -68,7 +68,7 @@ def test_month_end_billed_cash_uses_posting_date_and_audited_interest_only_once(
 
 
 def test_recurring_credit_requires_matching_evidence_and_ends_at_confirmed_month():
-    from domain.accounts.monthly_credit_evidence import confirmed_months
+    from domain.accounts.monthly.monthly_credit_evidence import confirmed_months
     start = date(2025, 12, 31)
     dates = [date(2026,1,30),date(2026,1,31),date(2026,2,28),date(2026,3,31)]
     proof = dict(anchor_date='2026-02-28',months=2,anchor_amount='140',result='120',monthly_credit='10',
@@ -84,7 +84,7 @@ def test_recurring_credit_requires_matching_evidence_and_ends_at_confirmed_month
 
 
 def test_billed_table_uses_closed_period_then_latest_statement_without_double_count():
-    from domain.accounts.monthly_cash_bridge import table_balances_at
+    from domain.accounts.monthly.monthly_cash_bridge import table_balances_at
     jan, feb, mar = [date(2026, n, 23) for n in (1, 2, 3)]
     jan_end, feb_end, mar_end, apr_end = date(2026,1,31), date(2026,2,28), date(2026,3,31), date(2026,4,30)
     closes = [{'as_of': jan,'amount':'-22'},{'as_of': feb,'amount':'-32'},{'as_of': mar,'amount':'-12'}]

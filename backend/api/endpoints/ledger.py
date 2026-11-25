@@ -12,9 +12,9 @@ import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from domain.ledger.cashflow_fact import _cashflow_flags as cashflow_flags_for_type
-from domain.ledger.cashflow_classification import PERSONAL_LOAN_CATEGORY, PERSONAL_LOAN_PRINCIPAL
-from domain.ledger.ledger_view import build_ledger_workbench_payload, _table_exists
+from domain.ledger.cashflow.cashflow_fact import _cashflow_flags as cashflow_flags_for_type
+from domain.ledger.cashflow.cashflow_classification import PERSONAL_LOAN_CATEGORY, PERSONAL_LOAN_PRINCIPAL
+from domain.ledger.cashflow.ledger_view import build_ledger_workbench_payload, _table_exists
 
 
 router = APIRouter()
@@ -72,7 +72,7 @@ def _manual_category(cashflow_type: str, category: str | None, subcategory: str 
 
 
 def _verified_new_cashflow(cur, row_id: int):
-    from domain.ledger.cashflow_read_v2 import load_cash_rows
+    from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
     cur.execute('SELECT event_date FROM pams_cashflow_fact WHERE cashflow_id=%s FOR UPDATE', (row_id,))
     row = cur.fetchone()
     if not row:
@@ -144,7 +144,7 @@ def confirm_ledger_review(row_id: int, payload: LedgerReviewConfirm):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if _table_exists(cur, 'source_records'):
-                from domain.ledger.cashflow_classification import confirm
+                from domain.ledger.cashflow.cashflow_classification import confirm
                 row = _verified_new_cashflow(cur, row_id)
                 if row['amount'] >= 0:
                     raise HTTPException(status_code=400, detail='only expense rows can be confirmed here')
@@ -218,9 +218,9 @@ def update_ledger_row(row_id: int, payload: LedgerRowUpdate):
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if _table_exists(cur, 'source_records'):
-                from domain.ledger.cashflow_classification import confirm
+                from domain.ledger.cashflow.cashflow_classification import confirm
                 if principal:
-                    from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
+                    from domain.ledger.transfers.confirmed_transfers_v2 import occupied_cashflow_ids
 
                     cur.execute("SELECT account_code FROM pams_cashflow_fact WHERE cashflow_id=%s", (row_id,))
                     account = cur.fetchone()

@@ -2,7 +2,7 @@
 from collections import defaultdict
 from decimal import Decimal
 
-from domain.accounts.account_policy import excluded_accounts, is_investment_account
+from domain.accounts.views.account_policy import excluded_accounts, is_investment_account
 from domain.investments.holdings.holdings_account_cards import _decimal, _metric, fund_overview_members
 from domain.investments.holdings.personal_holdings import holding_filter_weights
 

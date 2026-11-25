@@ -4,9 +4,9 @@ from datetime import date, timedelta
 import re
 
 from domain.imports.sources.source_original_read import SourceOriginals
-from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
-from domain.ledger.cashflow_read_v2 import load_cash_rows
-from domain.ledger.confirmed_transfers_v2 import (
+from domain.ledger.cashflow.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
+from domain.ledger.transfers.confirmed_transfers_v2 import (
     BANK_REDEMPTION_PURPOSE, FX_PAIR, MANUAL_FUNDING_PAIR, MANUAL_WITHDRAWAL_PAIR, SUBSCRIPTION_PURPOSE, PURCHASE_PURPOSE,
     _leg_rows, _verified_leg, is_independent_equal_pair, is_independent_opposite_pair,
     is_manual_funding_pair, is_manual_withdrawal_pair, occupied_cashflow_ids,
@@ -45,8 +45,8 @@ def manual_pair_type(anchor, other):
             return 'cash_reversal'
     if is_independent_equal_pair(left, right):
         return 'internal_transfer'
-    from domain.ledger.cash_transfer_pairs import is_cross_currency_card_repayment
-    from domain.ledger.ledger_view import _load_accounts_config
+    from domain.ledger.transfers.cash_transfer_pairs import is_cross_currency_card_repayment
+    from domain.ledger.cashflow.ledger_view import _load_accounts_config
 
     if (left['currency'] != right['currency'] and
             is_cross_currency_card_repayment(outgoing, incoming, _load_accounts_config().get('accounts', {}))):
@@ -320,8 +320,8 @@ def pairing_options(cur, anchor_id, *, month=None, offset=0, limit=10):
                 row.get('kind') != 'trade', -row['id'])
 
     options.sort(key=sort_key)
-    from domain.ledger.combined_card_repayment import candidates
-    from domain.ledger.ledger_view import _load_accounts_config
+    from domain.ledger.transfers.combined_card_repayment import candidates
+    from domain.ledger.cashflow.ledger_view import _load_accounts_config
 
     groups = list(candidates(rows, _load_accounts_config().get('accounts', {}), occupied, anchor_id=anchor_id)) if offset == 0 else []
     return {'rows': options[offset:offset + limit], 'repayment_groups': groups,

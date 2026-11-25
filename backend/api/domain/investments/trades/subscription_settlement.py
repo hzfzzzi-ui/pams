@@ -3,7 +3,7 @@ from collections import Counter
 from datetime import date
 
 from domain.imports.publication.trade_supplemental_evidence import read as trade_evidence
-from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 from domain.investments.trades.trade_read_v2 import load_trade_rows
 
 

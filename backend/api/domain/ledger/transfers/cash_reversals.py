@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from psycopg2.extras import Json
 
-from domain.ledger.confirmed_transfers_v2 import _leg, occupied_cashflow_ids
+from domain.ledger.transfers.confirmed_transfers_v2 import _leg, occupied_cashflow_ids
 
 
 def _valid(left, right):

@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from domain.accounts.position_reference import position_reference_config
+from domain.accounts.balances.position_reference import position_reference_config
 from domain.investments.holdings.account_snapshot_evidence import _complete_member_proven
 from domain.investments.valuation.account_total_evidence import load as load_account_totals, prior_single_account_total
 from domain.investments.holdings.position_nav_projection import load_position_nav_estimates

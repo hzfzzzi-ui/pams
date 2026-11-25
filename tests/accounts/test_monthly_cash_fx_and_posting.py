@@ -2,8 +2,8 @@ from datetime import date
 from decimal import Decimal as D
 from unittest.mock import Mock
 
-from domain.accounts import monthly_cash_attribution as attribution
-from domain.ledger.ledger_view import _monthly_close
+from domain.accounts.monthly import monthly_cash_attribution as attribution
+from domain.ledger.cashflow.ledger_view import _monthly_close
 
 
 def close(iso, native, rate, *, fixing=None):

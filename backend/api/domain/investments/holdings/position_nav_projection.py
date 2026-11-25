@@ -4,8 +4,8 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
-from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
-from domain.accounts.position_reference import historical_position_reference, position_reference_config
+from domain.accounts.balances.balance_reference import historical_account_balance, load_bound_balance_references
+from domain.accounts.balances.position_reference import historical_position_reference, position_reference_config
 from domain.investments.holdings.account_snapshot_evidence import _complete_member_proven
 from domain.investments.returns.fund_return_history import NAV_SOURCES
 from domain.investments.returns.fund_closed_sessions import surrounding_sessions

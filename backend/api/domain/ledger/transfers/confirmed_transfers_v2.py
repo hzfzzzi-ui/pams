@@ -100,7 +100,7 @@ def _leg_rows(cur, kind, ids, *, lock):
     rows = cur.fetchall()
     for row in rows:
         if row['fact_type'] == 'fund_redemption' and row['has_settlement']:
-            from domain.ledger.redemption_receipt_evidence import load as load_settlement
+            from domain.ledger.evidence.redemption_receipt_evidence import load as load_settlement
             row['settlement'] = load_settlement(cur, row)
         if row['fact_type'] == 'sell':
             from domain.imports.publication.trade_supplemental_evidence import read as read_trade_evidence
@@ -240,9 +240,9 @@ def is_manual_withdrawal_pair(left, right):
 
 
 def _validate_cross_currency_pair(cur, left, right):
-    from domain.ledger.cashflow_read_v2 import load_cash_rows
-    from domain.ledger.cash_transfer_pairs import is_cross_currency_card_repayment
-    from domain.ledger.ledger_view import _load_accounts_config
+    from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
+    from domain.ledger.transfers.cash_transfer_pairs import is_cross_currency_card_repayment
+    from domain.ledger.cashflow.ledger_view import _load_accounts_config
 
     if (left['kind'] != 'cashflow' or right['kind'] != 'cashflow'
             or left['currency'] == right['currency'] or not is_independent_opposite_pair(left, right)):
@@ -266,7 +266,7 @@ def paired_cashflow_ids(cur):
 
 def occupied_cashflow_ids(cur):
     """Loan principal, transfers and reversals cannot claim the same bank entry."""
-    from domain.ledger.loan_cycle_evidence import principal_ids, read as read_loan_cycles
+    from domain.ledger.evidence.loan_cycle_evidence import principal_ids, read as read_loan_cycles
     paired = paired_cashflow_ids(cur)
     return paired | principal_ids(read_loan_cycles(cur, paired=paired))
 
@@ -290,7 +290,7 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
     for account in sorted(accounts): cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",('account-import:'+account,))
     cash_ids = [ident for kind, ident in keys if kind == 'cashflow']
     if cash_ids:
-        from domain.ledger.cashflow_classification import PERSONAL_LOAN_CATEGORY
+        from domain.ledger.cashflow.cashflow_classification import PERSONAL_LOAN_CATEGORY
 
         cur.execute("""SELECT 1 FROM public.cashflow_classification
             WHERE cashflow_id=ANY(%s) AND category=%s AND status='confirmed' LIMIT 1""",
@@ -320,7 +320,7 @@ def confirm(cur, *, from_kind, from_id, to_kind, to_id, note, confirmed, manual_
     if set(cash_ids) & occupied_cashflow_ids(cur):
         raise ValueError('transfer leg already confirmed')
     if manual_anchor_id is not None:
-        from domain.ledger.manual_transfer_pairs import validate_manual_pair
+        from domain.ledger.transfers.manual_transfer_pairs import validate_manual_pair
 
         pair_type = validate_manual_pair(cur, a, b, manual_anchor_id)
         if not pair_type:

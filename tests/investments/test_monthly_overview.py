@@ -3,7 +3,7 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 from domain.investments.valuation import monthly_overview
-from domain.ledger.ledger_view import _monthly_close
+from domain.ledger.cashflow.ledger_view import _monthly_close
 
 
 def test_month_end_cutoff_contributions_and_unknown_cash(monkeypatch):

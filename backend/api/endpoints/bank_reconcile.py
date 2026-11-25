@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from collectors.bank_statement_parser import ParsedStatement, parse_statement
-from domain.ledger.bank_statement_rules import (
+from domain.ledger.evidence.bank_statement_rules import (
     _classify as _classify, _classify_by_amount as _classify_by_amount,
     _classify_statement_row,
 )
@@ -310,7 +310,7 @@ class ConfirmCashReversalRequest(BaseModel):
 
 @router.post('/bank-reconcile/cash-reversals/confirm')
 def confirm_cash_reversal(req: ConfirmCashReversalRequest):
-    from domain.ledger import cash_reversals
+    from domain.ledger.transfers import cash_reversals
     from domain.imports.isolation import account_import_scope, source_enabled
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -324,7 +324,7 @@ def confirm_cash_reversal(req: ConfirmCashReversalRequest):
 
 @router.post('/bank-reconcile/cash-reversals/{confirmation_id}/revoke')
 def revoke_cash_reversal(confirmation_id: UUID, req: RevokeTransferRequest):
-    from domain.ledger import cash_reversals
+    from domain.ledger.transfers import cash_reversals
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return _norm(cash_reversals.revoke(cur, confirmation_id=confirmation_id, **req.model_dump()))
@@ -334,7 +334,7 @@ def revoke_cash_reversal(confirmation_id: UUID, req: RevokeTransferRequest):
 
 @router.post("/bank-reconcile/payment-proxy/confirm")
 def confirm_payment_proxy(req: ConfirmPaymentProxyRequest):
-    from domain.ledger import payment_proxy_confirmation
+    from domain.ledger.evidence import payment_proxy_confirmation
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return _norm(payment_proxy_confirmation.confirm(cur, **req.model_dump()))
@@ -344,7 +344,7 @@ def confirm_payment_proxy(req: ConfirmPaymentProxyRequest):
 
 @router.post("/bank-reconcile/payment-proxy/{confirmation_id}/revoke")
 def revoke_payment_proxy(confirmation_id: UUID, req: RevokeTransferRequest):
-    from domain.ledger import payment_proxy_confirmation
+    from domain.ledger.evidence import payment_proxy_confirmation
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return _norm(payment_proxy_confirmation.revoke(cur, confirmation_id=confirmation_id, **req.model_dump()))
@@ -354,7 +354,7 @@ def revoke_payment_proxy(confirmation_id: UUID, req: RevokeTransferRequest):
 
 @router.get("/bank-reconcile/payment-proxy")
 def list_payment_proxy():
-    from domain.ledger import payment_proxy_confirmation
+    from domain.ledger.evidence import payment_proxy_confirmation
     with get_conn() as conn:
         conn.set_session(isolation_level='REPEATABLE READ', readonly=True)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -369,14 +369,14 @@ def confirm_transfer(req: ConfirmTransferRequest):
             arguments = req.model_dump()
             if _table_exists(cur, 'source_records'):
                 from domain.imports.isolation import account_import_scope, source_enabled
-                from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+                from domain.ledger.transfers import confirmed_transfers_v2 as confirmed_transfers
                 with account_import_scope():
                     if not source_enabled(cur):
                         raise ValueError('来源核验未启用，暂时无法确认配对')
             else:
                 if req.manual_anchor_id is not None:
                     raise ValueError('当前账本不支持手动选择划转对手。')
-                from domain.ledger import confirmed_transfers
+                from domain.ledger.transfers import confirmed_transfers
                 arguments.pop('manual_anchor_id')
             result = confirmed_transfers.confirm(cur, **arguments)
         return _norm(result)
@@ -387,8 +387,8 @@ def confirm_transfer(req: ConfirmTransferRequest):
 @router.post("/bank-reconcile/transfers/confirm-combined-repayment")
 def confirm_combined_repayment(req: ConfirmCombinedRepaymentRequest):
     from domain.imports.isolation import account_import_scope, source_enabled
-    from domain.ledger import combined_card_repayment
-    from domain.ledger.ledger_view import _load_accounts_config
+    from domain.ledger.transfers import combined_card_repayment
+    from domain.ledger.cashflow.ledger_view import _load_accounts_config
 
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -408,7 +408,7 @@ def manual_transfer_options(
     month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
     offset: int = Query(0, ge=0),
 ):
-    from domain.ledger.manual_transfer_pairs import pairing_options
+    from domain.ledger.transfers.manual_transfer_pairs import pairing_options
 
     try:
         with get_conn() as conn:
@@ -424,7 +424,7 @@ def manual_transfer_options(
 @router.post("/bank-reconcile/transfers/{transfer_id}/revoke")
 def revoke_transfer(transfer_id: UUID, req: RevokeTransferRequest):
     """Append a revocation; the original confirmation remains immutable."""
-    from domain.ledger import confirmed_transfers
+    from domain.ledger.transfers import confirmed_transfers
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             result = confirmed_transfers.revoke(cur, transfer_id=transfer_id, **req.model_dump())
@@ -436,7 +436,7 @@ def revoke_transfer(transfer_id: UUID, req: RevokeTransferRequest):
 @router.post("/bank-reconcile/bank-sources/{confirmation_id}/revoke")
 def revoke_bank_source(confirmation_id: UUID, req: RevokeTransferRequest):
     """Append a correction to the bank-source confirmation evidence."""
-    from domain.ledger import bank_source_confirmation
+    from domain.ledger.evidence import bank_source_confirmation
     try:
         with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             result = bank_source_confirmation.revoke(cur, confirmation_id=confirmation_id, **req.model_dump())
@@ -487,12 +487,12 @@ def list_transfer_matches(limit: int = 200):
         ensure_tables(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if _table_exists(cur, 'source_records'):
-                from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+                from domain.ledger.transfers import confirmed_transfers_v2 as confirmed_transfers
             else:
-                from domain.ledger import confirmed_transfers
+                from domain.ledger.transfers import confirmed_transfers
             matches = confirmed_transfers.read(cur, limit=max(1, min(limit, 1000)))
-            from domain.ledger.cash_transfer_pairs import cash_pair_type
-            from domain.ledger.ledger_view import _load_accounts_config
+            from domain.ledger.transfers.cash_transfer_pairs import cash_pair_type
+            from domain.ledger.cashflow.ledger_view import _load_accounts_config
             profiles = _load_accounts_config().get('accounts') or {}
             for match in matches:
                 left, right = match['from_evidence'], match['to_evidence']
@@ -529,7 +529,7 @@ def list_unmatched_rows(since: str = "2026-01-01", limit: int = 500):
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         ensure_tables(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            from domain.ledger import bank_source_read
+            from domain.ledger.evidence import bank_source_read
             rows = bank_source_read.unmatched(cur, since=since_date, limit=limit)
 
     summary: dict[str, dict[str, Any]] = {}
@@ -565,9 +565,9 @@ def run_transfer_matching():
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         ensure_tables(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            from domain.ledger import bank_source_read
+            from domain.ledger.evidence import bank_source_read
             pending = bank_source_read.unmatched(cur, since=date(1900, 1, 1), limit=1000)
-            from domain.ledger.transfer_candidates import list_candidates
+            from domain.ledger.transfers.transfer_candidates import list_candidates
             candidates = list_candidates(cur, _load_config())
     return _norm({'status':'review_required', 'matched':0, 'matches':candidates, 'summary':[],
                   'pending':pending, 'coverage_status':'unknown', 'cashflow_backfill':{'status':'not_run'}})
@@ -580,6 +580,6 @@ def list_bank_reconcile_imports():
         conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
         ensure_tables(conn)
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            from domain.ledger import bank_source_read
+            from domain.ledger.evidence import bank_source_read
             imports, summaries = bank_source_read.imports(cur)
             return _norm({'imports':imports, 'summary':summaries, 'coverage_status':'unknown'})

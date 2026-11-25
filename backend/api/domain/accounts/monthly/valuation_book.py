@@ -3,10 +3,10 @@ from bisect import bisect_right
 from datetime import timedelta
 from decimal import Decimal
 
-from domain.accounts.account_history import read_account_history
-from domain.accounts.account_policy import excluded_accounts
-from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
-from domain.accounts.dated_valuation import AccountValuation
+from domain.accounts.views.account_history import read_account_history
+from domain.accounts.views.account_policy import excluded_accounts
+from domain.accounts.balances.balance_reference import historical_account_balance, load_bound_balance_references
+from domain.accounts.monthly.dated_valuation import AccountValuation
 from domain.investments.valuation.account_total_evidence import load as account_totals
 from domain.investments.valuation.capital_ownership import account_contribution_ratios
 from domain.investments.valuation.personal_loan_nav import apply_personal_loan_coverage
@@ -36,8 +36,8 @@ def _cash_candidates(cur, account, cfg, days):
         row['transaction_date'] = row.get('posting_date') or row['transaction_date']
     buckets = nav._bank_backcast_series(accounts=[native], rows_by_account=flows, dates=days, terminal_date=days[-1],
                                         fx_timelines={}, base_currency=unit)
-    from domain.accounts.dated_valuation import statement_valuations
-    from domain.accounts.credit_card_debt import uses_table_net_reference
+    from domain.accounts.monthly.dated_valuation import statement_valuations
+    from domain.accounts.balances.credit_card_debt import uses_table_net_reference
     from domain.investments.trades.installment_principal import load_unbilled_principal
     specs = {code: (unit, card)}
     periods = statement_valuations(cur, specs, days, table_cards=[code] if card and uses_table_net_reference(code, cfg, cur) else [])
@@ -308,7 +308,7 @@ def read_account_book(cur, *, accounts, config, start, end, evidence_through, ba
             owner_ratio(p['account_code']), rate_at(p['currency'], p['as_of'])),
         reference_rate_at=rate_at if full_portfolio else None, base_currency=base)
     if full_portfolio and base == 'CNY':
-        from domain.accounts.monthly_fact_book import build_months, apply_month, cash_in_transit
+        from domain.accounts.monthly.monthly_fact_book import build_months, apply_month, cash_in_transit
         last_close = evidence_through.replace(day=1) - timedelta(days=1)
         # A Dec 31 request includes the opening inventory for the next year's report.
         first_month = start + timedelta(days=1) if (start.month, start.day) == (12, 31) else start
@@ -371,8 +371,8 @@ def current_balances(histories):
 
 def read_account_view(cur, view, business_date, *, member=None, accounts=None):
     """Serve the published view, or build it from the same account book on cold start."""
-    from domain.accounts import account_overview
-    from domain.accounts.account_policy import owner_ratio_lookup
+    from domain.accounts.views import account_overview
+    from domain.accounts.views.account_policy import owner_ratio_lookup
     from domain.investments.valuation import page_projection
     from domain.investments.valuation.nav_period_comparison import period_starts
 

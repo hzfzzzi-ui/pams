@@ -56,7 +56,7 @@ def test_weekend_reuses_only_an_unchanged_dated_foreign_bank_valuation():
 
 
 def test_month_end_statement_changes_native_cash_before_applying_independent_fixing():
-    from domain.accounts.dated_valuation import AccountValuation
+    from domain.accounts.monthly.dated_valuation import AccountValuation
     from domain.investments.valuation.valuation_nav import _apply_historical_cash_points, _add_month_end_marks
     from domain.market.month_end_marks import month_end_fx
     friday, day = date(2026, 1, 30), date(2026, 1, 31)
