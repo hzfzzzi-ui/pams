@@ -24,9 +24,9 @@ from domain.imports.sources.source_row_read import source_row_relation
 
 
 CONFIG_PATH = Path(os.environ.get("PAMS_ACCOUNTS_CONFIG", "/app/config/accounts.yaml"))
-LOCAL_CONFIG_PATH = Path(__file__).resolve().parents[4] / "config" / "accounts.yaml"
+LOCAL_CONFIG_PATH = Path(__file__).resolve().parents[5] / "config" / "accounts.yaml"
 BANK_CONFIG_PATH = Path(os.environ.get("PAMS_BANK_RECONCILE_CONFIG", "/app/config/bank_reconcile.yaml"))
-LOCAL_BANK_CONFIG_PATH = Path(__file__).resolve().parents[4] / "config" / "bank_reconcile.yaml"
+LOCAL_BANK_CONFIG_PATH = Path(__file__).resolve().parents[5] / "config" / "bank_reconcile.yaml"
 LIABILITY_ACCOUNT_TYPES = {"liability"}
 LIABILITY_ACCOUNT_KINDS = {"credit_card"}
 
