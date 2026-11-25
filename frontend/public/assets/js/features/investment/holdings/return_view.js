@@ -2,7 +2,10 @@ import { esc, formatCompactCurrency, formatNumber, formatSignedCurrency, shortHo
 
 const money = value => value == null ? '—' : formatCompactCurrency(value);
 const percent = ratio => ratio == null ? '—' : formatNumber(Number(ratio) * 100) + '%';
-const field = (label, value) => `<div><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`;
+const signedPct = ratio => ratio == null ? '' : `${Number(ratio) >= 0 ? '+' : ''}${formatNumber(Number(ratio) * 100)}%`;
+const pnlTone = value => value == null || Number(value) === 0 ? '' : Number(value) > 0 ? 'up' : 'down';
+const field = (label, value, { tone = '', sub = '' } = {}) =>
+  `<div><small>${esc(label)}</small><strong${tone ? ` class="${tone}"` : ''}>${esc(value)}</strong>${sub ? `<span class="returnStatSub ${tone}">${esc(sub)}</span>` : ''}</div>`;
 const kind = account => account.cash_only ? '现金管理' : account.shared ? '共同出资' : account.dedicated_loan ? '专属借款'
   : account.official_close ? '券商日结' : account.owner_ratio != null && Number(account.owner_ratio) === 1 ? '个人全资' : '投资账户';
 function metricMoney(metric) {
@@ -26,8 +29,23 @@ export function createReturnView({document, scope, details, openPosition, showFi
     hero.hidden = !accountMode && group !== '全部';
     const amount = accountMode ? metricMoney(overview?.net_value)
       : (summary?.missing_values ? '已知 ' : '') + money(summary?.market_value_cny);
+    const dailyVal = summary?.daily_pnl_cny;
+    const dailyValued = Number(summary?.daily_pnl_valued_count || 0);
+    const dailyTotal = Number(summary?.daily_pnl_total_count || 0);
+    const dailyLabel = dailyVal != null && dailyTotal > 0 && dailyValued < dailyTotal
+      ? `今日盈亏 · 已知 ${dailyValued}/${dailyTotal}` : '今日盈亏';
+    const dailyText = dailyVal == null ? '—' : formatSignedCurrency(dailyVal);
+    const dailySub = signedPct(summary?.daily_pnl_ratio);
+    const floatVal = summary?.floating_pnl_cny;
+    const floatLabel = floatVal != null && Number(summary?.floating_pnl_missing || 0) > 0 ? '持仓浮盈 · 已知' : '持仓浮盈';
+    const floatText = floatVal == null ? '—' : formatSignedCurrency(floatVal);
+    const floatSub = signedPct(summary?.floating_pnl_ratio);
     hero.innerHTML = `<small>${accountMode ? '投资账户净值' : '个人持仓市值'}</small><strong>${esc(amount)}</strong>
-      <div class="returnStats">${accountMode ? field('投资账户现金', metricMoney(overview?.cash)) : field('投资账户净值', metricMoney(overview?.net_value))}
+      <div class="returnStats">${accountMode
+        ? field('投资账户现金', metricMoney(overview?.cash))
+        : field(dailyLabel, dailyText, { tone: pnlTone(dailyVal), sub: dailySub })
+          + field(floatLabel, floatText, { tone: pnlTone(floatVal), sub: floatSub })
+          + field('投资账户净值', metricMoney(overview?.net_value))}
       <button type="button" data-financing><small>融资负债 ›</small><b>${esc(metricMoney(overview?.financing))}</b></button></div>`;
     if (accountMode) {
       accounts.innerHTML = '<h3>投资账户</h3>' + (overview?.account_returns?.map(a =>

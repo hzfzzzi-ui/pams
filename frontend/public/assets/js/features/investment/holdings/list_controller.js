@@ -55,6 +55,7 @@ export function mount(root, context) {
   let currentGroup = initialGroup || '全部';
   let releaseGroupFilter = () => {};
   let currentSegment = context.state?.segment || savedView?.segment || '';
+  let currentSort = context.state?.sort || savedView?.sort || 'value_desc';
   let summary = remembered?.summary;
   let overview = remembered?.returnOverview;
   const primaryOrder = ['全部', '股票', '基金', '银行理财', '贵金属', '员工持股', '负债'];
@@ -95,7 +96,7 @@ export function mount(root, context) {
       if (currentGroup === '负债') {
         view.renderFinancing(overview?.financing_items);
       } else {
-        renderRows(matches.filter(r => !currentSegment || r.position_segment === currentSegment), {summary});
+        renderRows(matches.filter(r => !currentSegment || r.position_segment === currentSegment), {summary, sortBy: currentSort});
       }
       returns.update({overview, summary, rows: allRows, group: currentGroup});
       window.dispatchEvent(new CustomEvent('pams:holding-group-change', { detail: { group: heroGroup, sourceRoot: root } }));
@@ -106,11 +107,14 @@ export function mount(root, context) {
       currentSegment = '';
       apply();
     }
+    const sortSelect = document.getElementById('holdingSortOrder');
+    if (sortSelect) sortSelect.value = currentSort;
     const removers = [
       scope.listen(document.getElementById('mobilePortfolioHero'), 'click', event => {
         if (event.target.closest('[data-open-financing]')) chooseGroup('负债');
       }),
       scope.listen(select,'change',() => chooseGroup(select.value)),
+      ...(sortSelect ? [scope.listen(sortSelect, 'change', () => { currentSort = sortSelect.value || 'value_desc'; apply(); })] : []),
       scope.listen(primary,'click',event => {
         const btn = event.target.closest('[data-filter]');
         if (btn) chooseGroup(btn.dataset.filter);
@@ -164,7 +168,7 @@ export function mount(root, context) {
   }
   const instance = {
     ready: null,
-    snapshot: () => ({ group: currentGroup, segment: currentSegment }),
+    snapshot: () => ({ group: currentGroup, segment: currentSegment, sort: currentSort }),
     dispose() {
       if (!scope.active) return savedOnExit;
       savedOnExit = instance.snapshot();

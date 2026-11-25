@@ -183,7 +183,7 @@ function renderRows(rows, options = {}){
       || groupA.localeCompare(groupB, 'zh-CN')
       || safeNum(cnyValue(b, 'market_value')) - safeNum(cnyValue(a, 'market_value'));
   });
-  renderMobileHoldingRows(displayRows, { summary });
+  renderMobileHoldingRows(displayRows, { summary, sortBy: options.sortBy });
   let lastGroup = '';
   for(const r of displayRows){
     const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(r, summary);
@@ -269,11 +269,43 @@ function holdingSyncTime(row) {
   return `<span class="mobileHoldingSync" title="${esc(full)}"><time datetime="${date.toISOString()}" aria-label="${esc(full)}">${short}</time></span>`;
 }
 
-function renderMobileHoldingRows(rows, { summary }) {
+function mobileDailyFallbackLabel(row, dailyPending) {
+  if (row.reference_as_of) return '参考';
+  const group = String(row.position_group || row.major_category || '');
+  if (group === '员工持股' || group === 'ESOP' || group === '银行理财') return '估值';
+  if (dailyPending) return '待更新';
+  return '休市';
+}
+
+function sortMobileHoldingRows(rows, sortBy = 'value_desc', summary) {
+  if (!sortBy || sortBy === 'value_desc') return rows;
+  const metric = (raw) => {
+    const r = datedReturnRow(raw);
+    const { dailyPnl, dailyPending } = holdingMetrics(r, summary);
+    const { amount, rate } = positionReturn(r);
+    if (sortBy === 'daily_pnl_desc' || sortBy === 'daily_pnl_asc') return dailyPending ? null : dailyPnl;
+    if (sortBy === 'daily_pct_desc') return dailyPending || r.reference_as_of ? null : holdingPriceChangePct(r);
+    if (sortBy === 'float_pnl_desc') return amount ?? null;
+    if (sortBy === 'float_pct_desc') return rate ?? null;
+    return cnyValue(r, 'market_value');
+  };
+  const asc = sortBy === 'daily_pnl_asc';
+  return [...rows].sort((a, b) => {
+    const va = metric(a);
+    const vb = metric(b);
+    const ha = va != null && Number.isFinite(Number(va));
+    const hb = vb != null && Number.isFinite(Number(vb));
+    if (ha !== hb) return ha ? -1 : 1;
+    if (ha && hb && Number(va) !== Number(vb)) return asc ? Number(va) - Number(vb) : Number(vb) - Number(va);
+    return safeNum(cnyValue(b, 'market_value')) - safeNum(cnyValue(a, 'market_value'));
+  });
+}
+
+function renderMobileHoldingRows(rows, { summary, sortBy = 'value_desc' }) {
   const el = document.getElementById('mobileHoldingList');
   if (!el) return;
 
-  const displayRows = aggregateMobileHoldingRows(rows);
+  const displayRows = sortMobileHoldingRows(aggregateMobileHoldingRows(rows), sortBy, summary);
   if (!rows.length) {
     el.innerHTML = '<div class="mobileEmpty">暂无持仓</div>';
     return;
@@ -284,6 +316,7 @@ function renderMobileHoldingRows(rows, { summary }) {
     const {amount, rate, label, rateLabel} = positionReturn(r);
     const daily = dailyPending ? null : dailyPnl;
     const dailyRate = dailyPending || r.reference_as_of ? null : holdingPriceChangePct(r);
+    const dailyFallback = daily == null && dailyRate == null ? mobileDailyFallbackLabel(r, dailyPending) : '';
     const name = shortHoldingName(r);
     const status = r.reference_as_of ? '历史参考' : r.is_closed ? '已平仓' : '';
     return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
@@ -296,8 +329,8 @@ function renderMobileHoldingRows(rows, { summary }) {
         <small class="personalPositionWeight" title="仓位占比"><span class="metricCaption">仓位占比</span>${weight}</small>
         <small class="${pnlTone(amount)}" title="${label}"><span class="metricCaption">${label}</span>${pnlText(amount)}</small>
         <small class="${pnlTone(rate)}" title="${rateLabel}"><span class="metricCaption">${rateLabel}</span>${rate == null ? '—' : (Number(rate) === 0 ? '0.00%' : signedPercentText(rate * 100))}</small>
-        <small class="${pnlTone(daily)}" title="最近一日盈亏"><span class="metricCaption">最近一日盈亏</span>${pnlText(daily)}</small>
-        <small class="${pnlTone(dailyRate)}" title="最近一日涨跌幅"><span class="metricCaption">最近一日涨跌幅</span>${signedPercentText(dailyRate)}</small>
+        <small class="${dailyFallback ? 'muted positionDailyStatus' : pnlTone(daily)}" title="最近一日盈亏"><span class="metricCaption">最近一日盈亏</span>${dailyFallback ? esc(dailyFallback) : pnlText(daily)}</small>
+        <small class="${pnlTone(dailyRate)}" title="最近一日涨跌幅"><span class="metricCaption">最近一日涨跌幅</span>${dailyFallback ? '—' : signedPercentText(dailyRate)}</small>
       </span>
     </button>`;
   }).join('');

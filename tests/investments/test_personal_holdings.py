@@ -58,7 +58,8 @@ class PersonalHoldingsTest(TestCase):
             dict(major_category="贵金属", market_value_cny=None),
         ]
         result = personal_holdings({"rows": rows}, {"ETF": "etf_us"})
-        self.assertEqual(result["personal_summary"], {"market_value_cny": 100, "missing_values": 1})
+        self.assertEqual(result["personal_summary"]["market_value_cny"], 100)
+        self.assertEqual(result["personal_summary"]["missing_values"], 1)
         self.assertEqual([r["portfolio_weight"] for r in result["rows"]],
                          [0.3, 0.7, None, None, None, None])
         self.assertEqual(result["rows"][1]["position_segment"], "场内")

@@ -15,7 +15,13 @@
 <body class="pams-shell">
   <header class="pams-header">
     <span class="pams-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15h3v6H3zm5-4h3v10H8zm5-4h3v14h-3zm5-4h3v18h-3z"/></svg><strong>PAMS</strong></span>
-    <a class="pams-header-tools" href="app.html?view=more.html#moreAdvanced" aria-label="账户工具" title="账户工具" data-shell-tools><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.2 13.4a7.4 7.4 0 0 0 0-2.8l1.4-1.1-1.5-2.6-1.7.5a7.4 7.4 0 0 0-2.4-1.4L14.7 4h-3l-.3 2a7.4 7.4 0 0 0-2.4 1.4l-1.7-.5-1.5 2.6 1.4 1.1a7.4 7.4 0 0 0 0 2.8l-1.4 1.1 1.5 2.6 1.7-.5a7.4 7.4 0 0 0 2.4 1.4l.3 2h3l.3-2a7.4 7.4 0 0 0 2.4-1.4l1.7.5 1.5-2.6z"/></svg></a>
+    <div class="pams-header-actions">
+      <button type="button" class="pams-header-tools" aria-label="隐藏金额" title="隐私模式" aria-pressed="false" data-privacy-toggle>
+        <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3 8 10 8a9.74 9.74 0 0 0 5.39-1.61"/><path d="M2 2l20 20"/></svg>
+      </button>
+      <a class="pams-header-tools" href="app.html?view=more.html#moreAdvanced" aria-label="账户工具" title="账户工具" data-shell-tools><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.2 13.4a7.4 7.4 0 0 0 0-2.8l1.4-1.1-1.5-2.6-1.7.5a7.4 7.4 0 0 0-2.4-1.4L14.7 4h-3l-.3 2a7.4 7.4 0 0 0-2.4 1.4l-1.7-.5-1.5 2.6 1.4 1.1a7.4 7.4 0 0 0 0 2.8l-1.4 1.1 1.5 2.6 1.7-.5a7.4 7.4 0 0 0 2.4 1.4l.3 2h3l.3-2a7.4 7.4 0 0 0 2.4-1.4l1.7.5 1.5-2.6z"/></svg></a>
+    </div>
   </header>
   <main class="pams-viewport">
     <iframe id="page-content" title="资产页面"></iframe>
