@@ -127,6 +127,48 @@ function renderLedgerMobileHero(data) {
   const otherPending = Math.max(0, num(period.pending_count) - unclassified - subcategoryPending);
   const amountText = (value, formatter = money) => value == null ? '—' : formatter(value);
   const amountTone = value => value == null ? '' : value < 0 ? 'down' : 'up';
+
+  const incomeVal = amounts.income != null ? num(amounts.income) : null;
+  const expenseVal = amounts.expense != null ? Math.abs(num(amounts.expense)) : null;
+  const savingsRate = incomeVal != null && incomeVal > 0 && expenseVal != null
+    ? (incomeVal - expenseVal) / incomeVal : null;
+  const savingsTone = savingsRate == null ? '' : savingsRate >= 0 ? 'up' : 'down';
+
+  const monthlyRows = (data.monthly_trend || [])
+    .map(row => (row.confirmed_subtotal ?? row).expense)
+    .filter(v => v != null && Number.isFinite(Number(v)))
+    .map(v => Math.abs(Number(v)));
+  let paceLabel = '月均消费';
+  let paceText = '—';
+  let paceTone = '';
+  if (overviewPeriodKey() === 'month') {
+    paceLabel = '消费较上月';
+    if (monthlyRows.length >= 2 && monthlyRows.at(-2) > 0) {
+      const prev = monthlyRows.at(-2);
+      const curr = monthlyRows.at(-1);
+      const delta = (curr - prev) / prev;
+      paceText = `${delta >= 0 ? '+' : ''}${formatPercent(delta, 1)}`;
+      paceTone = delta <= 0 ? 'up' : 'down';
+    }
+  } else if (monthlyRows.length > 0) {
+    const avg = monthlyRows.reduce((sum, v) => sum + v, 0) / monthlyRows.length;
+    paceText = money(avg);
+  }
+
+  const todoPill = $('ledgerTodoPill');
+  if (todoPill) {
+    const parts = [];
+    if (unclassified > 0) parts.push(`${unclassified} 笔待分类`);
+    if (otherPending > 0) parts.push(`${otherPending} 笔待核对`);
+    if (subcategoryPending > 0 && !unclassified) parts.push(`${subcategoryPending} 笔子类待补`);
+    if (parts.length) {
+      todoPill.innerHTML = `<span class="pamsTodoDot" aria-hidden="true"></span><span>待处理 · <strong>${escapeHtml(parts.join(' · '))}</strong></span><span class="pamsTodoArrow" aria-hidden="true">›</span>`;
+      todoPill.hidden = false;
+    } else {
+      todoPill.hidden = true;
+    }
+  }
+
   el.innerHTML = `
     <div class="ledgerMobileLabel">${overviewPeriodLabel()}可支配结余${unclassified ? '（已确认小计）' : ''}</div>
     <div class="ledgerMobileValue ${amountTone(disposableNet)}">${amountText(disposableNet, signedMoney)}</div>
@@ -138,6 +180,16 @@ function renderLedgerMobileHero(data) {
       <div class="ledgerMobileStat">
         <span>消费</span>
         <strong class="${amounts.expense == null ? '' : 'down'}">${amountText(amounts.expense, value => signedMoney(-Math.abs(value)))}</strong>
+      </div>
+    </div>
+    <div class="ledgerMobileStats">
+      <div class="ledgerMobileStat">
+        <span>储蓄率</span>
+        <strong class="${savingsTone}">${savingsRate == null ? '—' : formatPercent(savingsRate, 1)}</strong>
+      </div>
+      <div class="ledgerMobileStat">
+        <span>${paceLabel}</span>
+        <strong class="${paceTone}">${escapeHtml(paceText)}</strong>
       </div>
     </div>
     <div class="ledgerMobileStats">
