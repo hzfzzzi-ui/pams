@@ -47,18 +47,27 @@ html {
 }
 .pams-brand { display: inline-flex; align-items: center; gap: 7px; font-size: 20px; letter-spacing: -.03em; }
 .pams-brand svg { width: 21px; height: 21px; fill: var(--pams-accent-blue, #47b5ff); }
+.pams-header-actions { display: inline-flex; align-items: center; gap: 8px; }
 .pams-header-tools {
   display: grid;
   place-items: center;
   width: 38px;
   height: 38px;
+  padding: 0;
   border-radius: 12px;
   border: 1px solid var(--pams-line-subtle);
   background: var(--pams-bg-panel);
   box-shadow: none;
   color: #e8e8ec;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
+.pams-header-tools[aria-pressed="true"] {
+  color: #62c2ff;
+  border-color: rgba(71, 181, 255, 0.42);
+  background: rgba(71, 181, 255, 0.14);
+}
+.pams-header-tools svg[hidden] { display: none; }
 .pams-header-tools svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
 .pams-header-tools:focus-visible { outline: 2px solid var(--pams-text-primary); }
 @media (prefers-reduced-motion: no-preference) {

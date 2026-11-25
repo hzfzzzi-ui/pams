@@ -1296,3 +1296,70 @@ body.page-ledger .ledgerFlowChips .ledgerFlowChip:is(.active, [aria-pressed="tru
   border-color: transparent !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
 }
+
+
+/* P0 UX polish: investment Hero PnL tones, holding sort control, global privacy mode, bottom nav clearance. */
+.returnStats strong.up, .returnStatSub.up { color: var(--pams-profit); }
+.returnStats strong.down, .returnStatSub.down { color: var(--pams-loss); }
+.returnStatSub {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.92;
+}
+.personalHoldingActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.holdingSortSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--refresh-border);
+  border-radius: 999px;
+  color: #c7c7cc;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.holdingSortSelect option { background: #131722; color: #f5f5f7; }
+.positionDailyStatus { opacity: 0.72; letter-spacing: 0.02em; }
+
+/* Ensure bottom floating pill navigation never overlaps the last list row. */
+html.pams-content body.app-shell:not(.page-account-import) > .wrap {
+  padding-bottom: calc(var(--pams-primary-nav-clearance, 96px) + 28px) !important;
+}
+
+/* Global privacy mode: blur monetary amounts while keeping percentages, names, and charts readable. */
+html[data-privacy="1"] :is(
+  #holdingReturnHero > strong,
+  #holdingReturnHero .returnStats strong,
+  #holdingReturnHero .returnStats b,
+  #mobileHoldingList .personalPositionValues > b,
+  #mobileHoldingList .personalPositionValues > small:nth-of-type(2),
+  #mobileHoldingList .personalPositionValues > small:nth-of-type(4),
+  .mobileHeroValue,
+  .ledgerMobileValue,
+  .ledgerMobileStat strong,
+  .ledgerStreamRowAmount,
+  .ledgerStreamDayTotals,
+  .categoryBarMeta > b,
+  .ledgerRingTotal strong,
+  .ledgerLoanLine strong,
+  .ledgerTransferSummary strong,
+  .monthlyHero strong[data-nav],
+  .monthlyHero span[data-change],
+  .monthlyAudit b,
+  .assetDebtRow strong,
+  .accountSyncAmount,
+  .returnDetail > strong,
+  .returnLink b,
+  .hmHero strong
+) {
+  filter: blur(7px);
+  user-select: none;
+  transition: filter 160ms ease;
+}

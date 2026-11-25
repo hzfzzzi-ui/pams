@@ -101,7 +101,20 @@
       <div id="mobileHoldingFilterChips" class="mobileHoldingFilterChips" aria-label="持仓分类"></div>
       <div id="holdingSegmentFilter" aria-label="持仓细分" hidden></div>
       <div id="financingList" hidden></div>
-      <div class="personalHoldingHeading"><span>持仓明细</span><button type="button" id="holdingBasis">数字口径 ⓘ</button></div>
+      <div class="personalHoldingHeading">
+        <span>持仓明细</span>
+        <div class="personalHoldingActions">
+          <select id="holdingSortOrder" class="holdingSortSelect" aria-label="持仓排序">
+            <option value="value_desc">按市值</option>
+            <option value="daily_pnl_desc">今日盈亏 ↓</option>
+            <option value="daily_pnl_asc">今日盈亏 ↑</option>
+            <option value="daily_pct_desc">今日涨跌 ↓</option>
+            <option value="float_pnl_desc">持仓浮盈 ↓</option>
+            <option value="float_pct_desc">浮盈率 ↓</option>
+          </select>
+          <button type="button" id="holdingBasis">数字口径 ⓘ</button>
+        </div>
+      </div>
       <p id="holdingProjectionStatus" class="muted" role="status" hidden></p>
       <div class="tableWrap" style="margin-top:10px">
         <table class="tableWide" style="min-width:1120px">

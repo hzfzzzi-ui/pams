@@ -5,8 +5,35 @@ const pages = new Set(CONTENT_PAGES);
 const frame = document.getElementById('page-content');
 const links = [...document.querySelectorAll('[data-page]')];
 const toolsLink = document.querySelector('[data-shell-tools]');
+const privacyToggle = document.querySelector('[data-privacy-toggle]');
+const PRIVACY_KEY = 'pams:privacy-mode';
 let loadedDocument = null;
 let replaceOnLoad = true;
+
+function readPrivacyMode() {
+  try { return localStorage.getItem(PRIVACY_KEY) === '1'; }
+  catch { return false; }
+}
+
+function applyPrivacyMode(enabled) {
+  document.documentElement.dataset.privacy = enabled ? '1' : '0';
+  if (privacyToggle) {
+    privacyToggle.setAttribute('aria-pressed', String(enabled));
+    privacyToggle.setAttribute('aria-label', enabled ? '显示金额' : '隐藏金额');
+    privacyToggle.title = enabled ? '隐私模式：已隐藏金额' : '隐私模式：点击隐藏金额';
+    const openIcon = privacyToggle.querySelector('.icon-eye-open');
+    const closedIcon = privacyToggle.querySelector('.icon-eye-closed');
+    if (openIcon) openIcon.hidden = enabled;
+    if (closedIcon) closedIcon.hidden = !enabled;
+  }
+  try {
+    const childDoc = frame.contentDocument;
+    if (childDoc?.documentElement) {
+      if (enabled) childDoc.documentElement.dataset.privacy = '1';
+      else delete childDoc.documentElement.dataset.privacy;
+    }
+  } catch { /* Cross-origin or unloaded frame. */ }
+}
 
 function isEditingText() {
   const active = document.activeElement === frame
@@ -93,6 +120,12 @@ if (window.parent !== window) {
 } else {
 const updateVisibleViewport = fitVisibleViewport();
 const pageMemory = installPageMemory(window, frame);
+applyPrivacyMode(readPrivacyMode());
+privacyToggle?.addEventListener('click', () => {
+  const next = !readPrivacyMode();
+  try { localStorage.setItem(PRIVACY_KEY, next ? '1' : '0'); } catch { /* Ignore storage quota. */ }
+  applyPrivacyMode(next);
+});
 toolsLink?.addEventListener('click', event => {
   if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
@@ -143,6 +176,7 @@ frame.addEventListener('load', () => {
   }
   const doc = frame.contentDocument;
   doc.documentElement.classList.add('pams-content');
+  applyPrivacyMode(readPrivacyMode());
   doc.querySelector('.nav')?.remove();
   syncAddress(replaceOnLoad);
   replaceOnLoad = false;

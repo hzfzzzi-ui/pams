@@ -153,10 +153,52 @@ def personal_holdings(payload, classes=None, *, accounts=None):
                                       if floating is not None and Decimal(str(cost)) > 0 else None)
         item["cumulative_pnl_ratio"] = (float(Decimal(str(pnl)) / Decimal(str(cost)))
                                         if pnl is not None and cost is not None and Decimal(str(cost)) > 0 else None)
+    floating_total = Decimal("0")
+    floating_cost = Decimal("0")
+    floating_valued = 0
+    floating_missing = 0
+    daily_total = Decimal("0")
+    daily_base = Decimal("0")
+    daily_valued = 0
+    daily_total_count = 0
+    for row in rows:
+        if row["position_group"] in {"现金/活期", "负债"} or row.get("reference_as_of") or row.get("is_closed"):
+            continue
+        daily_total_count += 1
+        fpnl = row.get("floating_pnl_cny")
+        rcost = row.get("cost_cny")
+        if fpnl is not None and rcost is not None:
+            floating_valued += 1
+            floating_total += Decimal(str(fpnl))
+            floating_cost += Decimal(str(rcost))
+        else:
+            floating_missing += 1
+        stale = row.get("daily_pnl_stale") is True or str(row.get("daily_return_status") or "").lower() == "pending"
+        raw_daily = row.get("daily_total_pnl_cny")
+        if raw_daily is None:
+            raw_daily = row.get("daily_pnl_cny")
+        mv = row.get("market_value_cny")
+        if not stale and raw_daily is not None and mv is not None:
+            daily_valued += 1
+            d_dec = Decimal(str(raw_daily))
+            daily_total += d_dec
+            base_mv = Decimal(str(mv)) - d_dec
+            if base_mv > 0:
+                daily_base += base_mv
+
     references = []
     for reference in payload.get("historical_references", []):
         group, segment = position_category(reference, classes)
         references.append(dict(reference, position_group=group, position_segment=segment))
     return dict(payload, rows=rows, historical_references=references,
-                personal_summary={"market_value_cny": float(total) if valued or not missing else None,
-                                  "missing_values": missing})
+                personal_summary={
+                    "market_value_cny": float(total) if valued or not missing else None,
+                    "missing_values": missing,
+                    "floating_pnl_cny": float(floating_total) if floating_valued else None,
+                    "floating_pnl_ratio": float(floating_total / floating_cost) if floating_valued and floating_cost > 0 else None,
+                    "floating_pnl_missing": floating_missing,
+                    "daily_pnl_cny": float(daily_total) if daily_valued else None,
+                    "daily_pnl_ratio": float(daily_total / daily_base) if daily_valued and daily_base > 0 else None,
+                    "daily_pnl_valued_count": daily_valued,
+                    "daily_pnl_total_count": daily_total_count,
+                })
