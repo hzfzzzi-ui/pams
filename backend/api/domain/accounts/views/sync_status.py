@@ -30,12 +30,14 @@ _LOCAL = ZoneInfo('Asia/Shanghai')
 
 def _activity(rows, date_key):
     verified = [row for row in rows if row['source_evidence_status'] == 'verified']
+    covered_months = sorted({str(row[date_key])[:7] for row in verified if row.get(date_key)})[-12:]
     return {
         'status': 'recorded' if verified else 'review' if rows else 'uninitialized',
         'count': len(verified),
         'as_of': max((row[date_key] for row in verified), default=None),
         'synced_at': max((row['created_at'] for row in verified if row.get('created_at')), default=None),
         'has_unverified': len(rows) > len(verified),
+        'covered_months': covered_months,
     }
 
 
@@ -84,8 +86,17 @@ def _compact_summary(row, published_at, *, liability, now, source_balance=None):
         year, month = (local.year + 1, 1) if local.month == 12 else (local.year, local.month + 1)
         deadline = local.replace(year=year, month=month, day=min(local.day, monthrange(year, month)[1]))
         status = 'stale' if now > deadline else 'normal'
+    covered_months = {
+        month
+        for item in (row['cashflow'], row['investment'])
+        for month in (item.get('covered_months') or ())
+        if isinstance(month, str) and len(month) == 7
+    }
+    if as_of and len(str(as_of)) >= 7:
+        covered_months.add(str(as_of)[:7])
     result = {'status': status, 'balance_amount': amount, 'latest_trade_on': transaction_day,
-              'last_synced_at': synced_at, 'review_reasons': reasons}
+              'last_synced_at': synced_at, 'review_reasons': reasons,
+              'covered_months': sorted(covered_months)[-12:]}
     if row['source_data'] is not None:
         result.update(latest_source_on=source.get('as_of'), latest_cashflow_on=row['cashflow'].get('as_of'))
     if amount is not None:
