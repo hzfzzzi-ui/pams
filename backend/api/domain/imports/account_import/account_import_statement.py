@@ -9,8 +9,8 @@ from tempfile import TemporaryDirectory
 
 import yaml
 
-from domain.ledger.cashflow_fact import build_cashflow_fact, make_source_hash
-from domain.ledger.bank_statement_rules import _classify_statement_row
+from domain.ledger.cashflow.cashflow_fact import build_cashflow_fact, make_source_hash
+from domain.ledger.evidence.bank_statement_rules import _classify_statement_row
 
 
 def config():

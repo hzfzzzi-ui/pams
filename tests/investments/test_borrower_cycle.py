@@ -3,8 +3,8 @@ from decimal import Decimal
 
 import pytest
 
-from domain.ledger import loan_cycle_evidence as cycles
-from domain.ledger.ledger_view import _classify_cash_direction
+from domain.ledger.evidence import loan_cycle_evidence as cycles
+from domain.ledger.cashflow.ledger_view import _classify_cash_direction
 
 
 def bank(ident, amount, day):

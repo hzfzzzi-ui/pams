@@ -6,7 +6,7 @@ import pytest
 
 from domain.brokers.ibkr.ibkr_daily_close import FLOW_FIELDS, _Evidence
 from domain.brokers.ibkr.ibkr_monthly_attribution import _convert, _movements
-from domain.ledger.ledger_view import _monthly_close
+from domain.ledger.cashflow.ledger_view import _monthly_close
 
 
 def test_multi_currency_statement_matches_nav_less_dated_funding_and_counts_cash_once():

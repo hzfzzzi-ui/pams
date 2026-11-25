@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from domain.brokers.ibkr.funding_marks import funding_marks
-from domain.ledger import confirmed_transfers_v2
+from domain.ledger.transfers import confirmed_transfers_v2
 
 ZERO = Decimal(0)
 

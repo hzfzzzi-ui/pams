@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from domain.accounts.monthly_fact_book import cash_book
+from domain.accounts.monthly.monthly_fact_book import cash_book
 from domain.brokers.ibkr.fact_replay import replay_xml
 
 
@@ -51,8 +51,8 @@ def test_broker_cash_shares_and_interest_use_movements_even_when_statement_total
 
 def test_verified_transfer_only_contributes_while_between_both_accounts(monkeypatch):
     from unittest.mock import Mock
-    from domain.accounts.monthly_fact_book import cash_in_transit
-    from domain.ledger import confirmed_transfers_v2
+    from domain.accounts.monthly.monthly_fact_book import cash_in_transit
+    from domain.ledger.transfers import confirmed_transfers_v2
 
     start, end = date(2026, 1, 31), date(2026, 2, 2)
     cur = Mock()

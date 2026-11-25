@@ -72,7 +72,7 @@ def source_row_relation(cur, *, verifier=None, originals=None) -> str:
     row = cur.fetchone()
     if (isinstance(row, dict) and row.get('redesigned')) or (not isinstance(row, dict) and row and len(row) > 10 and row[10]):
         from datetime import date
-        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
         facts = load_cash_rows(cur, start=date.min, end=date.max, base_currency='CNY', originals=originals)
         ids = [int(fact['id']) for fact in facts if fact.get('source_evidence_status') == 'verified']
         id_array = 'ARRAY[' + ','.join(str(ident) for ident in ids) + ']::bigint[]'
@@ -115,7 +115,7 @@ def source_row_relation(cur, *, verifier=None, originals=None) -> str:
     cur.execute("SELECT confirmation_id FROM evidence_confirmation WHERE confirmation_type='bank_source'")
     ids = [r['confirmation_id'] if isinstance(r,dict) else r[0] for r in cur.fetchall()]
     from uuid import UUID
-    from domain.ledger.bank_source_confirmation import verified as verified_bank
+    from domain.ledger.evidence.bank_source_confirmation import verified as verified_bank
     confirmed = [str(UUID(str(ident))) for ident in ids if verified_bank(cur,ident)]
     confirmations = 'ARRAY[' + ','.join("'" + ident + "'" for ident in confirmed) + ']::uuid[]'
     return '(' + direct + _CONFIRMED_BANK_ROWS.replace('__VERIFIED_CONFIRMATIONS__',confirmations) + ')'

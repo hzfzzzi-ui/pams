@@ -6,7 +6,7 @@ from datetime import date as Date
 
 from fastapi import APIRouter, Query
 
-from domain.accounts import account_overview
+from domain.accounts.views import account_overview
 from domain.risk.portfolio_config import build_portfolio_config_payload
 from domain.investments.valuation.portfolio_equity_bridge import build_equity_bridge_payload
 from domain.risk.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload

@@ -29,12 +29,13 @@ from endpoints import portfolio_state as portfolio_state_endpoint
 from endpoints import account_sync
 from endpoints import analysis
 from endpoints import account_import
-from domain.accounts import account_overview, account_policy
-from domain.accounts.accounts_view import (
+from domain.accounts.views import account_overview
+from domain.accounts.views import account_policy
+from domain.accounts.views.accounts_view import (
     build_account_detail_payload as _build_account_detail_payload,
     build_accounts_payload as _build_accounts_payload,
 )
-from domain.ledger.cashflow_view import build_cashflow_series_payload as _build_cashflow_series_payload
+from domain.ledger.cashflow.cashflow_view import build_cashflow_series_payload as _build_cashflow_series_payload
 from domain.market.fx_rates import build_latest_fx_rates_payload as _build_latest_fx_rates_payload
 from domain.investments.holdings.holdings_view import (
     advance_overseas_view_date as _advance_overseas_view_date,

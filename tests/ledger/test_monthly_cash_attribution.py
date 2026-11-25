@@ -3,7 +3,7 @@ from decimal import Decimal
 from unittest.mock import Mock
 
 from domain.investments.trades import installment_principal
-from domain.ledger.investment_receipts import counted_receipt_ids
+from domain.ledger.evidence.investment_receipts import counted_receipt_ids
 
 
 def test_receipt_only_removed_for_the_same_verified_source_and_counted_return():

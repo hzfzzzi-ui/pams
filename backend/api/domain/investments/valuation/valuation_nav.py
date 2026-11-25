@@ -13,12 +13,12 @@ from datetime import date as Date, timedelta
 from decimal import Context, Decimal, InvalidOperation, localcontext
 from typing import Any
 
-from domain.accounts.balance_reference import historical_account_balance, load_bound_balance_references
-from domain.accounts.credit_card_debt import uses_table_net_reference
-from domain.accounts.dated_valuation import AccountValuation, posted_card_valuations, statement_closings, statement_valuations
-from domain.accounts.position_valuation import fund_account_observations, uses_fund_account_valuation
-from domain.accounts.position_reference import supports_dated_position_reference
-from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
+from domain.accounts.balances.balance_reference import historical_account_balance, load_bound_balance_references
+from domain.accounts.balances.credit_card_debt import uses_table_net_reference
+from domain.accounts.monthly.dated_valuation import AccountValuation, posted_card_valuations, statement_closings, statement_valuations
+from domain.accounts.balances.position_valuation import fund_account_observations, uses_fund_account_valuation
+from domain.accounts.balances.position_reference import supports_dated_position_reference
+from domain.accounts.balances.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
 from domain.investments.valuation.cash_fx_reference import preceding_weekend_dates, supports_cash_reference, weekend_cash_references
 from domain.investments.valuation.nav_period_comparison import (
     DisplayContributions, apply_terminal_breakdown, comparison_scope, period_comparisons, position_member,
@@ -748,7 +748,7 @@ def normalize_nav_row(row: dict[str, Any]) -> dict[str, Any]:
         "netWorth": _norm(row.get("net_worth")),
     }
     if 'monthly_book' in row:
-        from domain.accounts.account_overview import _norm as normalize_tree
+        from domain.accounts.views.account_overview import _norm as normalize_tree
         result['monthly_book'] = normalize_tree(row['monthly_book'])
     if '_account_contributions' in row:
         result['account_contributions'] = {code: str(amount) for code, amount in row['_account_contributions'].items()}
@@ -822,7 +822,7 @@ def _statement_rows_by_account(cur, account_codes: list[str], start_date: Date, 
         to_regclass('public.source_records') IS NOT NULL AS redesigned""")
     exists = cur.fetchone() or {}
     if exists.get('redesigned') and exists.get('cashflow_fact_exists') and exists.get('item_exists'):
-        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
         rows = load_cash_rows(cur, start=start_date, end=terminal_date, base_currency='CNY', account_codes=account_codes)
         for item in rows:
             code = item['account_code']
@@ -1469,7 +1469,7 @@ def build_nav_weekly_payload(
     interval: str = "weekly",
     account_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    from domain.accounts.valuation_book import read_account_book, render_histories
+    from domain.accounts.monthly.valuation_book import read_account_book, render_histories
     terminal_date = terminal_date or ANCHOR_NAV_DATE
     start_date = min(start_date, terminal_date)
     cfg = account_config or {'accounts': {a['account_code']: a for a in overview_payload['accounts']}}

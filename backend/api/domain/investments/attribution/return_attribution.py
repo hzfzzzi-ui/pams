@@ -18,8 +18,8 @@ from typing import Any, Callable
 
 import yaml
 
-from domain.accounts.account_policy import default_owner_ratio, owner_ratios
-from domain.accounts.account_policy import owner_ratio_case_sql as _owner_ratio_case_sql, owner_ratio_lookup as _account_owner_ratio_lookup
+from domain.accounts.views.account_policy import default_owner_ratio, owner_ratios
+from domain.accounts.views.account_policy import owner_ratio_case_sql as _owner_ratio_case_sql, owner_ratio_lookup as _account_owner_ratio_lookup
 from domain.assets.asset_names import _asset_name_lookup, _name_needs_enrichment, _symbol_name_keys
 from domain.assets.exposure_engine import (
     UNMAPPED_INDUSTRY,

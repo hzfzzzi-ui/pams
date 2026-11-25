@@ -20,9 +20,9 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
-from domain.accounts.account_policy import is_investment_account, excluded_accounts as _excluded_accounts, owner_ratio as _owner_ratio
-from domain.accounts.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
-from domain.accounts.balance_snapshot import load_verified_bank_balances, prefer_verified_bank_balance
+from domain.accounts.views.account_policy import is_investment_account, excluded_accounts as _excluded_accounts, owner_ratio as _owner_ratio
+from domain.accounts.balances.balance_snapshot import SOURCE as VERIFIED_BANK_BALANCE_SOURCE
+from domain.accounts.balances.balance_snapshot import load_verified_bank_balances, prefer_verified_bank_balance
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 from domain.investments.holdings.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.holdings.snapshot_coverage import annotate_snapshot_coverage, load_account_snapshot_coverage
@@ -347,7 +347,7 @@ def _rolled_forward_account_balance(
         return None
 
     try:
-        from domain.accounts.account_balance import load_account_balance_basis
+        from domain.accounts.balances.account_balance import load_account_balance_basis
 
         manual_currency = str(manual_balance.get("currency") or "CNY").upper()
         if manual_currency != "CNY":
@@ -968,7 +968,7 @@ def load_cash_transactions(cur, limit: int = 5000) -> list[dict[str, Any]]:
     if not (_table_exists(cur, 'source_records') or all(_table_exists(cur, table) for table in
             ('source_items', 'source_batches', 'evidence_confirmation'))):
         return []
-    from domain.ledger import bank_source_read
+    from domain.ledger.evidence import bank_source_read
     result = []
     for item in bank_source_read.rows(cur, limit=limit):
         source = item.get('source') or {}
@@ -992,10 +992,10 @@ def load_transfer_matches(cur, limit: int = 5000) -> list[dict[str, Any]]:
     if not _table_exists(cur, 'evidence_confirmation'):
         return []
     if _table_exists(cur, 'source_records'):
-        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+        from domain.ledger.transfers import confirmed_transfers_v2 as confirmed_transfers
     else:
-        from domain.ledger import confirmed_transfers
-    from domain.ledger.confirmed_transfers_v2 import transfer_accounting_identity
+        from domain.ledger.transfers import confirmed_transfers
+    from domain.ledger.transfers.confirmed_transfers_v2 import transfer_accounting_identity
 
     result = []
     for item in confirmed_transfers.read(cur, limit=limit):

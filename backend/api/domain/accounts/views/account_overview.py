@@ -17,7 +17,7 @@ import psycopg2
 import psycopg2.extras
 import yaml
 
-from domain.accounts.account_policy import excluded_accounts as _excluded_accounts, owner_ratio as owner_ratio_for_account
+from domain.accounts.views.account_policy import excluded_accounts as _excluded_accounts, owner_ratio as owner_ratio_for_account
 from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 from domain.imports.sources.source_row_read import source_row_relation
@@ -474,10 +474,10 @@ def _fetch_daily_fx_rates_by_date(cur, holding_balances: dict[str, list[dict[str
 def _fetch_transfer_rollups(cur, *, originals=None) -> dict[str, dict[str, list[dict[str, Any]]]]:
     cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
     if cur.fetchone().get('redesigned'):
-        from domain.ledger import confirmed_transfers_v2 as confirmed_transfers
+        from domain.ledger.transfers import confirmed_transfers_v2 as confirmed_transfers
         records = confirmed_transfers.read(cur, limit=None, originals=originals)
     else:
-        from domain.ledger import confirmed_transfers
+        from domain.ledger.transfers import confirmed_transfers
         records = confirmed_transfers.read(cur, limit=None)
     grouped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for record in records:
@@ -641,7 +641,7 @@ def _build_accounts_overview(
     canonical_balances: dict[str, dict[str, Any]] | None = None,
     verified_bank_balances: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    from domain.accounts.balance_snapshot import prefer_verified_bank_balance
+    from domain.accounts.balances.balance_snapshot import prefer_verified_bank_balance
 
     defaults = account_cfg.get("defaults") or {}
     accounts = account_cfg.get("accounts") or {}
@@ -777,7 +777,7 @@ def _overview_payload(cur=None, *, include_transfers=True, valuation_balances=No
                 return _overview_payload(cur=shared_cur, include_transfers=include_transfers,
                                          valuation_balances=valuation_balances)
     from domain.brokers.ibkr import ibkr_daily_close_read
-    from domain.accounts.balance_snapshot import load_verified_bank_balances
+    from domain.accounts.balances.balance_snapshot import load_verified_bank_balances
     from domain.imports.sources.source_original_read import SourceOriginals
     from domain.investments.valuation import portfolio_state
 

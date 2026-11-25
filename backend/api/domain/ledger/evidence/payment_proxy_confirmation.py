@@ -87,7 +87,7 @@ def confirm(cur, *, source_id, target_id, note, confirmed):
             return {'confirmation_id':str(prior[0]['confirmation_id']),'replayed':True}
         raise ValueError('payment fact belongs to another active confirmation')
     if redesigned:
-        from domain.ledger.confirmed_transfers_v2 import occupied_cashflow_ids
+        from domain.ledger.transfers.confirmed_transfers_v2 import occupied_cashflow_ids
 
         if set(ids) & occupied_cashflow_ids(cur):
             raise ValueError('payment fact belongs to another active confirmation')

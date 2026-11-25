@@ -9,9 +9,9 @@ from typing import Any, Literal
 import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter
-from domain.accounts.account_overview import _view_as_of
-from domain.accounts.valuation_book import read_account_view
-from domain.accounts.sync_status import read_account_sync, review_records
+from domain.accounts.views.account_overview import _view_as_of
+from domain.accounts.monthly.valuation_book import read_account_view
+from domain.accounts.views.sync_status import read_account_sync, review_records
 from domain.investments.valuation.portfolio_state import _load_accounts_config
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -58,7 +58,7 @@ def account_sync_status():
 @router.get('/accounts/{account_code}/source-anomalies')
 def account_source_anomalies(account_code: str, offset: int = 0,
                              kind: Literal['duplicates', 'cashflow', 'investment', 'balance', 'unposted_manual'] = 'duplicates'):
-    from domain.accounts.bank_source_status import anomalies, unposted_manual
+    from domain.accounts.views.bank_source_status import anomalies, unposted_manual
 
     with closing(get_conn()) as conn:
         conn.set_session(isolation_level='REPEATABLE READ', readonly=True)

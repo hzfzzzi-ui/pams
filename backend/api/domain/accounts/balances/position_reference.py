@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 
-from domain.accounts.balance_reference import historical_balance
+from domain.accounts.balances.balance_reference import historical_balance
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 
 

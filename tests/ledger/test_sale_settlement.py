@@ -1,7 +1,7 @@
 """A sale paid into a bank account must match its exact receipt."""
 import unittest
 
-from domain.ledger.confirmed_transfers_v2 import BANK_REDEMPTION_PURPOSE, is_manual_withdrawal_pair
+from domain.ledger.transfers.confirmed_transfers_v2 import BANK_REDEMPTION_PURPOSE, is_manual_withdrawal_pair
 
 
 class SaleSettlementTest(unittest.TestCase):

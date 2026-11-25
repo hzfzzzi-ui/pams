@@ -12,7 +12,7 @@ from domain.imports.sources.source_fact_evidence import _digest
 from domain.imports.sources.source_original_read import SourceOriginals
 from domain.investments.valuation.nav_period_comparison import position_member
 from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
-from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
 
 def _matches_order(flow, order):

@@ -5,8 +5,8 @@ from datetime import date
 from decimal import Decimal
 
 from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
-from domain.ledger.cashflow_classification import PERSONAL_LOAN_CATEGORY, personal_loan_principal
-from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger.cashflow.cashflow_classification import PERSONAL_LOAN_CATEGORY, personal_loan_principal
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
 
 def _principal_anchors(cur, codes, through):
@@ -179,7 +179,7 @@ def apply_personal_loan_coverage(cur, rows, codes, value_in_base, *, reference_r
         WHERE c.category=%s AND f.event_date<=%s AND (%s OR (c.status='confirmed' AND c.classification_source='manual'
           AND f.account_code=ANY(%s)))""", (PERSONAL_LOAN_CATEGORY, max(days), reference_rate_at is not None, sorted(codes)))
     selected = {r['cashflow_id']: r['event_date'] for r in cur.fetchall()}
-    from domain.ledger.loan_cycle_evidence import principal_ids, read as read_loan_cycles
+    from domain.ledger.evidence.loan_cycle_evidence import principal_ids, read as read_loan_cycles
     cycles = [c for c in read_loan_cycles(cur) if all(r['account'] in codes for r in c['cash'])]
     principal = principal_ids(cycles)
     for cycle in cycles:

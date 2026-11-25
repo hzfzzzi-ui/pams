@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from domain.accounts import transfer_settlement as settlement
+from domain.accounts.balances import transfer_settlement as settlement
 from domain.brokers.ibkr.funding_marks import _funding_day
 from domain.brokers.ibkr.ibkr_daily_close import _Evidence
 

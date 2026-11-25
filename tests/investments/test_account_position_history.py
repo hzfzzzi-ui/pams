@@ -7,8 +7,8 @@ import psycopg2
 import pytest
 from psycopg2.extras import RealDictCursor
 
-from domain.accounts.account_history import read_account_history
-from domain.accounts.position_valuation import _position_estimates
+from domain.accounts.views.account_history import read_account_history
+from domain.accounts.balances.position_valuation import _position_estimates
 from domain.investments.valuation.valuation_nav import _add_dated_account_observations
 from decimal import Decimal
 from domain.imports.sources import source_records_v2 as sources

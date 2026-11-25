@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal as D
 
 from domain.investments.trades.installment_principal import _principal_steps
-from domain.accounts.dated_valuation import AccountValuation
+from domain.accounts.monthly.dated_valuation import AccountValuation
 from domain.investments.valuation.valuation_nav import _apply_historical_cash_points
 
 

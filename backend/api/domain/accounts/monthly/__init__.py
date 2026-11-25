@@ -1,0 +1,1 @@
+"""Accounts monthly subpackage."""

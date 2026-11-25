@@ -64,7 +64,7 @@ def _leg(cur, kind, ident, *, lock=False):
             cur.execute("""SELECT c.confirmation_id,c.source_item_id FROM evidence_confirmation c
                 WHERE c.confirmation_type='bank_source' AND c.cashflow_id=%s AND c.revoked_at IS NULL""", (ident,))
             candidates = cur.fetchall()
-            from domain.ledger.bank_source_confirmation import verified as verified_bank_source
+            from domain.ledger.evidence.bank_source_confirmation import verified as verified_bank_source
             if len(candidates) != 1 or not verified_bank_source(cur, candidates[0]['confirmation_id']):
                 raise ValueError('bank leg requires confirmed cash source, not an inferred bank leg')
             row = dict(row)

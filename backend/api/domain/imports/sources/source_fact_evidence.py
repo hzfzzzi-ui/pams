@@ -12,7 +12,7 @@ from typing import Any
 
 from domain.assets.alias_policy import is_identity_alias
 from domain.imports.sources.unified_source import _json_value
-from domain.ledger.cashflow_fact import make_source_hash
+from domain.ledger.cashflow.cashflow_fact import make_source_hash
 
 
 def _rows(cur):
@@ -163,7 +163,7 @@ def _verify_source_record_fact(cur, table, fact_id, *, locking):
         from domain.investments.trades.trade_read_v2 import load_trade_rows
         facts = load_trade_rows(cur, account_code=account, start=day, end=day, fact_id=fact_id)
     else:
-        from domain.ledger.cashflow_read_v2 import load_cash_rows
+        from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
         facts = load_cash_rows(cur, start=day, end=day, base_currency='CNY', fact_id=fact_id)
     if not facts or facts[0]['source_evidence_status'] != 'verified':
         return {'status': 'unknown', 'reason': 'source_record_evidence_unverified'}

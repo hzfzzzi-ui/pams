@@ -1,8 +1,10 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from domain.accounts import account_history as history
-from domain.accounts import recorded_positions, dated_valuation, position_valuation
+from domain.accounts.views import account_history as history
+from domain.accounts.balances import recorded_positions
+from domain.accounts.monthly import dated_valuation
+from domain.accounts.balances import position_valuation
 
 
 def test_card_bill_unbilled_principal_and_credit_balance(monkeypatch):

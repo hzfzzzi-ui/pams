@@ -6,10 +6,10 @@ from uuid import uuid4
 
 from psycopg2.extras import Json
 
-from domain.ledger import confirmed_transfers_v2 as transfers
-from domain.ledger.cash_transfer_pairs import CARD_PAYMENT, FX_REVIEW_TOLERANCE, _cash_text
-from domain.ledger.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
-from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger.transfers import confirmed_transfers_v2 as transfers
+from domain.ledger.transfers.cash_transfer_pairs import CARD_PAYMENT, FX_REVIEW_TOLERANCE, _cash_text
+from domain.ledger.cashflow.cashflow_classification import loan_repayment_needs_split, personal_loan_principal
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
 
 def _eligible(row):

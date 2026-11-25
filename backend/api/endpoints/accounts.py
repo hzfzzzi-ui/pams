@@ -7,9 +7,9 @@ import psycopg2.extras
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from domain.accounts import account_overview
-from domain.accounts.valuation_book import read_account_view
-from domain.accounts.account_overview import get_conn
+from domain.accounts.views import account_overview
+from domain.accounts.monthly.valuation_book import read_account_view
+from domain.accounts.views.account_overview import get_conn
 from domain.investments.valuation.nav_period_comparison import period_starts
 
 router = APIRouter()

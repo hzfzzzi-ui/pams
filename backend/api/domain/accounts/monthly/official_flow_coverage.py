@@ -289,7 +289,7 @@ def verified_ibkr_period(cur, *, account_code: str, start: date, end: date,
     mode = cur.fetchone()
     if not mode or mode["isolation"] not in {"repeatable read", "serializable"}:
         return None
-    from domain.accounts.flow_coverage import has_unvalued_non_cash_transfer
+    from domain.accounts.monthly.flow_coverage import has_unvalued_non_cash_transfer
     if has_unvalued_non_cash_transfer(cur, account_code, start+timedelta(days=1), end):
         return None
     opening, closing = _source(cur, account_code, start), _source(cur, account_code, end)

@@ -7,7 +7,7 @@ from uuid import UUID
 from decimal import Decimal
 from typing import Any
 
-from domain.accounts.account_identity import account_display
+from domain.accounts.views.account_identity import account_display
 from domain.imports.account_import.account_import_types import LICAITONG_CURRENT_PLUS, asset_type
 from domain.imports.account_import.account_import_parse import FIELDS as PARSE_FIELDS
 from domain.imports.account_import import account_import_statement as statement

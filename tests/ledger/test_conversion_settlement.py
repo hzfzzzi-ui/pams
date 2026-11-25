@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from domain.investments.valuation.monthly_overview import _conversion_spreads
-from domain.ledger.conversion_settlement import monthly_conversion_settlements
+from domain.ledger.transfers.conversion_settlement import monthly_conversion_settlements
 
 
 def test_only_cross_currency_cash_settlements_count_signed_grouped_legs_at_common_personal_share():

@@ -600,8 +600,8 @@ def _verified_portfolio_daily_pnl(cur, *, state, account_cfg, account_balances, 
         end = Date.fromisoformat(str(state["valuation_date"]))
         if any(_date_key(row.get("as_of")) != end.isoformat() for row in members):
             return None
-        from domain.accounts.flow_coverage import latest_verified_period
-        from domain.accounts.official_flow_coverage import IBKRSourceConflict, latest_verified_ibkr_period
+        from domain.accounts.monthly.flow_coverage import latest_verified_period
+        from domain.accounts.monthly.official_flow_coverage import IBKRSourceConflict, latest_verified_ibkr_period
         proofs: list[dict[str, Any]] = []
         total = Decimal(0)
         for code in sorted(accounts):
@@ -738,7 +738,7 @@ def published_daily_close_compatible(row: dict[str, Any] | None, *,
 
 def published_bank_balances_compatible(row, account_balances):
     """Reject a published total if it still uses an older bank balance."""
-    from domain.accounts.balance_snapshot import SOURCE
+    from domain.accounts.balances.balance_snapshot import SOURCE
 
     raw = (row or {}).get('raw_json')
     amounts = raw.get('account_values_cny') if isinstance(raw, dict) else None

@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 from domain.imports.sources.source_original_read import SourceOriginals
-from domain.ledger.cashflow_read_v2 import load_cash_rows
+from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
 
 def contribution_ratios(events, personal_legs, dates, through, personal_total, account_total):
@@ -126,7 +126,7 @@ def account_contribution_ratios(cur, code, cfg, dates):
 
 
 def position_ownership(cur, accounts, dates, owner_ratio):
-    from domain.accounts.account_overview import _load_accounts_config
+    from domain.accounts.views.account_overview import _load_accounts_config
     configs = _load_accounts_config().get('accounts', {})
     schedules = {}
     for code in accounts:
@@ -163,7 +163,7 @@ def monthly_profit_reallocations(history, nav_by_date, code):
 
 
 def read_monthly_profit_reallocations(cur, nav, excluded_accounts):
-    from domain.accounts.account_overview import _load_accounts_config
+    from domain.accounts.views.account_overview import _load_accounts_config
     months = defaultdict(dict)
     active = {code for row in nav.values() for code in (row.get('monthly_book') or {}).get('accounts', {})}
     for code, cfg in _load_accounts_config().get('accounts', {}).items():

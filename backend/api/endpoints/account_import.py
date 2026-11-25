@@ -320,7 +320,7 @@ async def stage_ibkr_source_record(request: Request):
 @router.get('/source-records')
 def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50),
                         account_code: str | None = Query(None, min_length=1, max_length=80)):
-    from domain.accounts.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE
+    from domain.accounts.views.bank_source_status import BANK_DUPLICATE_REVIEW_SOURCE
 
     def read(cur):
         cur.execute('''SELECT source_id,account_code,source_name,acquisition_method,document_type,filename,
@@ -335,7 +335,7 @@ def list_source_records(request: Request, limit: int = Query(20, ge=1, le=50),
 
 @router.post('/bank-duplicate-reviews')
 def confirm_bank_duplicate_reviews(body: BankDuplicateReviewBatch, request: Request):
-    from domain.accounts.bank_source_status import confirm_distinct
+    from domain.accounts.views.bank_source_status import confirm_distinct
 
     return execute_source_record(request, lambda cur: {'accounts': confirm_distinct(
         cur, [account.model_dump() for account in body.accounts])}, write=True)
@@ -572,20 +572,20 @@ async def stage_flow_coverage(request: Request, account_code: str = Query(..., m
         content.extend(part)
         if len(content) > store.MAX_FILE_BYTES:
             raise HTTPException(413, detail={"code":"file_size", "message":"文件超过10MB"})
-    from domain.accounts import flow_coverage
+    from domain.accounts.monthly import flow_coverage
     return await run_in_threadpool(execute, request, lambda cur: flow_coverage.stage(
         cur, account_code=account_code, filename=filename, content=bytes(content)), write=True, serializable=True)
 
 
 @router.get("/flow-coverage/{batch_id}")
 def get_flow_coverage(batch_id: UUID, request: Request):
-    from domain.accounts import flow_coverage
+    from domain.accounts.monthly import flow_coverage
     return execute(request, lambda cur: flow_coverage.inspect(cur, batch_id))
 
 
 @router.post("/flow-coverage/{batch_id}/publish")
 def publish_flow_coverage(batch_id: UUID, body: ConfirmFlowCoverage, request: Request):
-    from domain.accounts import flow_coverage
+    from domain.accounts.monthly import flow_coverage
     return execute(request, lambda cur: flow_coverage.publish(cur, batch_id=batch_id, **body.model_dump()),
                    write=True, serializable=True)
 
