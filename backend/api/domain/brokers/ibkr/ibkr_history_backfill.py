@@ -123,7 +123,7 @@ def _existing_matches(row, fields, kind):
                 and row['amount'] == Decimal(fields['net_cash']) and row['summary'] == fields['summary']
                 and row['description'] == fields['description'] and row['posting_date'] is None
                 and row['counterparty'] is None)
-    from domain.investments.trade_read_v2 import _matches
+    from domain.investments.trades.trade_read_v2 import _matches
     return _matches(row)
 
 

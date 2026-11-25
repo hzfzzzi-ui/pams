@@ -71,7 +71,7 @@ def supported_import_modes(account_code, statement_accounts):
 
 
 def context(cur) -> dict:
-    from domain.investments.portfolio_state import _load_accounts_config
+    from domain.investments.valuation.portfolio_state import _load_accounts_config
 
     cur.execute("SELECT account_code,display_name,base_currency FROM pams_accounts WHERE active ORDER BY account_code")
     all_accounts = [dict(r) for r in cur.fetchall()]
@@ -98,7 +98,7 @@ def resolve_bank_destination(cur, source_account, destination, currency):
     match = re.fullmatch(r"(.+?)\s*[（(]\s*(\d{4})\s*[）)]", destination)
     if not match or not currency:
         return None
-    from domain.investments.portfolio_state import _load_accounts_config
+    from domain.investments.valuation.portfolio_state import _load_accounts_config
 
     bank, tail = match[1].strip(), match[2]
     config = _load_accounts_config()

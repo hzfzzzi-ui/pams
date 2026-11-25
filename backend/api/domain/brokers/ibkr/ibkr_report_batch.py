@@ -16,7 +16,7 @@ from psycopg2.extras import Json
 from domain.imports import isolation
 from domain.imports.unified_source import add_item, attach_file, create_batch, lock_source_review
 from domain.imports.fact_associations import check_all_source_links
-from domain.investments.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
+from domain.investments.trades.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
 from domain.brokers.ibkr.ibkr_cash_event_sync import _stored_equal
 from domain.brokers.ibkr.ibkr_report_trade_source import _row
 

@@ -76,7 +76,7 @@ def read_ibkr_account_audit(*, connection_factory=None, raw_dir: Path | None = N
                     if period_start is not None:
                         state["period"] = close_state.get("period")
                     audit_content, audit_digest = supplemental["xml_text"], supplemental["sha256"]
-                    from domain.investments.valuation_nav import daily_close_account_identity
+                    from domain.investments.valuation.valuation_nav import daily_close_account_identity
                     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                         portfolio_identity = daily_close_account_identity(cur, source_account_id=account,
                                                                          as_of=report.as_of)

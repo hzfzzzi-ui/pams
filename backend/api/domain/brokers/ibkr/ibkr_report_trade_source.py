@@ -7,7 +7,7 @@ import json
 import re
 
 from domain.brokers.ibkr.ibkr_cash_events import dated_fx_rate
-from domain.investments.investment_trade_fact import _is_fx_pair_symbol
+from domain.investments.trades.investment_trade_fact import _is_fx_pair_symbol
 
 
 def _number(attrs, keys, label):

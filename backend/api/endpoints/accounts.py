@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from domain.accounts import account_overview
 from domain.accounts.valuation_book import read_account_view
 from domain.accounts.account_overview import get_conn
-from domain.investments.nav_period_comparison import period_starts
+from domain.investments.valuation.nav_period_comparison import period_starts
 
 router = APIRouter()
 

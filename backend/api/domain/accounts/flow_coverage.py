@@ -19,8 +19,8 @@ from domain.imports import isolation
 from domain.imports.account_import_store import norm
 from domain.imports.source_fact_evidence import NativeFactVerifier, _digest, _reviewed_snapshot
 from domain.imports.unified_source import add_item, attach_file, create_batch, lock_source_review
-from domain.investments.holding_evidence_writer import lock_holding_accounts
-from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
+from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
 from domain.accounts.official_flow_coverage import _view_date
 
 

@@ -160,7 +160,7 @@ def _verify_source_record_fact(cur, table, fact_id, *, locking):
         if _rows(cur) != rows:
             return {'status': 'unknown', 'reason': 'fact_changed_during_lock'}
     if trade:
-        from domain.investments.trade_read_v2 import load_trade_rows
+        from domain.investments.trades.trade_read_v2 import load_trade_rows
         facts = load_trade_rows(cur, account_code=account, start=day, end=day, fact_id=fact_id)
     else:
         from domain.ledger.cashflow_read_v2 import load_cash_rows
@@ -421,7 +421,7 @@ def verify_native_fact(cur: Any, *, table: str, fact_id: int, _snapshot_cache: d
                and fact.get('trade_type')==direction and fact.get('side')==side
                and _number(fact.get('net_cash'))==amount and _number(fact.get('fx_rate_to_cny'))==Decimal(1)
                and _number(fact.get('net_cash_cny'))==amount)
-        from domain.investments.investment_trade_fact import _trade_flags
+        from domain.investments.trades.investment_trade_fact import _trade_flags
         valid &= all(fact.get(key)==value for key,value in _trade_flags(direction,side).items())
         if fields.get('kind')=='trade':
             valid &= fields.get('status')=='confirmed'

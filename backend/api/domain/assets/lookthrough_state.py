@@ -26,7 +26,7 @@ from domain.assets.asset_master import (
     sync_asset_master_from_analysis,
 )
 from domain.assets.exposure_engine import build_exposure_analysis_payload
-from domain.investments.portfolio_state import _load_accounts_config, load_account_balances, load_investment_positions
+from domain.investments.valuation.portfolio_state import _load_accounts_config, load_account_balances, load_investment_positions
 
 
 ROOT = Path(__file__).resolve().parents[4]

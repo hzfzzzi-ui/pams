@@ -401,7 +401,7 @@ def ibkr_position_history(symbol: str | None = None, limit: int = 500) -> dict[s
             available = cur.fetchone()
             if not available['versions'] or not available['evidence']:
                 return {'rows': [], 'data_status': 'unavailable'}
-            from domain.investments.valuation_input_evidence import verify_recorded_version
+            from domain.investments.valuation.valuation_input_evidence import verify_recorded_version
             cur.execute("""SELECT DISTINCT ON (v.business_date,v.scope_key)
                 v.version_key,v.business_date,e.evidence->'snapshot'->'content' AS content
                 FROM valuation_evidence v

@@ -9,8 +9,8 @@ from datetime import date as Date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
-from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
 
 
 def dec(value: Any) -> Decimal:
@@ -82,7 +82,7 @@ def _cash_delta_cny(cur, account_code: str, start: Any, end: Any, *, external_on
 
 def _cash_delta_cny_v2(cur, account_code: str, start: Any, end: Any, *, external_only: bool) -> Decimal | None:
     """Read only verified redesigned facts and sourced daily exchange rates."""
-    from domain.investments.trade_read_v2 import load_trade_rows
+    from domain.investments.trades.trade_read_v2 import load_trade_rows
     try:
         start_day = Date.fromisoformat(str(start)[:10])
         end_day = Date.fromisoformat(str(end)[:10])

@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from domain.investments.subscription_settlement import _claim
+from domain.investments.trades.subscription_settlement import _claim
 
 
 def test_unfilled_subscription_principal_returns_to_same_payer():
@@ -18,7 +18,7 @@ def test_unfilled_subscription_principal_returns_to_same_payer():
 
 def test_monthly_cash_and_nav_use_the_same_confirmed_subscription_legs(monkeypatch):
     from unittest.mock import Mock
-    from domain.investments import subscription_settlement as settlement
+    from domain.investments.trades import subscription_settlement as settlement
 
     day = date(2030, 6, 30)
     later = date(2030, 7, 2)

@@ -15,9 +15,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from domain.assets.asset_names import _asset_name_lookup, _name_needs_enrichment, _symbol_name_keys
-from domain.investments.portfolio_state import _load_accounts_config, _owner_ratio
-from domain.investments.trade_campaigns import build_position_campaigns_payload, today_local
-from domain.investments.trade_attribution import (
+from domain.investments.valuation.portfolio_state import _load_accounts_config, _owner_ratio
+from domain.investments.trades.trade_campaigns import build_position_campaigns_payload, today_local
+from domain.investments.attribution.trade_attribution import (
     apply_auto_trade_annotations,
     build_trade_auto_review_queue_payload,
     build_trade_attribution_payload,
@@ -835,7 +835,7 @@ def list_investment_transactions(
             if not _fact_rows_available(cur):
                 return {"summary": _transaction_summary([], "trade_fact"), "rows": []}
             if _table_exists(cur, 'source_records'):
-                from domain.investments.transaction_list_v2 import list_rows
+                from domain.investments.trades.transaction_list_v2 import list_rows
                 rows = list_rows(cur, start=start, end=end, account_code=account_code)
                 if source:
                     rows = [row for row in rows if row['source'] == source]
@@ -1010,7 +1010,7 @@ def investment_trade_attribution(trade_id: int):
             if not _table_exists(cur, "pams_investment_trade_fact"):
                 raise HTTPException(status_code=404, detail="investment trade fact table not found")
             if _table_exists(cur, 'source_records'):
-                from domain.investments.transaction_list_v2 import list_rows
+                from domain.investments.trades.transaction_list_v2 import list_rows
                 cur.execute('SELECT account_code,trade_date FROM pams_investment_trade_fact WHERE trade_id=%s', (trade_id,))
                 target = cur.fetchone()
                 if not target:
@@ -1103,7 +1103,7 @@ def update_investment_trade_review(trade_id: int, review: InvestmentTradeReviewU
             if not _table_exists(cur, "pams_investment_trade_fact"):
                 raise HTTPException(status_code=404, detail="investment trade fact table not found")
             if _table_exists(cur, 'source_records'):
-                from domain.investments.trade_review_v2 import write_review
+                from domain.investments.trades.trade_review_v2 import write_review
                 cleaned = {'buy_reason': buy_reason, 'sell_reason': sell_reason, 'review_tags': review_tags,
                     'trade_intent': trade_intent, 'trade_plan': trade_plan, 'review_note': review_note,
                     'review_due_date': review.review_due_date, 'initial_position_identity': initial_position_identity,
@@ -1283,7 +1283,7 @@ def investment_transaction_options():
             )
             accounts = [dict(r) for r in cur.fetchall()]
             if _table_exists(cur, 'source_records'):
-                from domain.investments.transaction_list_v2 import list_options
+                from domain.investments.trades.transaction_list_v2 import list_options
                 categories, sources, assets = list_options(cur)
                 _enrich_asset_filter_options(cur, assets)
                 return {

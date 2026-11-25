@@ -8,7 +8,7 @@ from pathlib import PurePath
 from psycopg2.extras import Json
 
 from domain.imports.source_fact_evidence import verify_native_fact
-from domain.investments.investment_trade_fact import classify_trade_type
+from domain.investments.trades.investment_trade_fact import classify_trade_type
 
 
 def stage(cur, *, trade_id, filename, content):

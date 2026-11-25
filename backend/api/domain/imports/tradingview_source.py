@@ -83,7 +83,7 @@ def stage_csvs(cur, *, batch_id, account_code: str, files) -> dict:
     batch_id = UUID(str(batch_id))
     prepared = _prepare(files)
     row_hashes = [row_hash for _, _, _, rows in prepared for _, _, row_hash, _ in rows]
-    from domain.investments.holding_evidence_writer import lock_holding_accounts
+    from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
     lock_holding_accounts(cur, [account_code])
     cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', ('tradingview-source:' + account_code,))
     cur.execute('''SELECT 1 FROM public.source_items i JOIN public.source_batches b USING (batch_id)

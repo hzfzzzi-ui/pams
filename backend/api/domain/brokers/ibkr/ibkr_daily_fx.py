@@ -17,7 +17,7 @@ from typing import Any
 
 from domain.brokers.ibkr import ibkr_daily_close as close_parser
 from domain.brokers.ibkr import ibkr_daily_close_read as close_read
-from domain.investments.daily_fx_bridge import build_daily_fx_bridge
+from domain.investments.returns.daily_fx_bridge import build_daily_fx_bridge
 
 ZERO = Decimal(0)
 INCOME = ("dividends", "insuredDepositInterest", "brokerInterest", "bondInterest", "paymentInLieu", "otherIncome")
@@ -208,7 +208,7 @@ def build_ibkr_daily_fx(cur, *, evidence: dict[str, Any] | None = None,
             return copy.deepcopy(pair)
         opening, closing = pair["opening"], pair["closing"]
         low, high = pair["opening_date"], pair["closing_date"]
-        from domain.investments.valuation_nav import daily_close_account_identity
+        from domain.investments.valuation.valuation_nav import daily_close_account_identity
         identities = {"opening": daily_close_account_identity(cur, source_account_id=evidence["account_id"], as_of=low),
                       "closing": daily_close_account_identity(cur, source_account_id=evidence["account_id"], as_of=high)}
         if any(item.get("status") != "ok" for item in identities.values()):

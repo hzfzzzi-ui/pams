@@ -266,7 +266,7 @@ def _sync_unified_cash(conn, snapshot, *, max_days):
     from domain.brokers.ibkr.ibkr_report_batch import publish_report_batch, _same_report_fact
     from domain.brokers.ibkr.ibkr_report_trade_source import _row
     from domain.brokers.ibkr.ibkr_fact_source_verification import verify_ibkr_fact
-    from domain.investments.investment_trade_fact import build_investment_trade_fact
+    from domain.investments.trades.investment_trade_fact import build_investment_trade_fact
     xml=snapshot.get('_source_xml')
     if not isinstance(xml,str) or hashlib.sha256(xml.encode('utf8')).hexdigest()!=snapshot['source_sha256']:
         raise ValueError('daily cash report original is missing or changed')

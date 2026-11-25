@@ -28,7 +28,7 @@ def test_existing_cny_reference_remains_available():
 
 
 def test_unconverted_foreign_reference_never_enters_cny_terminal_value():
-    from domain.investments.valuation_nav import latest_nav_display_values
+    from domain.investments.valuation.valuation_nav import latest_nav_display_values
 
     accounts = {'accounts': {
         'foreign': {'base_currency': 'USD', 'account_balance_reference': {
@@ -46,7 +46,7 @@ def test_unconverted_foreign_reference_never_enters_cny_terminal_value():
 
 
 def test_terminal_broker_reference_requires_official_net_value_and_fx_matches_its_date():
-    from domain.investments.valuation_nav import latest_nav_display_values
+    from domain.investments.valuation.valuation_nav import latest_nav_display_values
     day, later = date(2026, 1, 5), date(2026, 1, 6)
     bank = dict(account_code='foreign', currency='USD', amount_cny=Decimal(70), as_of=day, fx_rate_as_of=day)
     broker = dict(account_code='ibkr', currency='CNY', amount_cny=Decimal(50), as_of=day,
@@ -72,10 +72,10 @@ def test_bound_principal_is_estimated_and_source_conflict_disables_config_fallba
     import pytest
     from domain.accounts.balance_reference import load_bound_balance_references
     from domain.imports import isolation, source_records_v2 as sources
-    from domain.investments.valuation_input_evidence import _bound_input, _hash, record_result_version
-    from domain.investments import valuation_input_evidence
-    from domain.investments.position_nav_projection import load_position_nav_estimates
-    from domain.investments.valuation_nav import _add_known_display_values, latest_nav_display_values
+    from domain.investments.valuation.valuation_input_evidence import _bound_input, _hash, record_result_version
+    from domain.investments.valuation import valuation_input_evidence
+    from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
+    from domain.investments.valuation.valuation_nav import _add_known_display_values, latest_nav_display_values
 
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:

@@ -2,9 +2,9 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from domain.investments.account_total_evidence import VERSION as ACCOUNT_TOTAL_VERSION
-from domain.investments.snapshot_coverage import point_in_time_visible_sql
-from domain.investments.valuation_input_evidence import current_holding_source
+from domain.investments.valuation.account_total_evidence import VERSION as ACCOUNT_TOTAL_VERSION
+from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
+from domain.investments.valuation.valuation_input_evidence import current_holding_source
 
 
 def recorded_components(cur, account_code, day, *, source_cache=None):

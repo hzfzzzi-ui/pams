@@ -30,7 +30,7 @@ def historical_balance(reference, today, owner_ratio, *, base_currency, basis):
 
 def load_bound_balance_references(cur, accounts):
     """Recheck the published principal against its original before using a configured estimate."""
-    from domain.investments.valuation_input_evidence import _bound_input, _hash, verify_recorded_version
+    from domain.investments.valuation.valuation_input_evidence import _bound_input, _hash, verify_recorded_version
 
     codes = [code for code, cfg in accounts.items() if cfg.get('account_balance_reference')]
     if not codes:

@@ -12,7 +12,7 @@ from domain.assets.asset_master import asset_id_for
 from domain.imports.account_import_store import get_conn
 from domain.imports.isolation import account_import_scope, source_enabled
 from domain.imports.ths_asset_candidates import collect_candidates, find_identities, initialize
-from domain.investments.trade_read_v2 import load_trade_rows
+from domain.investments.trades.trade_read_v2 import load_trade_rows
 
 
 def link_assets(cur, source_id, *, expected_count, apply):

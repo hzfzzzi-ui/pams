@@ -11,8 +11,8 @@ from domain.assets.alias_policy import identity_alias_sql
 from domain.imports import native_source, native_source_http
 from domain.imports.account_import_types import asset_type
 from domain.imports.source_records_v2 import SourceRevisionConflict
-from domain.investments.account_snapshot_evidence import record_source_scope
-from domain.investments.holding_evidence_writer import finish_holding_change, lock_holding_accounts
+from domain.investments.holdings.account_snapshot_evidence import record_source_scope
+from domain.investments.holdings.holding_evidence_writer import finish_holding_change, lock_holding_accounts
 
 
 def _amount(fields, key, scale):
@@ -177,8 +177,8 @@ def _historical_credit_bridge_inputs(cur, fields, holding, source):
 
 def _historical_fund_inputs(cur, fields, holding):
     """Bind a reviewed one-day reconstruction to verified trades and daily NAV."""
-    from domain.investments.fund_return_history import NAV_SOURCES
-    from domain.investments.trade_read_v2 import load_trade_rows
+    from domain.investments.returns.fund_return_history import NAV_SOURCES
+    from domain.investments.trades.trade_read_v2 import load_trade_rows
 
     evidence = fields.get('reconstruction_evidence')
     if not isinstance(evidence, dict) or set(evidence) != {'trade_ids', 'quote_id'}:

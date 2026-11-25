@@ -9,7 +9,7 @@ from psycopg2.extras import RealDictCursor
 import pytest
 
 from domain.imports import source_records_v2 as sources, trade_supplemental_evidence as supplement
-from domain.investments.position_nav_projection import load_position_nav_estimates
+from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
 
 
 def test_reviewed_wealth_anchor_is_dated_and_not_double_counted():

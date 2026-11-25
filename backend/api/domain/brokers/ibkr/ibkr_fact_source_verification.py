@@ -18,7 +18,7 @@ from domain.brokers.ibkr.ibkr_report_batch import NAMESPACE
 from domain.imports.source_fact_evidence import _reviewed_snapshot
 from domain.imports import isolation
 from domain.imports.unified_source import _json_value
-from domain.investments.investment_trade_fact import _is_fx_pair_symbol
+from domain.investments.trades.investment_trade_fact import _is_fx_pair_symbol
 
 
 class EvidenceUnavailable(ValueError):

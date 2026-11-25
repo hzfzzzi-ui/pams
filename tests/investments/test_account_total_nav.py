@@ -4,7 +4,7 @@ from uuid import uuid4
 import os
 import pytest
 
-from domain.investments.valuation_nav import _apply_account_totals
+from domain.investments.valuation.valuation_nav import _apply_account_totals
 
 D = Decimal
 
@@ -41,7 +41,7 @@ def test_total_does_not_hide_source_evidence_failure():
 
 
 def test_existing_partial_estimates_are_replaced_without_recounting():
-    from domain.investments.valuation_nav import build_weekly_nav_rows, ValuationEvidenceSeries, _add_known_display_values
+    from domain.investments.valuation.valuation_nav import build_weekly_nav_rows, ValuationEvidenceSeries, _add_known_display_values
     day=date(2025,12,31)
     banks={day:{'net_worth':D('20'),'assets':D('20'),'liabilities':D(0),
                 'available_accounts':['cash'],'account_values':{'cash':D('20')},'unavailable_accounts':['platform']}}
@@ -58,7 +58,7 @@ def test_screenshot_total_publication_and_date_scope():
     import psycopg2
     from psycopg2.extras import RealDictCursor
     from domain.imports import isolation,source_records_v2 as sources
-    from domain.investments import account_total_evidence as total
+    from domain.investments.valuation import account_total_evidence as total
     dsn=os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn: pytest.skip('requires explicitly isolated PostgreSQL')
     day=date(2025,12,31)
@@ -122,7 +122,7 @@ def test_confirmed_empty_account_is_a_single_day_total_without_holdings():
     import psycopg2
     from psycopg2.extras import RealDictCursor
     from domain.imports import isolation, source_records_v2 as sources
-    from domain.investments import account_total_evidence as total
+    from domain.investments.valuation import account_total_evidence as total
 
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:

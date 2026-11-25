@@ -110,7 +110,7 @@ def test_recorded_equity_follows_subscription_and_loan_dates(monkeypatch):
 
 
 def test_fund_single_member_update_cannot_replace_whole_account(monkeypatch):
-    from domain.investments.nav_period_comparison import DisplayContributions
+    from domain.investments.valuation.nav_period_comparison import DisplayContributions
     start = date(2026, 1, 1)
     days = [start + timedelta(days=i) for i in range(4)]
     samples = {}

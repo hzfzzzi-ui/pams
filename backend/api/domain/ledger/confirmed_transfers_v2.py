@@ -113,7 +113,7 @@ def _leg_rows(cur, kind, ids, *, lock):
 
 def _verified_leg(row, kind, originals, *, hash_only=False, supplemental=True):
     if not row: raise ValueError('transfer fact not found')
-    from domain.investments.investment_trade_fact import classify_trade_type
+    from domain.investments.trades.investment_trade_fact import classify_trade_type
     data=dict(row)
     try:
         fields=data['parsed_fields'];parsed_amount=Decimal(str(fields['net_cash']))

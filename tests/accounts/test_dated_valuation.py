@@ -9,7 +9,7 @@ from psycopg2.extras import RealDictCursor
 from domain.accounts import dated_valuation as valuation
 from domain.accounts.account_history import read_account_history
 from domain.imports.isolation import source_enabled
-from domain.investments.valuation_nav import build_nav_weekly_payload
+from domain.investments.valuation.valuation_nav import build_nav_weekly_payload
 
 
 def test_detail_and_portfolio_use_the_same_statement_across_months(monkeypatch):

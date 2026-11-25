@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 import psycopg2.extras
 
-from domain.investments.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
+from domain.investments.trades.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
 from domain.imports import isolation
 
 SOURCE_TABLE = "ibkr_flex_cash_transaction"

@@ -9,9 +9,9 @@ from psycopg2.extras import RealDictCursor
 import pytest
 
 from domain.imports import holding_publication_v2 as publication, source_records_v2 as sources
-from domain.investments.position_nav_projection import load_position_nav_estimates
-from domain.investments.holding_evidence_writer import verify_historical_holding_source
-from domain.investments.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
+from domain.investments.holdings.position_nav_projection import load_position_nav_estimates
+from domain.investments.holdings.holding_evidence_writer import verify_historical_holding_source
+from domain.investments.holdings.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.accounts.sync_status import _latest_cash_snapshots, _manual_position_value
 from domain.accounts.accounts_view import build_account_detail_payload
 
@@ -51,7 +51,7 @@ def test_reviewed_historical_holding_publish_and_nav(monkeypatch):
                 assert verify_historical_holding_source(cur, holding_id=holding['id'], source_item_id=str(item))
                 from domain.market.fund_nav_estimates import load_latest_active_fund_holdings
                 assert load_latest_active_fund_holdings(cur) == []
-                from domain.investments.position_performance import _load_positions
+                from domain.investments.holdings.position_performance import _load_positions
                 assert _load_positions(cur, later, set())[0] == {}
                 for cutoff, expected in ((day, ['TESTFUND']), (later, []), (date(2026, 3, 1), ['OTHER'])):
                     cur.execute(f'WITH {LATEST_KNOWN_HOLDINGS_CTE} SELECT symbol FROM latest_known_holding ORDER BY symbol', (cutoff,))
@@ -77,7 +77,7 @@ def test_historical_fund_reconstruction_binds_existing_evidence(monkeypatch):
     dsn = os.getenv('PAMS_TEST_POSTGRES_DSN')
     if not dsn:
         pytest.skip('requires explicitly isolated PostgreSQL')
-    from domain.investments.valuation_input_evidence import bound_holding_freshness
+    from domain.investments.valuation.valuation_input_evidence import bound_holding_freshness
     monkeypatch.setenv('PAMS_SOURCE_TEST_TOKEN_KEY', '12' * 32)
     monkeypatch.setenv('PAMS_IMPORT_PUBLISH_ENABLED', 'true')
     with psycopg2.connect(dsn) as conn:
@@ -163,8 +163,8 @@ def test_historical_foreign_statement_balance_stays_on_its_day(monkeypatch):
                     owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: Decimal('1'), rate_at=lambda *_: None)
                 assert estimates[date(2025,12,31)]['test_foreign'][0] == 0
                 assert 'test_foreign' not in estimates.get(date(2026,1,1), {})
-                from domain.investments.account_snapshot_evidence import record_source_scope
-                from domain.investments.valuation_nav import _historical_cash_points, _apply_historical_cash_points
+                from domain.investments.holdings.account_snapshot_evidence import record_source_scope
+                from domain.investments.valuation.valuation_nav import _historical_cash_points, _apply_historical_cash_points
                 day, later = date(2025, 12, 31), date(2026, 1, 1)
                 code = 'test_foreign'
                 accounts = [{'account_code': code, 'base_currency': 'MXN'}]
@@ -195,7 +195,7 @@ def test_historical_foreign_statement_balance_stays_on_its_day(monkeypatch):
 
                 # A previously issued CNY scope retains its original unit when
                 # the account's base currency has since been changed.
-                from domain.investments.account_snapshot_evidence import verified_complete
+                from domain.investments.holdings.account_snapshot_evidence import verified_complete
                 cur.execute("UPDATE pams_accounts SET base_currency='CNY' WHERE account_code=%s", (code,))
                 legacy_source, legacy_item = uuid4(), uuid4()
                 sources.create_source(cur, source_id=legacy_source, account_code=code, source_name='Legacy account cash',
@@ -250,7 +250,7 @@ def test_historical_statement_running_balance_requires_last_verified_row(monkeyp
                     owner_ratio_case_sql=lambda _: ('1::numeric', []), account_owner_ratio=lambda _: Decimal('1'), rate_at=lambda *_: Decimal('1'))
                 assert values[day]['test_1234'][0] == Decimal('123.45')
                 assert 'test_1234' not in values.get(date(2026,1,1), {})
-                from domain.investments.valuation_nav import _apply_historical_cash_points
+                from domain.investments.valuation.valuation_nav import _apply_historical_cash_points
                 bucket = {day: {'assets':Decimal('200'), 'liabilities':Decimal('0'), 'net_worth':Decimal('200'),
                                 'account_values':{'test_1234':Decimal('200')}, 'available_accounts':['test_1234']}}
                 _apply_historical_cash_points(cur, bank_series=bucket, accounts=[{'account_code':'test_1234', 'base_currency':'CNY', 'owner_ratio':Decimal('1')}],

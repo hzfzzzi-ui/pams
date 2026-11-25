@@ -1,6 +1,6 @@
 """Canonical anchors for bank accounts with a verified cash-only snapshot."""
 
-from domain.investments.snapshot_coverage import load_account_snapshot_coverage, point_in_time_visible_sql
+from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage, point_in_time_visible_sql
 
 
 SOURCE = 'verified_bank_balance_snapshot'

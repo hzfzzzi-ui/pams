@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from psycopg2.extras import RealDictCursor
 
-from domain.investments import portfolio_state
+from domain.investments.valuation import portfolio_state
 
 
 def _amount(value: Any) -> Decimal:

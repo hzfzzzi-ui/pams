@@ -10,7 +10,7 @@ from domain.accounts.bank_source_status import summaries
 from domain.accounts.credit_card_debt import confirmed_table_net_history, uses_table_net_reference, verified_table_postings
 from domain.accounts.bank_statement_balance import statement_balance_history
 from domain.imports.source_original_read import SourceOriginals
-from domain.investments.statement_period_nav import load_statement_period_points
+from domain.investments.valuation.statement_period_nav import load_statement_period_points
 
 
 @dataclass(frozen=True)

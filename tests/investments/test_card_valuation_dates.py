@@ -1,7 +1,7 @@
 """Quoted personal holdings and separately reconciled cash on different dates."""
 from unittest import TestCase
 
-from domain.investments.holdings_account_cards import account_center_balances, build_holdings_account_cards
+from domain.investments.holdings.holdings_account_cards import account_center_balances, build_holdings_account_cards
 
 
 class ValuationDatesTest(TestCase):

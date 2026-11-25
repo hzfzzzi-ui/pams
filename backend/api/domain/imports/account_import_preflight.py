@@ -8,12 +8,12 @@ import re
 import json
 from zoneinfo import ZoneInfo
 
-from domain.investments.snapshot_coverage import point_in_time_visible_sql
+from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 from domain.assets.alias_policy import is_identity_alias
 from domain.imports import account_import_store as store
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
-from domain.investments.investment_trade_fact import build_investment_trade_fact
-from domain.investments.portfolio_state import _is_cash_like_holding
+from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.trades.investment_trade_fact import build_investment_trade_fact
+from domain.investments.valuation.portfolio_state import _is_cash_like_holding
 from domain.imports.account_import_types import asset_type
 from domain.imports import account_import_ths as ths
 from domain.imports import account_import_statement as statement

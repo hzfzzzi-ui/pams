@@ -111,7 +111,7 @@ def revoke(cur, *, confirmation_id, note, confirmed):
     row = cur.fetchone()
     if not row:
         raise ValueError('bank source confirmation not found')
-    from domain.investments.holding_evidence_writer import lock_holding_accounts
+    from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
     lock_holding_accounts(cur, (row['account_code'],row['counter_account_code']))
     cur.execute("""UPDATE evidence_confirmation SET revoked_at=now(),revocation_note=%s
         WHERE confirmation_id=%s AND revoked_at IS NULL RETURNING confirmation_id""", (note.strip(),str(confirmation_id)))

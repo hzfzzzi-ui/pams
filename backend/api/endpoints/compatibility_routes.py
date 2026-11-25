@@ -8,24 +8,24 @@ from fastapi.encoders import jsonable_encoder
 from domain.accounts.position_reference import read_historical_position_references
 from domain.brokers.ibkr import ibkr_daily_close_read
 from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
-from domain.investments.fund_return_history import METHOD as FUND_HISTORY_METHOD
-from domain.investments.investment_overview import holdings_overview_card
+from domain.investments.returns.fund_return_history import METHOD as FUND_HISTORY_METHOD
+from domain.investments.valuation.investment_overview import holdings_overview_card
 from domain.accounts.valuation_book import current_balances, read_account_view
-from domain.investments.holdings_account_cards import build_holdings_account_cards
-from domain.investments.holding_market_history import holding_history, holding_price_comparison
-from domain.investments.personal_holdings import personal_holdings
-from domain.investments import page_projection
-from domain.investments.portfolio_summary import build_holdings_by_account_payload
-from domain.investments.holding_return_snapshot import return_input_revisions, return_snapshot_revision
-from domain.investments.holding_return_display import attach_dated_holding_performance
-from domain.investments.period_trade_returns import (
+from domain.investments.holdings.holdings_account_cards import build_holdings_account_cards
+from domain.investments.holdings.holding_market_history import holding_history, holding_price_comparison
+from domain.investments.holdings.personal_holdings import personal_holdings
+from domain.investments.valuation import page_projection
+from domain.investments.valuation.portfolio_summary import build_holdings_by_account_payload
+from domain.investments.holdings.holding_return_snapshot import return_input_revisions, return_snapshot_revision
+from domain.investments.holdings.holding_return_display import attach_dated_holding_performance
+from domain.investments.returns.period_trade_returns import (
     attach_closed_trade_returns, fund_holding_profit, load_closed_trade_returns,
 )
-from domain.investments.position_performance import METHOD as POSITION_RETURN_METHOD, latest_position_valuation_date
-from domain.investments.portfolio_valuation_state import (
+from domain.investments.holdings.position_performance import METHOD as POSITION_RETURN_METHOD, latest_position_valuation_date
+from domain.investments.valuation.portfolio_valuation_state import (
     published_bank_balances_compatible, read_current_portfolio_valuation,
 )
-from domain.investments.nav_period_comparison import period_starts
+from domain.investments.valuation.nav_period_comparison import period_starts
 from domain.market.price_history import valid_holding_history_window
 from domain.market.fx_rates import OPEN_EXCHANGE_RATES_SOURCE, build_latest_fx_rates_payload
 
@@ -215,7 +215,7 @@ def create_compatibility_router(
 
     @router.get("/api/investment/account-funding-history")
     def investment_account_funding_history(account: str):
-        from domain.investments.capital_ownership import funding_history
+        from domain.investments.valuation.capital_ownership import funding_history
         cfg = _load_portfolio_accounts_config().get("accounts", {}).get(account) or {}
         if account in _excluded_holding_accounts() or not cfg.get("funding_history"):
             return {"rows": []}
@@ -388,7 +388,7 @@ def create_compatibility_router(
         if (not valid_holding_history_window(start, end) or len(account) != len(asset)
                 or len(asset) > 24 or any(a in _excluded_holding_accounts() for a in account)):
             raise HTTPException(status_code=400, detail="无效的账户或查询范围")
-        from domain.investments.position_performance import build_position_return_series
+        from domain.investments.holdings.position_performance import build_position_return_series
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -673,7 +673,7 @@ def create_compatibility_router(
                 return json(build_total_curve(cur, start_date=start_date, interval=interval, baseCurrency=baseCurrency))
 
     def build_total_curve(cur, *, start_date, interval, baseCurrency, read_revision=_return_revision):
-        from domain.investments.closed_return_display import closed_return_summary
+        from domain.investments.returns.closed_return_display import closed_return_summary
         today_label_date = _investment_today_label_date()
         view_as_of = latest_position_valuation_date(
             cur, holding_date=_investment_return_view_as_of(cur), through=today_label_date,
@@ -747,7 +747,7 @@ def create_compatibility_router(
 
     @router.get("/api/assets/monthly-overview")
     def asset_monthly_overview():
-        from domain.investments.monthly_overview import build_monthly_overview
+        from domain.investments.valuation.monthly_overview import build_monthly_overview
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

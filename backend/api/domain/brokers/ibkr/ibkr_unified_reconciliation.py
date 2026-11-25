@@ -15,7 +15,7 @@ import psycopg2.extras
 from domain.brokers.ibkr.ibkr_fact_source_verification import EvidenceCache, verify_ibkr_fact
 from domain.brokers.ibkr.ibkr_reconciliation import ISSUE_LIMIT, _check, _issue, _numbers, _result
 from domain.brokers.ibkr.ibkr_report_batch import NAMESPACE
-from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
 
 
 def _decimal(value):

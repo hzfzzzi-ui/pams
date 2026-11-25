@@ -2,8 +2,8 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock
 
-from domain.investments import broker_account_history as history
-from domain.investments import nav_trade_source_v2 as trades
+from domain.investments.valuation import broker_account_history as history
+from domain.investments.trades import nav_trade_source_v2 as trades
 
 
 def test_official_nav_and_financing_use_same_close_across_archives(monkeypatch):

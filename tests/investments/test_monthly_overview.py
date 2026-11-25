@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import Mock
 
-from domain.investments import monthly_overview
+from domain.investments.valuation import monthly_overview
 from domain.ledger.ledger_view import _monthly_close
 
 

@@ -22,14 +22,14 @@ from domain.imports.account_import_plan import bank_leg
 from domain.imports import account_import_store as store
 from domain.imports.isolation import source_enabled
 from domain.imports.unified_source import add_item, create_batch, lock_source_review
-from domain.investments.holding_evidence_writer import (
+from domain.investments.holdings.holding_evidence_writer import (
     finish_holding_change,
     assert_holding_accounts_locked,
     lock_holding_accounts,
     prepare_holding_change,
     verify_historical_holding_source,
 )
-from domain.investments.investment_trade_fact import insert_investment_trade_facts
+from domain.investments.trades.investment_trade_fact import insert_investment_trade_facts
 from domain.ledger.cashflow_fact import insert_cashflow_facts, make_source_hash
 
 
@@ -529,7 +529,7 @@ def publish_native(cur, *, batch_id: UUID, revision: int, source_sha256: str,
                 _verified_holding_update(cur, item_id, identifier, snapshot_cache=snapshot_cache)
         if scope_version_id:
             from datetime import date
-            from domain.investments.account_snapshot_evidence import record_complete
+            from domain.investments.holdings.account_snapshot_evidence import record_complete
             record_complete(cur, account_code=batch['account_code'], as_of=date.fromisoformat(attestation['as_of']),
                 members=[{'holding_id':identifier,'source_item_id':item_id} for identifier,item_id,_ in holding_versions],
                 source_batch_id=batch_id, source_revision=revision, source_sha256=source_sha256, version_id=scope_version_id)

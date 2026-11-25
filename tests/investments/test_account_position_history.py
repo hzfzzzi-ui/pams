@@ -9,11 +9,11 @@ from psycopg2.extras import RealDictCursor
 
 from domain.accounts.account_history import read_account_history
 from domain.accounts.position_valuation import _position_estimates
-from domain.investments.valuation_nav import _add_dated_account_observations
+from domain.investments.valuation.valuation_nav import _add_dated_account_observations
 from decimal import Decimal
 from domain.imports import source_records_v2 as sources
 from domain.imports.isolation import source_enabled
-from domain.investments.account_total_evidence import publish as publish_total
+from domain.investments.valuation.account_total_evidence import publish as publish_total
 from domain.market.quote_valuation import GOLD_BENCHMARK_ASSET, GOLD_CLOSE_SOURCE
 
 
@@ -112,7 +112,7 @@ def test_verified_trades_reprice_all_members_without_inventing_cash_or_zero():
 
 
 def test_month_end_prices_use_current_units_and_keep_each_mark_date(monkeypatch):
-    from domain.investments import account_position_history as history
+    from domain.investments.holdings import account_position_history as history
     friday, saturday, monday = date(2026, 1, 30), date(2026, 1, 31), date(2026, 2, 2)
     days = [saturday, monday]
     trades = [{'asset_id': code, 'asset_type': 'fund', 'symbol': code} for code in ('A', 'B')]
@@ -130,7 +130,7 @@ def test_month_end_prices_use_current_units_and_keep_each_mark_date(monkeypatch)
 
 
 def test_month_end_direct_account_amount_precedes_prior_session_price(monkeypatch):
-    from domain.investments import account_position_history as history
+    from domain.investments.holdings import account_position_history as history
     friday, sunday = date(2026, 5, 29), date(2026, 5, 31)
     marks = history.PositionMarks({friday: Decimal(12), sunday: Decimal(12)})
     marks.price_dates[sunday]['GOLD'] = friday

@@ -6,8 +6,8 @@ from decimal import Decimal, localcontext
 from datetime import date as Date
 from typing import Any
 
-from domain.investments.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
-from domain.investments.snapshot_coverage import point_in_time_visible_sql
+from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
+from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 
 
 def _norm(value: Any) -> Any:
@@ -83,7 +83,7 @@ def build_account_detail_payload(cur, *, account_code: str) -> dict[str, Any] | 
     if len(dates)!=1 or len(base)!=3 or not base.isascii() or not base.isalpha():
         return account_data
     day=next(iter(dates))
-    from domain.investments.snapshot_coverage import load_account_snapshot_coverage
+    from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
     proof=load_account_snapshot_coverage(cur,{(account_code,day)}).get((account_code,day),{})
     if proof.get('status')!='complete':
         return account_data

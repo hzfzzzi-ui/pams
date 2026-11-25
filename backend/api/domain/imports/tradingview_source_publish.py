@@ -12,7 +12,7 @@ from domain.imports import isolation
 from domain.imports.tradingview_source import _prepare
 from domain.imports.unified_source import lock_source_review, review_item
 from domain.imports.fact_associations import check_all_source_links
-from domain.investments.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
+from domain.investments.trades.investment_trade_fact import build_investment_trade_fact, insert_investment_trade_facts
 
 
 def _values(raw):
@@ -91,7 +91,7 @@ def review_row(cur, *, batch_id, item_id, expected_revision, note):
     initial = cur.fetchone()
     if not initial:
         raise ValueError('TradingView source batch is missing')
-    from domain.investments.holding_evidence_writer import lock_holding_accounts
+    from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
     lock_holding_accounts(cur, [initial['account_code']])
     cur.execute("""SELECT b.account_code,b.institution,b.revision,b.status,i.raw_fields,i.parsed_fields,
         i.location,i.source_uid,i.record_hash,f.filename,f.sha256,f.content
@@ -131,7 +131,7 @@ def publish(cur, *, batch_id, confirm=False):
     batch_id = str(UUID(str(batch_id)))
     cur.execute('SAVEPOINT tradingview_source_publish')
     try:
-        from domain.investments.holding_evidence_writer import lock_holding_accounts
+        from domain.investments.holdings.holding_evidence_writer import lock_holding_accounts
         cur.execute('SELECT account_code FROM public.source_batches WHERE batch_id=%s', (batch_id,))
         initial = cur.fetchone()
         if not initial:
