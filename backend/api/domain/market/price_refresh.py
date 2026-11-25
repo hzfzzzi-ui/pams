@@ -3,7 +3,7 @@
 外部报价采集位于 domain.market.price_providers，快照与交易 roll-forward 位于 domain.market.price_snapshots。
 """
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Tuple
 
 from domain.market.price_providers import (
     _OVERSEAS_MAJOR_CATEGORY,
