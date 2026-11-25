@@ -111,17 +111,6 @@
   background: transparent !important;
 }
 
-#asset-overview .returnNavPanel {
-  margin: 0;
-  border: 0;
-}
-
-#asset-overview .returnNavStats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 8px 0;
-}
-
 #asset-overview .returnNavCurrent,
 #asset-overview .returnNavStats > .muted {
   grid-column: 1 / -1;
@@ -148,34 +137,12 @@
   box-shadow: inset 1px 0 var(--analysis-rule);
 }
 
-#asset-overview .returnNavStats :is(em, small) {
-  display: block;
-  color: var(--pams-text-muted);
-  font-size: 11px;
-  font-style: normal;
-}
-
-#asset-overview .returnNavStats strong {
-  display: block;
-  margin-top: 2px;
-  font: 650 14px/1.3 var(--pams-font-sans);
-  font-variant-numeric: tabular-nums;
-}
-
 #asset-overview .returnNavCurrent strong {
   font-size: clamp(23px, 7vw, 29px);
 }
 
 #asset-overview .returnNavMetric.up strong { color: var(--pams-profit); }
 #asset-overview .returnNavMetric.down strong { color: var(--pams-loss); }
-
-.page-investments[data-invest-tab="analysis"] #asset-overview .returnNavChartWrap {
-  height: 132px !important;
-  min-height: 0 !important;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
 
 #return-trend .profitContributionPanel .topMoverTotal,
 #return-trend .profitContributionPanel .topMoverRow,
