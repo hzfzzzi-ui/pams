@@ -1,0 +1,68 @@
+name: PAMS CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: pams-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  architecture-and-frontend:
+    name: Architecture & Frontend Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: frontend/tools/requirements.txt
+
+      - name: Architecture boundary check
+        run: python scripts/check_architecture.py
+
+      - name: Python bytecode compile check
+        run: python -m compileall -q backend/api tests scripts
+
+      - name: Install frontend asset tools
+        run: pip install -r frontend/tools/requirements.txt
+
+      - name: Validate frontend CSS & asset fingerprinting
+        run: |
+          rm -rf /tmp/pams-public
+          cp -r frontend/public /tmp/pams-public
+          python frontend/tools/mobile_styles.py /tmp/pams-public/assets/css
+          python frontend/tools/fingerprint_assets.py /tmp/pams-public
+
+  backend-tests:
+    name: Backend Import & Pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/api/requirements.txt
+
+      - name: Install backend dependencies and pytest
+        run: pip install -r backend/api/requirements.txt pytest
+
+      - name: Verify FastAPI app import
+        env:
+          PYTHONPATH: backend/api
+        run: python -c "import main; assert len(main.app.routes) > 0, 'no routes'; print('routes:', len(main.app.routes))"
+
+      - name: Run unit test suite
+        env:
+          PYTHONPATH: backend/api
+        run: python -m pytest tests/ -q
