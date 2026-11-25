@@ -299,6 +299,15 @@ function bindEvents() {
     renderRecentPeriodButton();
     host.scrollTo({ top: 0, behavior: 'smooth' });
   });
+  const todoPill = $('ledgerTodoPill');
+  if (todoPill) events.listen('page', todoPill, 'click', () => {
+    state.recentPeriod = state.overviewPeriod;
+    selectRecentFlow('');
+    replaceContentAddress(`${host.location.pathname}${host.location.search}${LEDGER_PANEL_HASH.recent}`);
+    setLedgerPanel('recent');
+    renderRecentPeriodButton();
+    host.scrollTo({ top: 0, behavior: 'smooth' });
+  });
   bindRecentAccountPicker();
   renderRecentAccountPicker();
   const recentSearchToggle = $('recentSearchToggle');
