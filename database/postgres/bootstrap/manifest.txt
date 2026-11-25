@@ -2,7 +2,6 @@
 database/postgres/schema/004_fx_rates.sql
 database/postgres/schema/010_market_ohlcv.sql
 database/postgres/schema/011_industry_fallback.sql
-database/postgres/schema/011_shared_sentiment.sql
 database/postgres/schema/013_market_reference.sql
 database/postgres/schema/013a_alter_ohlcv.sql
 database/postgres/schema/014_accounts.sql
