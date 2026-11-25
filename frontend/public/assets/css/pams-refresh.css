@@ -697,7 +697,7 @@ body.page-investments #holdingReturnHero .returnStats {
   position: relative;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   padding-top: 14px;
-  gap: 0;
+  gap: 14px 0;
 }
 
 body.page-investments #holdingReturnHero .returnStats > * {
@@ -708,7 +708,7 @@ body.page-investments #holdingReturnHero .returnStats > * {
   box-shadow: none;
 }
 
-body.page-investments #holdingReturnHero .returnStats > * + * {
+body.page-investments #holdingReturnHero .returnStats > :nth-child(even) {
   padding: 2px 0 2px 16px;
   border-left: 1px solid rgba(255, 255, 255, 0.07);
 }
