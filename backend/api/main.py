@@ -14,8 +14,10 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from read_cache import ReadResponseCache, cache_key_for_request, should_bypass_cache, ttl_for_path
 
 # 导入端点路由
 from endpoints import prices
@@ -142,6 +144,57 @@ def _is_allowed_write_origin(value: str | None) -> bool:
     return host in LOCAL_WRITE_HOSTS or origin in ALLOWED_WEB_ORIGINS
 
 
+_READ_RESPONSE_CACHE = ReadResponseCache(max_entries=64)
+
+
+@app.middleware("http")
+async def read_response_cache_middleware(request: Request, call_next):
+    method = request.method.upper()
+    if method in MUTATING_METHODS:
+        response = await call_next(request)
+        if response.status_code < 400:
+            _READ_RESPONSE_CACHE.clear()
+        return response
+    if method == "GET":
+        path = request.url.path
+        ttl = ttl_for_path(path)
+        query = request.url.query
+        if ttl is not None and not should_bypass_cache(query, request.headers.get("cache-control")):
+            key = cache_key_for_request(path, query)
+            cached = _READ_RESPONSE_CACHE.get(key)
+            if cached is not None:
+                status_code, body, media_type = cached
+                return Response(
+                    content=body,
+                    status_code=status_code,
+                    media_type=media_type,
+                    headers={"X-PAMS-Cache": "HIT"},
+                )
+            response = await call_next(request)
+            if response.status_code == 200:
+                chunks = [chunk async for chunk in response.body_iterator]
+                body = b"".join(chunks)
+                media_type = response.media_type or "application/json"
+                _READ_RESPONSE_CACHE.set(
+                    key,
+                    status_code=response.status_code,
+                    body=body,
+                    media_type=media_type,
+                    ttl=ttl,
+                )
+                headers = dict(response.headers)
+                headers.pop("content-length", None)
+                headers["X-PAMS-Cache"] = "MISS"
+                return Response(
+                    content=body,
+                    status_code=response.status_code,
+                    media_type=media_type,
+                    headers=headers,
+                )
+            return response
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def local_write_origin_guard(request: Request, call_next):
     if request.method.upper() in MUTATING_METHODS:
@@ -152,6 +205,7 @@ async def local_write_origin_guard(request: Request, call_next):
     return await call_next(request)
 
 
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_WEB_ORIGINS,
