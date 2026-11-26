@@ -205,7 +205,7 @@ function renderPerformanceSummary() {
     `<div class="perfBenchTile is-primary">
       <span>我的二级市场</span>
       <strong class="${myTone}">${esc(fmtSignedPct(myPct))}</strong>
-      <small>剔除ESOP · 浮盈 ${esc(fmtSignedYuan(p.ex_esop_pnl_cny))}</small>
+      <small>浮盈 ${esc(fmtSignedYuan(p.ex_esop_pnl_cny))}</small>
     </div>`,
     ...benchmarks.map((b) => {
       const ytd = b.ytd_return_pct;
