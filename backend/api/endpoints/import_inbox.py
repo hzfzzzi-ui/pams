@@ -307,6 +307,8 @@ async def inbox_upload(
         return await run_in_threadpool(_run)
     except store.ImportProblem as exc:
         raise HTTPException(status_code=exc.status, detail={"code": exc.code, "message": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "stage_rejected", "message": str(exc)}) from exc
 
 
 @router.post("/scan-local")
