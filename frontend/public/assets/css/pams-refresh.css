@@ -3347,3 +3347,735 @@ body.page-investments .portfolioRiskInlineSources span {
   padding-left: 0 !important;
   padding-right: 0 !important;
 }
+
+
+/* ==========================================================================
+   Minimal Borderless Obsidian UI (Plan A)
+   Eliminate nested rounded boxes & pills across all pages while preserving
+   every brand, asset, institution, category, and navigation logo/icon.
+   ========================================================================== */
+
+/* 1. Secondary Navigation: Clean Underline Tabs (Zero Outer Pill Box) */
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav, .import-modes) {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: grid !important;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0 !important;
+  margin: 0 0 12px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 0 !important;
+  background: rgba(0, 0, 0, 0.88) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  backdrop-filter: blur(18px) !important;
+  box-shadow: none !important;
+}
+
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav) a,
+body.page-account-import .import-modes button {
+  position: relative !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px !important;
+  padding: 8px 2px 10px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #7a7a82 !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+body.app-shell :is(.assetTabs a[aria-current], .investAnchorNav a.is-active, .ledgerAnchorNav a.is-active),
+body.page-account-import .import-modes [aria-pressed="true"]:enabled {
+  color: #f5f5f7 !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+body.app-shell :is(.assetTabs a[aria-current], .investAnchorNav a.is-active, .ledgerAnchorNav a.is-active)::after,
+body.page-account-import .import-modes [aria-pressed="true"]:enabled::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 50% !important;
+  bottom: -1px !important;
+  transform: translateX(-50%) !important;
+  width: 20px !important;
+  height: 2px !important;
+  border-radius: 2px !important;
+  background: #f5f5f7 !important;
+}
+
+body.page-investments .riskSubnav:not([hidden]) {
+  position: static !important;
+  margin: -6px 0 10px !important;
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+body.page-investments .riskSubnav a.active::after {
+  left: 50% !important;
+  right: auto !important;
+  width: 20px !important;
+  transform: translateX(-50%) !important;
+  background: #f5f5f7 !important;
+}
+
+/* 2. Flatten All Content Cards & Boxes to Pure Black + Subtle Hairlines */
+body.page-more :is(
+  .assetCard,
+  #asset-overview .returnNavPanel,
+  .accountInstitutionPanel,
+  .monthlyHero,
+  .monthlyStatus:not([hidden]),
+  #moreAdvanced,
+  .accountCoverageMatrix,
+  .importInboxCard
+),
+body.page-investments :is(
+  .investmentHero,
+  .investmentPanel,
+  .investmentAnalysisCard,
+  .portfolioRiskCategory,
+  #holdingReturnHero,
+  #investment-ledger,
+  .portfolioRiskPanel,
+  .portfolioConfigPanel,
+  .holdingMarketDetail .hmHero,
+  .holdingMarketDetail .hmPanel,
+  .holdingMarketDetail .hmBreakdown,
+  .holdingMarketDetail details,
+  .holdingMarketDetail .hmReadout,
+  .portfolioRiskBlock,
+  .portfolioConfigBlock,
+  .transactionOverview,
+  #lookthrough-exposure,
+  #lookthrough-exposure details,
+  .recentTradeList .ledgerStreamDay,
+  .tradeCampaignCard,
+  .tradeRevisitStrip,
+  .freshnessCard,
+  .lookthroughQualityDrawerHead
+),
+body.page-ledger :is(
+  .ledgerOverviewCard,
+  .ledgerLoanCard,
+  .ledgerStreamDay
+),
+body.page-account-import #screenshot-area {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Clean horizontal hairline separation between flattened major blocks */
+body.page-more :is(.assetCard, .monthlyHero, #asset-overview .returnNavPanel, .accountInstitutionPanel, .accountCoverageMatrix, .importInboxCard, #moreAdvanced),
+body.page-investments :is(#holdingReturnHero, .investmentHero, .investmentAnalysisCard, .transactionOverview, .holdingMarketDetail .hmHero, .holdingMarketDetail .hmBreakdown, .tradeCampaignCard),
+body.page-ledger :is(.ledgerOverviewCard, .ledgerLoanCard) {
+  padding-top: 10px !important;
+  padding-bottom: 14px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+body.page-more #holdingReturnHero,
+body.page-investments #holdingReturnHero {
+  margin-top: 0 !important;
+  margin-bottom: 8px !important;
+}
+
+body.page-ledger .ledgerStreamDay,
+body.page-investments .recentTradeList .ledgerStreamDay {
+  margin-top: 8px !important;
+  padding-top: 4px !important;
+  padding-bottom: 2px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+body.page-investments #mobileHoldingList button.personalPosition,
+body.page-ledger .ledgerStreamDay .ledgerListRow {
+  border-radius: 0 !important;
+  margin-inline: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+body.page-investments #mobileHoldingList button.personalPosition::after {
+  left: 46px !important;
+  right: 0 !important;
+}
+body.page-investments #mobileHoldingList button.personalPosition:active,
+body.page-ledger .ledgerListRow:active {
+  background: transparent !important;
+  opacity: 0.68;
+  transform: none !important;
+}
+
+/* Flatten inline todo / reminder strips (zero rounded banner box) */
+body.app-shell .pamsTodoPill {
+  margin: 0 0 10px !important;
+  padding: 9px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* 3. Pure-Text Filters, Period Switches & Sub-Tabs (Zero Rounded Pill Capsules) */
+body.app-shell :is(
+  .returnWindowSegment,
+  .ledgerTextSwitch,
+  .holdingMarketDetail .hmBar > div,
+  .analysisSwitch,
+  .tradeViewSwitch,
+  .monthlyOverview .metricTabs
+),
+body.page-more #asset-overview .returnWindowSegment,
+body.page-investments #return-trend .returnWindowSegment,
+body.page-investments #lookthroughTabs {
+  display: flex !important;
+  gap: 16px !important;
+  padding: 2px 0 6px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body.app-shell :is(
+  .returnWindowSegment,
+  .ledgerTextSwitch,
+  .holdingMarketDetail .hmBar > div,
+  .analysisSwitch,
+  .tradeViewSwitch,
+  .monthlyOverview .metricTabs
+) button,
+body.page-more #asset-overview .returnWindowSegment button,
+body.page-investments #return-trend .returnWindowSegment button,
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter, .lookthroughTabs, .returnSeriesToggle, #lookthroughTabs) :is(button, .chip),
+body.page-ledger .ledgerFlowChips .ledgerFlowChip {
+  min-height: 30px !important;
+  padding: 4px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #7a7a82 !important;
+  font-size: 13px !important;
+  font-weight: 450 !important;
+}
+
+body.app-shell :is(
+  .returnWindowSegment,
+  .ledgerTextSwitch,
+  .holdingMarketDetail .hmBar > div,
+  .analysisSwitch,
+  .tradeViewSwitch,
+  .monthlyOverview .metricTabs
+) button:is(.active, [aria-pressed="true"], [aria-selected="true"]),
+body.page-more #asset-overview .returnWindowSegment button.active,
+body.page-investments #return-trend .returnWindowSegment button.active,
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter, .lookthroughTabs, .returnSeriesToggle, #lookthroughTabs) :is(button, .chip):is(.active, [aria-pressed="true"], [aria-selected="true"]),
+body.page-ledger .ledgerFlowChips .ledgerFlowChip:is(.active, [aria-pressed="true"]) {
+  color: #f5f5f7 !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter, .lookthroughTabs, .returnSeriesToggle),
+body.page-ledger .ledgerFlowChips {
+  gap: 16px !important;
+}
+
+body.page-investments #holdingReturnTabs button[aria-pressed="true"]::after {
+  background: #f5f5f7 !important;
+  box-shadow: none !important;
+}
+
+/* 4. Remove Pill Borders & Glows on Hero PnL, Badges, Sort Select, Risk Stats */
+body.page-investments .mobileHeroPrimaryMetric em.up,
+body.page-investments .mobileHeroPrimaryMetric em.down,
+body.app-shell :is(.statusBadge, .miniBadge, .accountSyncBadge, .accountFreshnessBadge, .importInboxWarnTag),
+body.page-investments :is(.portfolioRiskInlineBadge, .tradeCampaignStatus),
+body.app-shell .holdingSortSelect,
+body.app-shell .tradeRevisitChip,
+body.app-shell .accountSyncCompactImport {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body.page-investments .portfolioRiskDashboardStats span {
+  padding: 6px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* Keep institution logos intact; remove selection box background */
+body.page-more #accountSyncPanel .accountInstitutionButton {
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+body.page-more #accountSyncPanel .accountInstitutionButton[aria-pressed="true"] {
+  background: transparent !important;
+  color: #f5f5f7 !important;
+}
+body.page-more .accountInstitutionButton[aria-pressed="true"] .accountInstitutionLogo {
+  outline: 1.5px solid rgba(255, 255, 255, 0.85) !important;
+  outline-offset: 2px;
+  box-shadow: none !important;
+}
+
+/* 5. Translucent iOS Glass Bottom Sheet (Clean Borderless Close) */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @media (prefers-reduced-transparency: no-preference) {
+    body.app-shell .appBottomSheetPanel {
+      background: rgba(18, 18, 22, 0.62) !important;
+      border: 0 !important;
+      border-top: 0.5px solid rgba(255, 255, 255, 0.22) !important;
+      border-radius: 22px 22px 0 0 !important;
+      box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.34), 0 -20px 56px rgba(0, 0, 0, 0.72) !important;
+      -webkit-backdrop-filter: blur(22px) saturate(195%) !important;
+      backdrop-filter: blur(22px) saturate(195%) !important;
+    }
+
+    body.app-shell .appBottomSheetClose {
+      background: transparent !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      color: #8e8e93 !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+  }
+}
+
+/* ==========================================================================
+   6. Precision Polish Pass: Navigation Hierarchy, Breathing Rhythm & Pure Monochrome
+   ========================================================================== */
+
+/* 6.1 Clear 4-Tier Navigation Scale:
+   Tier 2 (Main sub-nav): 15px / 650 + 22px white underline
+   Tier 3 (In-page sub-tabs): 13px / 600 + subtle 14px underline
+   Tier 4 (Filter / range chips): 12px / 600 text-only contrast */
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav, .import-modes) {
+  margin: 0 0 14px !important;
+}
+body.app-shell :is(.assetTabs, .investAnchorNav, .ledgerAnchorNav) a,
+body.page-account-import .import-modes button {
+  min-height: 44px !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  color: #6e6e73 !important;
+  letter-spacing: -0.01em;
+}
+body.app-shell :is(.assetTabs a[aria-current], .investAnchorNav a.is-active, .ledgerAnchorNav a.is-active),
+body.page-account-import .import-modes [aria-pressed="true"]:enabled {
+  color: #ffffff !important;
+  font-weight: 650 !important;
+}
+body.app-shell :is(.assetTabs a[aria-current], .investAnchorNav a.is-active, .ledgerAnchorNav a.is-active)::after,
+body.page-account-import .import-modes [aria-pressed="true"]:enabled::after {
+  width: 22px !important;
+  height: 2px !important;
+  background: #ffffff !important;
+}
+
+/* Tier 3: In-page sub-tabs */
+body.page-investments :is(#holdingReturnTabs, .riskSubnav, .analysisSwitch, .tradeViewSwitch, .riskScopeSwitch),
+body.page-more .monthlyOverview .metricTabs {
+  margin-top: 2px !important;
+  margin-bottom: 12px !important;
+  gap: 20px !important;
+}
+body.page-investments :is(#holdingReturnTabs button, .riskSubnav a, .analysisSwitch button, .tradeViewSwitch button, .riskScopeSwitch button),
+body.page-more .monthlyOverview .metricTabs button {
+  position: relative !important;
+  min-height: 34px !important;
+  padding: 5px 0 7px !important;
+  font-size: 13px !important;
+  font-weight: 450 !important;
+  color: #6e6e73 !important;
+  border-bottom: 1.5px solid transparent !important;
+}
+body.page-investments :is(
+  #holdingReturnTabs button[aria-pressed="true"],
+  .riskSubnav a.active,
+  .analysisSwitch button:is(.active, [aria-selected="true"]),
+  .tradeViewSwitch button.active,
+  .riskScopeSwitch button.active
+),
+body.page-more .monthlyOverview .metricTabs button[aria-pressed="true"] {
+  color: #f5f5f7 !important;
+  font-weight: 600 !important;
+  border-bottom-color: rgba(245, 245, 247, 0.85) !important;
+}
+body.page-investments #holdingReturnTabs button[aria-pressed="true"]::after,
+body.page-investments .riskSubnav a.active::after {
+  display: none !important;
+}
+
+/* Tier 4: Lightweight filters & period ranges */
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter, .lookthroughTabs, .returnSeriesToggle, #lookthroughTabs),
+body.page-ledger .ledgerFlowChips,
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) {
+  gap: 14px !important;
+  padding: 2px 0 8px !important;
+}
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter, .lookthroughTabs, .returnSeriesToggle, #lookthroughTabs) :is(button, .chip),
+body.page-ledger .ledgerFlowChips .ledgerFlowChip,
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) button {
+  min-height: 26px !important;
+  padding: 2px 0 !important;
+  font-size: 12px !important;
+  font-weight: 450 !important;
+  color: #636366 !important;
+}
+body.page-investments :is(#mobileHoldingFilterChips, #holdingSegmentFilter, .lookthroughTabs, .returnSeriesToggle, #lookthroughTabs) :is(button, .chip):is(.active, [aria-pressed="true"], [aria-selected="true"]),
+body.page-ledger .ledgerFlowChips .ledgerFlowChip:is(.active, [aria-pressed="true"]),
+body.app-shell :is(.returnWindowSegment, .ledgerTextSwitch, .holdingMarketDetail .hmBar > div) button:is(.active, [aria-pressed="true"]) {
+  color: #f5f5f7 !important;
+  font-weight: 600 !important;
+}
+
+/* 6.2 Generous Negative-Space Rhythm Between Flattened Sections */
+body.page-more :is(.assetCard, .monthlyHero),
+body.page-investments :is(#holdingReturnHero, .investmentHero),
+body.page-ledger .ledgerOverviewCard {
+  padding-top: 10px !important;
+  padding-bottom: 20px !important;
+  margin-bottom: 14px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+body.page-more :is(#asset-overview .returnNavPanel, .accountInstitutionPanel, .accountCoverageMatrix, .importInboxCard, #moreAdvanced),
+body.page-investments :is(.investmentAnalysisCard, .transactionOverview, .portfolioConfigBlock, .portfolioRiskBlock, .performanceBenchmarkPanel),
+body.page-ledger .ledgerLoanCard {
+  padding-top: 20px !important;
+  padding-bottom: 20px !important;
+}
+
+body.page-more #asset-overview {
+  gap: 8px !important;
+}
+body.page-investments .portfolioConfigGrid {
+  gap: 8px !important;
+}
+body.page-investments .portfolioRiskBlock + .portfolioRiskBlock {
+  margin-top: 6px !important;
+}
+body.page-investments #holdings-smart-table:not(.showFinancing) .personalHoldingHeading {
+  padding: 18px 0 8px !important;
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.01em;
+}
+body.page-ledger .ledgerStreamDayHeader,
+body.page-investments .recentTradeList .ledgerStreamDayHeader {
+  padding: 16px 0 8px !important;
+  font-size: 12px !important;
+  color: #6e6e73 !important;
+}
+
+/* 6.3 Focused Blue Data-Viz Accent + Unified Icon Pickers + Performance Copy Trim */
+body.app-shell {
+  --refresh-glass: rgba(71, 181, 255, 0.14);
+  --refresh-amber: #47b5ff;
+}
+
+/* Restore vivid blue emphasis on Overview & Chart visualizations (keeps pure-black borderless layout) */
+body.page-more .monthlyOverview {
+  --month-previous: #4b5260;
+  --month-warm: #5ac8fa;
+  --month-current: #47b5ff;
+}
+body.page-more .monthlyHero line.active {
+  stroke: #47b5ff !important;
+  stroke-width: 2.6;
+}
+body.page-more .monthlyHero circle {
+  fill: #47b5ff !important;
+}
+body.page-more .monthlyOverview .bar.current,
+body.page-more .monthlyOverview .legend .current {
+  background: #47b5ff !important;
+}
+body.page-more .monthlyOverview .monthlyFocus {
+  border-left: 2.5px solid #47b5ff !important;
+  color: #e5e5ea;
+}
+
+body.page-ledger #cashflow-workbench {
+  --ledger-overview-accent: #47b5ff;
+  --expense-accent: #d9a13d;
+}
+html.pams-content #ledgerTodoPill {
+  display: none !important;
+}
+body.page-ledger .ledgerTrendIncome::before {
+  background: #3f8be5 !important;
+}
+body.page-ledger .ledgerTrendExpense::before {
+  background: #d9a13d !important;
+}
+body.page-ledger .categoryMonthBar::before {
+  background: #47b5ff !important;
+}
+body.page-ledger .ledgerTrendNetLabel::before {
+  border-top-color: #47b5ff !important;
+}
+body.page-ledger .ledgerTrendNetLatest strong {
+  color: #5ac8fa !important;
+}
+
+body.page-investments .lookthroughBar i {
+  background: linear-gradient(90deg, #47b5ff, #62c2ff) !important;
+}
+body.page-investments .portfolioRiskRingArc:not(.risk):not(.warn):not(.ok) {
+  stroke: #47b5ff !important;
+}
+body.page-investments .portfolioRiskStatusDot:not(.risk):not(.warn):not(.ok),
+body.app-shell .pamsTodoDot {
+  background: #47b5ff !important;
+}
+
+/* Subtle blue highlight on active underline indicators */
+body.app-shell :is(.assetTabs a[aria-current], .investAnchorNav a.is-active, .ledgerAnchorNav a.is-active)::after,
+body.page-account-import .import-modes [aria-pressed="true"]:enabled::after,
+body.page-investments .incrementalPresetBtn.active {
+  background: #47b5ff !important;
+}
+body.page-investments .incrementalPresetBtn.active {
+  background: transparent !important;
+  color: #ffffff !important;
+  border-bottom-color: #47b5ff !important;
+}
+
+/* Fallback monogram circles (brand <img> logos remain untouched) */
+.assetIdentityMark {
+  background: rgba(71, 181, 255, 0.12) !important;
+  color: #7cc9ff !important;
+  box-shadow: inset 0 0 0 0.5px rgba(71, 181, 255, 0.22) !important;
+}
+
+/* Neutral ledger category icon (income green / expense red / review amber preserved) */
+body.page-ledger .ledgerStreamCategoryIcon {
+  background: rgba(71, 181, 255, 0.12);
+  color: #62c2ff;
+  border-color: rgba(71, 181, 255, 0.20);
+}
+
+/* Clean interactive action links */
+body.page-more #accountSyncPanel .accountSyncImport,
+body.app-shell .accountSyncCompactImport,
+body.app-shell .importInboxRow > span,
+body.app-shell .importInboxMoreBtn,
+body.app-shell .importInboxMiniLink,
+body.app-shell .pamsTodoPill strong,
+body.app-shell .pamsTodoArrow,
+body.page-investments #lookthrough-exposure .lookthroughIssueAction,
+body.page-investments #lookthrough-exposure .lookthroughDonutCenter em,
+body.page-investments .incrementalResultRow:not(.is-warn) b {
+  color: #62c2ff !important;
+}
+
+body.app-shell .importInboxBtn {
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: #d1d1d6 !important;
+}
+body.app-shell .importInboxBtn.is-primary {
+  border-color: rgba(71, 181, 255, 0.36) !important;
+  background: rgba(71, 181, 255, 0.12) !important;
+  color: #7cc9ff !important;
+}
+
+body.app-shell .tradeReviewPriorHint,
+body.app-shell .lookthroughQualityBtn,
+body.app-shell .freshnessCard.is-info,
+body.app-shell .perfBenchTile.is-primary {
+  border-color: rgba(255, 255, 255, 0.10) !important;
+  background: transparent !important;
+}
+
+body.page-investments .portfolioRiskDashboard:not(.risk):not(.warn) {
+  background: transparent !important;
+}
+
+/* 6.4 Unified Icon-Triggered Glass Popover Pickers (Time Ranges, Periods, Sort) */
+.pamsPickerOriginHidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+}
+
+.pamsIconPicker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.pamsIconPicker[hidden] { display: none !important; }
+
+.pamsIconTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #c7c7cc;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.16s ease, opacity 0.16s ease;
+}
+.pamsIconTrigger:hover,
+.pamsIconTrigger[aria-expanded="true"] {
+  color: #5ac8fa;
+}
+.pamsIconTrigger:active {
+  opacity: 0.68;
+}
+.pamsIconTrigger svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.pamsIconMenu,
+body.page-ledger .ledgerPopover {
+  position: absolute !important;
+  z-index: 80 !important;
+  inset: calc(100% + 6px) 0 auto auto !important;
+  min-width: 144px !important;
+  padding: 6px !important;
+  border: 0.5px solid rgba(255, 255, 255, 0.22) !important;
+  border-radius: 14px !important;
+  background: rgba(14, 17, 24, 0.72) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(210%) !important;
+  backdrop-filter: blur(22px) saturate(210%) !important;
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.34), 0 14px 36px rgba(0, 0, 0, 0.62) !important;
+}
+.pamsIconMenu[hidden] { display: none !important; }
+
+.pamsIconMenuHead {
+  padding: 5px 10px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #8e8e93;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  margin-bottom: 4px;
+}
+
+.pamsIconMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #d8d8de;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 450;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.pamsIconMenuItem:hover,
+.pamsIconMenuItem:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+.pamsIconMenuItem.is-active {
+  color: #5ac8fa;
+  font-weight: 600;
+  background: rgba(71, 181, 255, 0.10);
+}
+.pamsIconCheck {
+  width: 14px;
+  height: 14px;
+  stroke: #5ac8fa;
+  stroke-width: 2.2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+/* 6.5 Trim Verbose Instructional Copy on Investment Performance & Exposure Pages */
+body.page-investments #return-trend > .sectionTitle,
+body.page-investments #return-trend #returnMethodBar,
+body.page-investments #return-trend .returnChartHint,
+body.page-investments #return-trend .returnInsightHead span,
+body.page-investments #return-trend .returnInsightHead .statusBadge,
+body.page-investments #return-trend .lookthroughNarrative,
+body.page-investments #return-trend #return-attribution > .sectionTitle,
+body.page-investments #return-trend .perfBenchHead small,
+body.page-investments #lookthrough-exposure .lookthroughNarrative,
+body.page-investments #lookthrough-exposure .lookthroughExplain,
+body.page-investments #lookthrough-exposure .lookthroughDimensionNote {
+  display: none !important;
+}
+
+body.page-investments #return-trend .returnAttributionMeta,
+body.page-investments #return-trend .returnAttributionRow small,
+body.page-investments #return-trend .perfLeaderName small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Clearer Bottom Sheet Glass */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  @media (prefers-reduced-transparency: no-preference) {
+    body.app-shell .appBottomSheetPanel {
+      background: rgba(12, 14, 20, 0.54) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(210%) !important;
+      backdrop-filter: blur(20px) saturate(210%) !important;
+    }
+  }
+}

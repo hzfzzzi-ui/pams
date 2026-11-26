@@ -1,4 +1,5 @@
 import { PRIMARY_PAGES, resolveContentRoute } from './routes.js';
+import { mountUnifiedIconPickers } from '../components/icon_picker.js';
 
 // Read the versions already selected by the page, rather than duplicating an
 // asset/version manifest here. Only same-origin static assets are eligible.
@@ -40,6 +41,7 @@ export function createPageBootstrap({
   const prefetched = new Set();
   const links = new Set();
   const warmup = new Controller();
+  let disposePickers = null;
 
   function prefetchResources() {
     for (const {href, as} of collectPrefetchResources(doc)) {
@@ -82,6 +84,7 @@ export function createPageBootstrap({
     if (started || disposed) return;
     started = true;
     doc.body.classList.add('app-shell');
+    disposePickers = mountUnifiedIconPickers(doc, win);
     win.addEventListener('pagehide', dispose, {once: true});
     const connection = win.navigator.connection || win.navigator.mozConnection || win.navigator.webkitConnection;
     if (connection?.saveData) return;
@@ -93,6 +96,8 @@ export function createPageBootstrap({
   function dispose() {
     if (disposed) return;
     disposed = true;
+    disposePickers?.();
+    disposePickers = null;
     warmup.abort();
     for (const id of timers) win.clearTimeout(id);
     for (const id of idleCallbacks) win.cancelIdleCallback?.(id);
