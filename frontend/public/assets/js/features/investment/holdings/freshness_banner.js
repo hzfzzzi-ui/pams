@@ -72,10 +72,17 @@ export function mountFreshnessBanner(root = document.body) {
     refreshing = true;
     render(lastData, '正在触发行情刷新…');
     try {
-      await jpost('/api/prices/refresh', { scopes: ['a_stock', 'us_stock', 'a_fund', 'precious_metal'] });
+      const res = await jpost('/api/prices/refresh/investments', {
+        scopes: ['a_stock', 'us_stock', 'a_fund', 'precious_metal'],
+      });
+      render(lastData, `行情已更新 ${Number(res?.total_updated || 0)} 项，正在刷新持仓估值…`);
+      try {
+        await jpost('/api/investment/page-projection/refresh', {});
+      } catch { /* fallback to normal reload */ }
       refreshing = false;
       const fresh = await jget('/api/prices/freshness');
-      render(fresh, '行情已触发刷新，页面估值将在投影更新后生效。');
+      render(fresh, '行情与持仓估值已更新，正在刷新页面…');
+      window.setTimeout(() => window.location.reload(), 600);
     } catch (err) {
       refreshing = false;
       render(lastData, `刷新失败：${err?.message || err}`);
