@@ -144,7 +144,25 @@ export function mount(root, context = {}) {
     else if (!state.mode) message('该子账户的导入方式暂不可用。');
     const limits = state.caps.limits || {};
     $('file-limits').textContent = Object.entries(limits).map(([key, value]) => `${({ files: '文件上限', file_bytes: '单文件字节上限', batch_bytes: '批次字节上限', rows: '记录上限', max_files: '文件上限', max_file_bytes: '单文件字节上限', max_rows: '记录上限' })[key] || key}：${value}`).join(' · ');
-    await history(); state.initialized = true; render();
+    await history(); state.initialized = true;
+    const requestedBatch = query.get('batch');
+    if (requestedBatch && !state.batch) {
+      try {
+        const loaded = await loadBatch(requestedBatch);
+        if (useBatch(loaded)) {
+          if (loaded.status === 'draft' && (loaded.rows?.length || images().length)) {
+            await advanceToReview();
+          }
+          return;
+        }
+      } catch (error) {
+        message(`未能直接打开草稿 ${requestedBatch}：${error?.message || '请从下方最近批次选择'}`);
+      }
+    }
+    if (!state.batch && (state.historyRows || []).some(row => row.status === 'draft')) {
+      $('history')?.setAttribute('open', '');
+    }
+    render();
   }
   function renderAccounts(preferred = $('account').value) {
     const select = $('account');

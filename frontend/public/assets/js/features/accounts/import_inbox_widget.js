@@ -108,7 +108,7 @@ export function mountImportInbox(container, { get, win }) {
           </div>
           <div class="importInboxRowOps">
             ${confirmBtn}
-            <a class="importInboxMiniLink" href="${esc(subaccountImportHref(d.account_code))}">核对 ›</a>
+            <a class="importInboxMiniLink" href="${esc(subaccountImportHref(d.account_code, d.source_id))}">核对 ›</a>
             <button type="button" class="importInboxMiniBtn is-discard" data-discard-draft="${esc(d.source_id)}" title="忽略此重复或过期草稿">忽略</button>
           </div>
         </div>`;
