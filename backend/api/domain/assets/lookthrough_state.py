@@ -593,10 +593,120 @@ def _stored_lookthrough(position: dict[str, Any], lookup: dict[str, Any], as_of:
     return result
 
 
+_ETF_OR_FUND_NAME_RE = re.compile(
+    r"\b(etf|fund|trust|index|lof|fof|qdii|ucits)\b|基金|联接|混合|指数|债券|货币|理财",
+    re.IGNORECASE,
+)
+
+_DIRECT_STOCK_ASSET_TYPES = {
+    "a_share_stock",
+    "a_stock",
+    "cn_stock",
+    "listed_equity_cn",
+    "stock_cn",
+    "us_stock",
+    "stock_us",
+    "hk_stock",
+    "stock_hk",
+    "kr_stock",
+    "stock_kr",
+    "eu_stock",
+    "stock_eu",
+    "se_stock",
+    "stock_se",
+    "europe_stock",
+    "swedish_stock",
+}
+
+_DIRECT_EQUITY_HINTS: dict[str, dict[str, str]] = {
+    "spcx": {
+        "industry": "高端制造",
+        "theme": "商业航天",
+        "style": "海外成长",
+        "risk_bucket": "US_GLOBAL_TECH",
+    },
+    "cbrs": {
+        "industry": "科技TMT",
+        "theme": "AI/算力",
+        "style": "海外成长",
+        "risk_bucket": "US_GLOBAL_TECH",
+    },
+    "sive": {
+        "industry": "科技TMT",
+        "theme": "半导体",
+        "style": "海外成长",
+        "risk_bucket": "US_GLOBAL_TECH",
+    },
+}
+
+
+def _is_etf_or_fund_position(position: dict[str, Any]) -> bool:
+    asset_type = _key(position.get("asset_type"))
+    if any(tok in asset_type for tok in ("etf", "fund", "bond", "money_market")):
+        return True
+    name = _norm_text(position.get("asset_name") or "")
+    return bool(_ETF_OR_FUND_NAME_RE.search(name))
+
+
+def _infer_direct_equity_industry(symbol: str, name: str) -> tuple[str, str, str | None]:
+    sym_key = _key(symbol)
+    hint = _DIRECT_EQUITY_HINTS.get(sym_key)
+    if hint:
+        return hint["industry"], hint["theme"], hint.get("risk_bucket")
+    lowered = f"{sym_key} {_key(name)}"
+    if "space exploration" in lowered or "spacex" in lowered:
+        return "高端制造", "商业航天", "US_GLOBAL_TECH"
+    if "cerebras" in lowered:
+        return "科技TMT", "AI/算力", "US_GLOBAL_TECH"
+    if "sivers" in lowered:
+        return "科技TMT", "半导体", "US_GLOBAL_TECH"
+    for bucket, keywords in INDUSTRY_LABEL_KEYWORDS:
+        if any(kw in lowered for kw in keywords):
+            return bucket, bucket, None
+    return "未映射", "未映射", None
+
+
+def _canonical_direct_stock_class(asset_type: str, currency: str) -> str:
+    if asset_type in {"a_share_stock", "a_stock", "cn_stock", "listed_equity_cn", "stock_cn"}:
+        return "stock_cn"
+    if asset_type in {"us_stock", "stock_us"}:
+        return "stock_us"
+    if asset_type in {"hk_stock", "stock_hk"}:
+        return "stock_hk"
+    if asset_type in {"kr_stock", "stock_kr"}:
+        return "stock_kr"
+    if asset_type in {"se_stock", "stock_se", "swedish_stock"}:
+        return "stock_se"
+    if asset_type in {"eu_stock", "stock_eu", "europe_stock"}:
+        return "stock_eu"
+    return {
+        "CNY": "stock_cn",
+        "USD": "stock_us",
+        "HKD": "stock_hk",
+        "KRW": "stock_kr",
+        "SEK": "stock_se",
+        "EUR": "stock_eu",
+        "GBP": "stock_eu",
+        "CHF": "stock_eu",
+    }.get(currency, "stock_us")
+
+
 def _fallback_mapping(position: dict[str, Any]) -> dict[str, Any] | None:
     asset_type = _key(position.get("asset_type"))
     name = _norm_text(position.get("asset_name") or position.get("symbol") or "未命名资产")
+    symbol = _norm_text(position.get("symbol") or position.get("asset_id") or name)
     currency = _norm_text(position.get("currency") or "CNY").upper()
+    fallback_region = {
+        "CNY": "China",
+        "HKD": "Hong Kong",
+        "USD": "United States",
+        "KRW": "Korea",
+        "SEK": "Sweden",
+        "EUR": "Europe",
+        "GBP": "United Kingdom",
+        "CHF": "Switzerland",
+        "JPY": "Japan",
+    }.get(currency, "Unknown")
     if asset_type in {"cash", "money_market", "short_duration_usd", "short_bond"}:
         bucket = "CASH_SHORT_DURATION"
         industry = "现金/短久期"
@@ -612,28 +722,49 @@ def _fallback_mapping(position: dict[str, Any]) -> dict[str, Any] | None:
         industry = "贵金属"
         theme = "黄金"
         style = "商品/避险"
-    elif asset_type in {"us_stock", "stock_us", "kr_stock", "stock_kr", "eu_stock", "stock_eu", "se_stock", "stock_se", "etf_us"}:
+    elif not _is_etf_or_fund_position(position) and (
+        asset_type in _DIRECT_STOCK_ASSET_TYPES
+        or (
+            asset_type in {"", "other", "stock", "equity", "overseas_stock"}
+            and bool(_norm_text(position.get("symbol")))
+            and currency in {"USD", "HKD", "KRW", "SEK", "EUR", "GBP", "CHF", "JPY"}
+        )
+    ):
+        canonical_class = _canonical_direct_stock_class(asset_type, currency)
+        inferred_industry, inferred_theme, hint_bucket = _infer_direct_equity_industry(symbol, name)
+        default_bucket = "CN_EQUITY" if canonical_class in {"stock_cn", "stock_hk"} else "US_GLOBAL_TECH"
+        if inferred_industry == "周期资源":
+            default_bucket = "GOLD_RESOURCES"
+        return {
+            "asset_name": name,
+            "symbol": symbol,
+            "asset_class": canonical_class,
+            "risk_bucket": hint_bucket or default_bucket,
+            "region": fallback_region,
+            "currency": currency,
+            "industry": inferred_industry,
+            "theme": inferred_theme,
+            "style": "A股成长" if canonical_class == "stock_cn" else "海外权益",
+            "is_tradable": True,
+            "is_core": False,
+            "mapping_confidence": "MEDIUM",
+            "note": "直接个股持仓自动识别，无需基金穿透。",
+        }
+    elif asset_type in {"etf_us"} or (_is_etf_or_fund_position(position) and currency in {"USD", "HKD", "EUR", "GBP", "SEK", "KRW"}):
         bucket = "US_GLOBAL_TECH"
         industry = "美股/海外"
         theme = "海外权益"
         style = "海外权益"
-    elif asset_type in {"a_share_stock", "a_share_fund", "stock_cn", "fund_cn", "active_fund_cn"}:
+    elif asset_type in {"a_share_fund", "fund_cn", "active_fund_cn"} or (_is_etf_or_fund_position(position) and currency == "CNY"):
         bucket = "CN_EQUITY"
         industry = "中国权益"
         theme = "中国权益"
         style = "中国权益"
     else:
         return None
-    fallback_region = {
-        "CNY": "China",
-        "HKD": "Hong Kong",
-        "USD": "United States",
-        "KRW": "Korea",
-        "SEK": "Sweden",
-    }.get(currency, "Unknown")
     return {
         "asset_name": name,
-        "symbol": _norm_text(position.get("symbol") or position.get("asset_id") or name),
+        "symbol": symbol,
         "asset_class": asset_type or "other",
         "risk_bucket": bucket,
         "region": fallback_region,
@@ -651,8 +782,10 @@ def _fallback_mapping(position: dict[str, Any]) -> dict[str, Any] | None:
 def _is_direct_asset(position: dict[str, Any], mapping: dict[str, Any] | None) -> bool:
     if not mapping:
         return False
+    if _is_etf_or_fund_position(position):
+        return False
     asset_class = _key(mapping.get("asset_class") or position.get("asset_type"))
-    if asset_class == "us_stock" and position.get("_manual_direct_security") is True:
+    if asset_class == "us_stock":
         return True
     return asset_class in {
         "a_share_stock",
@@ -665,9 +798,12 @@ def _is_direct_asset(position: dict[str, Any], mapping: dict[str, Any] | None) -
         "kr_stock",
         "stock_eu",
         "eu_stock",
+        "europe_stock",
         "stock_se",
         "se_stock",
+        "swedish_stock",
         "stock_hk",
+        "hk_stock",
         "esop",
         "cash",
         "money_market",
