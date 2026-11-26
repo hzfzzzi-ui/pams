@@ -132,6 +132,7 @@ def _event(row: dict[str, Any], *, side: str, amount: Decimal | None, fees: Deci
         "fees": q_money(fees) if fees is not None else None,
         "buy_reason": row.get("buy_reason"),
         "sell_reason": row.get("sell_reason"),
+        "review_note": row.get("review_note"),
         "review_tags": list(row.get("review_tags") or []),
         "initial_position_identity": row.get("initial_position_identity"),
         "current_position_identity": row.get("current_position_identity"),
@@ -454,12 +455,13 @@ def build_position_campaigns_payload(
             f.gross_amount,
             f.fee_amount,
             f.tax_amount,
-            f.raw_json,
+            NULL::jsonb AS raw_json,
             f.net_cash,
             f.realized_pnl,
             f.realized_pnl_cny,
             f.buy_reason,
             f.sell_reason,
+            f.review_note,
             COALESCE(f.review_tags, ARRAY[]::text[]) AS review_tags,
             f.initial_position_identity,
             f.current_position_identity,
@@ -482,12 +484,49 @@ def build_position_campaigns_payload(
     ]
     if status and status != "all":
         campaigns = [campaign for campaign in campaigns if campaign.get("status") == status]
+    today = today_local()
+    revisit_due = []
+    for c in campaigns:
+        events = c.get("events") or c.get("trades") or []
+        unreviewed = [e for e in events if e.get("review_status") in (None, "auto", "needs_review")]
+        open_str = c.get("opened_date") or c.get("start_date") or (events[0].get("trade_date") if events else None)
+        days_held = None
+        if open_str:
+            try:
+                days_held = (today - Date.fromisoformat(str(open_str)[:10])).days
+            except ValueError:
+                days_held = None
+        milestone = None
+        if c.get("status") == "closed" and unreviewed:
+            milestone = "清仓复盘"
+        elif days_held is not None and days_held >= 180 and unreviewed:
+            milestone = "180天回看"
+        elif days_held is not None and days_held >= 90 and unreviewed:
+            milestone = "90天回看"
+        elif days_held is not None and days_held >= 30 and unreviewed:
+            milestone = "30天回看"
+        elif unreviewed:
+            milestone = "待记录逻辑"
+        if milestone:
+            latest_ev = unreviewed[-1] if unreviewed else (events[-1] if events else {})
+            revisit_due.append({
+                "campaign_id": c.get("campaign_id"),
+                "symbol": c.get("symbol"),
+                "name": c.get("name"),
+                "account_code": c.get("account_code"),
+                "status": c.get("status"),
+                "days_held": days_held,
+                "milestone": milestone,
+                "unreviewed_count": len(unreviewed),
+                "latest_trade_id": latest_ev.get("trade_id"),
+            })
     summary = _summary(campaigns)
     visible = campaigns[:limit]
     return {
-        "as_of": today_local().isoformat(),
+        "as_of": today.isoformat(),
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
+        "revisit_due": revisit_due[:20],
         "account_code": account_code,
         "asset_key": asset_key,
         "status": status or "all",

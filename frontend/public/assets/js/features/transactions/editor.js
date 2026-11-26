@@ -158,6 +158,23 @@ function openTradeReviewSheet(row) {
   const maxPositionPct = row.max_position_pct || rule.maxPositionPct || '';
   const nextReviewDate = row.next_review_date || row.review_due_date || (effectiveIdentity === 'uncertain' ? addDaysIso(14) : '');
   const transitionVisible = Boolean(initialIdentity && currentIdentity && initialIdentity !== currentIdentity);
+  const priorSameSymbol = (state.rows || []).find(item =>
+    item && String(item.native_id) !== String(row.native_id)
+    && ((row.symbol && item.symbol === row.symbol) || (!row.symbol && item.name === row.name))
+    && (String(item.review_note || '').trim() || item.buy_reason)
+  );
+  const priorThesisText = priorSameSymbol
+    ? (String(priorSameSymbol.review_note || '').trim() || reviewOptionLabel('buy_reasons', priorSameSymbol.buy_reason) || '')
+    : '';
+  const priorBanner = priorThesisText
+    ? `<div class="tradeReviewPriorHint">
+        <div>
+          <span>上次逻辑 · ${escapeHtml(priorSameSymbol.trade_date || '')}</span>
+          <p>${escapeHtml(priorThesisText)}</p>
+        </div>
+        <button type="button" class="tradeReviewInlineBtn" data-copy-prior-note="${escapeHtml(priorThesisText)}">沿用</button>
+      </div>`
+    : '';
   const title = `交易复盘 · ${holding.name}`;
   openBottomSheet(title, `
     <form id="tradeReviewForm" class="tradeReviewForm" data-trade-id="${escapeHtml(String(row.native_id))}" data-side="${escapeHtml(side)}">
@@ -178,41 +195,56 @@ function openTradeReviewSheet(row) {
 
       <div class="tradeReviewModeHero">
         <div>
-          <span>快速记录</span>
-          <strong>30 秒记录交易目的，复杂判断之后再补。</strong>
+          <span>30 秒快速复盘</span>
+          <strong>记清当时为什么买/卖，一年后回看才不迷糊。</strong>
         </div>
-        <small>高级计划、事后标签、身份变化默认折叠。</small>
+        <small>仓位规则、退出计划、事后标签已折叠。</small>
       </div>
 
       <div class="tradeReviewSubsection tradeReviewQuickSection">
-        <div class="tradeReviewSubsectionHead">
-          <strong>主原因</strong>
-          <small>单选，不默认未标注；不确定时选“未确定 / 待复盘”。</small>
-        </div>
         <div class="tradeReviewFieldGrid">
           <div class="tradeReviewField" ${showBuyReason ? '' : 'hidden'}>
-            <span>买入原因</span>
+            <span>1. 买入原因</span>
             <div class="tradeReviewTagGrid tradeReviewChoiceGrid">${renderReviewChoiceOptions('buy_reasons', row.buy_reason, 'reviewBuyReason')}</div>
           </div>
           <div class="tradeReviewField" ${showSellReason ? '' : 'hidden'}>
-            <span>卖出原因</span>
+            <span>1. 卖出原因</span>
             <div class="tradeReviewTagGrid tradeReviewChoiceGrid">${renderReviewChoiceOptions('sell_reasons', row.sell_reason, 'reviewSellReason')}</div>
           </div>
         </div>
 
-        <div class="tradeReviewFieldGrid">
-          <div class="tradeReviewField">
-            <span>初始仓位身份</span>
-            <div class="tradeReviewTagGrid tradeReviewChoiceGrid">${renderReviewChoiceOptions('position_identities', initialIdentity, 'reviewInitialIdentity')}</div>
-          </div>
-          <div class="tradeReviewField">
-            <span>当前仓位身份 <button id="btnShowIdentityTransition" class="tradeReviewInlineBtn" type="button">修改身份</button></span>
-            <div class="tradeReviewTagGrid tradeReviewChoiceGrid">${renderReviewChoiceOptions('current_position_identities', currentIdentity, 'reviewCurrentIdentity')}</div>
-          </div>
+        ${priorBanner}
+        <label class="tradeReviewField">
+          <span>2. 一句话核心逻辑（必填推荐）</span>
+          <textarea id="reviewNote" class="formInput tradeReviewTextarea compact" rows="2" placeholder="为什么现在买/卖？看到什么信号或变化？">${reviewTextValue(row.review_note)}</textarea>
+        </label>
+
+        <div class="tradeReviewField">
+          <span>3. 仓位身份</span>
+          <div class="tradeReviewTagGrid tradeReviewChoiceGrid">${renderReviewChoiceOptions('position_identities', initialIdentity, 'reviewInitialIdentity')}</div>
         </div>
         <div id="identityRuleHint" class="tradeReviewRuleHint">${escapeHtml(rule.hint || '选择仓位身份后自动生成卖出规则和仓位上限。')}</div>
         <div id="uncertainPositionGuard" class="tradeReviewWarning" ${effectiveIdentity === 'uncertain' ? '' : 'hidden'}>
           不确定可以，但必须小仓位、限期复盘、不能无限加仓。系统默认仓位上限 1%–2%，并要求设置复盘日期。
+        </div>
+      </div>
+
+      <details class="tradeReviewFold tradeReviewAutoFold" id="reviewAutoAttributionDetails" open>
+        <summary>
+          <strong>交易后表现对照</strong>
+          <small>自动归因</small>
+        </summary>
+        ${TradeAutoAttributionPanelV3(null)}
+      </details>
+
+      <details class="tradeReviewFold" id="reviewPlanDetails">
+        <summary>
+          <strong>展开计划与仓位细节</strong>
+          <small id="reviewPlanCompletion">计划细节 0/5</small>
+        </summary>
+        <div class="tradeReviewField">
+          <span>当前仓位身份 <button id="btnShowIdentityTransition" class="tradeReviewInlineBtn" type="button">修改身份</button></span>
+          <div class="tradeReviewTagGrid tradeReviewChoiceGrid">${renderReviewChoiceOptions('current_position_identities', currentIdentity, 'reviewCurrentIdentity')}</div>
         </div>
         <div class="tradeReviewFieldGrid tradeReviewCompactGrid">
           <div class="tradeReviewField">
@@ -230,25 +262,6 @@ function openTradeReviewSheet(row) {
             <small id="reviewSellRuleDetail">${escapeHtml(sellCondition || '选择仓位身份后自动生成。')}</small>
           </div>
         </div>
-        <label class="tradeReviewField">
-          <span>一句备注（可选）</span>
-          <textarea id="reviewNote" class="formInput tradeReviewTextarea compact" rows="2" placeholder="一句话记录背景、想法或主观判断。">${reviewTextValue(row.review_note)}</textarea>
-        </label>
-      </div>
-
-      <details class="tradeReviewFold tradeReviewAutoFold" id="reviewAutoAttributionDetails" open>
-        <summary>
-          <strong>查看交易后表现</strong>
-          <small>自动归因</small>
-        </summary>
-        ${TradeAutoAttributionPanelV3(null)}
-      </details>
-
-      <details class="tradeReviewFold" id="reviewPlanDetails">
-        <summary>
-          <strong>展开计划细节</strong>
-          <small id="reviewPlanCompletion">计划细节 0/5</small>
-        </summary>
         <div class="tradeReviewFieldGrid tradeReviewCompactGrid">
           <label class="tradeReviewField">
             <span>最大可接受亏损 %</span>
