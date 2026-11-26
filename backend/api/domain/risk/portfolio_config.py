@@ -918,6 +918,7 @@ def build_portfolio_config_payload_from_inputs(
     plan: dict[str, Any] | None = None,
     base_currency: str = "CNY",
     asset_label_lookup: dict[str, dict[str, str]] | None = None,
+    account_cards: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build target allocation rules from risk and lookthrough state."""
 
@@ -1232,6 +1233,35 @@ def build_portfolio_config_payload_from_inputs(
     visible_rules = [rule for rule in rules if rule.get("display", True)]
     drilldown_rules = [rule for rule in rules if not rule.get("display", True)]
 
+    ibkr_card = (account_cards or {}).get("ibkr") if isinstance(account_cards, dict) else None
+    ibkr_cash_raw = (ibkr_card.get("cash") or {}).get("value") if isinstance(ibkr_card, dict) else None
+    ibkr_debt_cny = abs(_n(ibkr_cash_raw)) if ibkr_cash_raw is not None and _n(ibkr_cash_raw) < 0 else 0.0
+    by_id = {rule["id"]: rule for rule in rules}
+    incremental_buckets = []
+    for bid in ("cash", "bond", "us_broad", "stock"):
+        rule = by_id.get(bid)
+        if not rule:
+            continue
+        t_low = rule.get("target_low")
+        t_high = rule.get("target_high")
+        if t_low is not None and t_high is not None:
+            target_mid = (float(t_low) + float(t_high)) / 2.0
+        elif t_low is not None:
+            target_mid = float(t_low)
+        elif t_high is not None:
+            target_mid = float(t_high)
+        else:
+            continue
+        incremental_buckets.append({
+            "id": rule["id"],
+            "name": rule["name"],
+            "current_amount_cny": round(max(_n(rule.get("current_amount_cny")), 0.0), 2),
+            "current_weight": round(_n(rule.get("current")), 4),
+            "target_low": t_low,
+            "target_high": t_high,
+            "target_mid": round(target_mid, 4),
+        })
+
     return {
         "as_of": risk.get("as_of") or lookthrough.get("as_of"),
         "base_currency": base_currency,
@@ -1241,6 +1271,12 @@ def build_portfolio_config_payload_from_inputs(
         "rules": visible_rules,
         "drilldown_rules": drilldown_rules,
         "rebalance": _build_rebalance(rules, nav, plan),
+        "incremental_rebalance": {
+            "nav_cny": round(nav, 2),
+            "default_amount_cny": 20000,
+            "ibkr_debt_cny": round(ibkr_debt_cny, 2),
+            "buckets": incremental_buckets,
+        },
     }
 
 

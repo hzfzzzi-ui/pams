@@ -239,7 +239,94 @@ export function configModelFromPayload(payload) {
     currentGroups: (payload?.groups || []).map(normalizeGroup),
     currentRebalance: payload?.rebalance || [],
     currentAsOf: payload?.as_of || '--',
+    incrementalMeta: payload?.incremental_rebalance || null,
   };
+}
+
+function fmtMoneyInt(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  return `¥${Math.round(num).toLocaleString('zh-CN')}`;
+}
+
+export function incrementalRebalanceHtml(meta, ui = {}) {
+  if (!meta || !Array.isArray(meta.buckets) || !meta.buckets.length) {
+    return '<div class="lookthroughEmpty compact">等待配置数据加载试算器</div>';
+  }
+  const amount = Math.max(0, Number(ui.amount ?? meta.default_amount_cny ?? 20000));
+  const ibkrDebt = Math.max(0, Number(meta.ibkr_debt_cny || 0));
+  const payDebtFirst = ui.payDebtFirst !== undefined ? Boolean(ui.payDebtFirst) : ibkrDebt > 0;
+  const nav = Math.max(1, Number(meta.nav_cny || 0));
+  const postNav = nav + amount;
+
+  let remaining = amount;
+  const allocations = [];
+  if (payDebtFirst && ibkrDebt > 0 && remaining > 0) {
+    const payDebt = Math.min(remaining, ibkrDebt);
+    remaining -= payDebt;
+    allocations.push({
+      id: 'ibkr_debt',
+      name: '偿还盈透高息融资',
+      amount: payDebt,
+      note: `降杠杆 · 年省息约 ${fmtMoneyInt(payDebt * 0.058)}`,
+      tone: 'warn',
+    });
+  }
+
+  // Allocate remaining cash toward underweight buckets proportional to their gap to target_mid
+  const gaps = meta.buckets.map((b) => {
+    const targetAmt = postNav * n(b.target_mid);
+    const gap = Math.max(0, targetAmt - n(b.current_amount_cny));
+    return { ...b, gap };
+  });
+  const totalGap = gaps.reduce((s, b) => s + b.gap, 0);
+  for (const b of gaps) {
+    if (remaining <= 0 || totalGap <= 0 || b.gap <= 0) continue;
+    const share = remaining * (b.gap / totalGap);
+    if (share < 100) continue;
+    const postWeight = (n(b.current_amount_cny) + share) / postNav;
+    allocations.push({
+      id: b.id,
+      name: b.name,
+      amount: share,
+      note: `${fmtPct(b.current_weight)} → ${fmtPct(postWeight)}（目标 ${fmtPct(b.target_mid)}）`,
+      tone: 'info',
+    });
+  }
+
+  const presets = [10000, 20000, 50000];
+  return `
+    <div class="incrementalCalcCard">
+      <div class="incrementalCalcControls">
+        <div class="incrementalPresetRow">
+          ${presets.map((val) => `
+            <button type="button" class="incrementalPresetBtn ${amount === val ? 'active' : ''}" data-inc-preset="${val}">¥${val / 10000}万</button>
+          `).join('')}
+          <label class="incrementalInputWrap">
+            <span>¥</span>
+            <input type="number" min="0" step="1000" value="${Math.round(amount)}" data-inc-amount aria-label="新增资金金额" />
+          </label>
+        </div>
+        ${ibkrDebt > 0 ? `
+          <label class="incrementalDebtToggle">
+            <input type="checkbox" ${payDebtFirst ? 'checked' : ''} data-inc-debt-first />
+            <span>优先偿还盈透融资（当前 ${esc(fmtMoneyInt(ibkrDebt))}）</span>
+          </label>
+        ` : ''}
+      </div>
+      <div class="incrementalResultList">
+        ${allocations.length ? allocations.map((row) => `
+          <div class="incrementalResultRow is-${esc(row.tone)}">
+            <div>
+              <strong>${esc(row.name)}</strong>
+              <small>${esc(row.note)}</small>
+            </div>
+            <b>${esc(fmtMoneyInt(row.amount))}</b>
+          </div>
+        `).join('') : '<div class="lookthroughEmpty compact">输入新增资金金额后自动试算投向</div>'}
+      </div>
+    </div>
+  `;
 }
 
 export function rebalanceHtml(currentRebalance) {

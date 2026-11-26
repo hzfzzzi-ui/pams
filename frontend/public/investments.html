@@ -648,7 +648,7 @@
       <div class="portfolioRiskBlock portfolioExposureBlock">
         <div id="lookthrough-exposure" class="lookthroughPanel portfolioExposurePanel">
           <div class="sectionTitle">
-            <h3>风险暴露 <span class="miniBadge data" id="lookthroughCoverageBadge">待核准</span></h3>
+            <h3>风险暴露 <button type="button" class="miniBadge data lookthroughQualityBtn" id="lookthroughCoverageBadge" data-open-quality-drawer>待核准 ›</button></h3>
           </div>
           <div id="lookthroughQuality" class="lookthroughQuality"></div>
           <div id="lookthroughTabs" class="lookthroughTabs" aria-label="风险暴露维度"></div>
@@ -686,6 +686,12 @@
             <div class="skeletonLine"></div>
             <div class="skeletonLine"></div>
           </div>
+        </section>
+        <section class="portfolioConfigBlock">
+          <div class="portfolioConfigHead">
+            <h3>新增资金投向试算</h3>
+          </div>
+          <div id="portfolioIncrementalRebalance" class="portfolioIncrementalRebalance"></div>
         </section>
         <section class="portfolioConfigBlock">
           <div class="portfolioConfigHead">

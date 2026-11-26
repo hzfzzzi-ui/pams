@@ -659,11 +659,182 @@ def build_portfolio_config_input_summary(risk: dict[str, Any], lookthrough: dict
     ]
 
 
+def _card_metric(cards: dict[str, Any] | None, card_id: str, field: str) -> float | None:
+    card = (cards or {}).get(card_id)
+    if not isinstance(card, dict):
+        return None
+    node = card.get(field)
+    val = node.get("value") if isinstance(node, dict) else node
+    if val is None or val == "":
+        return None
+    try:
+        parsed = float(val)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed == parsed else None
+
+
+def _build_risk_diagnosis(
+    risk: dict[str, Any],
+    lookthrough: dict[str, Any],
+    account_cards: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    holdings = lookthrough.get("normalized_holdings") or []
+    total_mv = sum(max(_n(h.get("marketValue")), 0.0) for h in holdings) or _n(lookthrough.get("total_market_value_cny"))
+    esop_mv = sum(
+        max(_n(h.get("marketValue")), 0.0)
+        for h in holdings
+        if str(h.get("assetType") or "") == "非上市股权" or "esop" in str(h.get("symbol") or "").lower()
+    )
+    overview_net = _card_metric(account_cards, "investment_overview", "net_value")
+    overview_debt = _card_metric(account_cards, "investment_overview", "financing_debt")
+    ibkr_cash = _card_metric(account_cards, "ibkr", "cash")
+    ibkr_lev = _card_metric(account_cards, "ibkr", "leverage")
+    esop_debt_card = _card_metric(account_cards, "esop", "debt") or _card_metric(account_cards, "esop", "financing_debt")
+
+    ibkr_debt = abs(ibkr_cash) if ibkr_cash is not None and ibkr_cash < 0 else 0.0
+    if overview_debt is not None and overview_debt > 0:
+        total_debt = abs(overview_debt)
+    elif overview_net is not None and total_mv > overview_net:
+        total_debt = max(0.0, total_mv - overview_net)
+    else:
+        total_debt = ibkr_debt
+    esop_debt = abs(esop_debt_card) if esop_debt_card is not None and esop_debt_card != 0 else max(0.0, total_debt - ibkr_debt)
+
+    all_net = overview_net if (overview_net is not None and overview_net > 0) else max(total_mv - total_debt, 0.0)
+    all_leverage = (total_mv / all_net) if all_net > 0 else 0.0
+
+    ex_esop_mv = max(total_mv - esop_mv, 0.0)
+    ex_esop_net = max(all_net - max(esop_mv - esop_debt, 0.0), 0.0)
+    ex_esop_leverage = (ex_esop_mv / ex_esop_net) if ex_esop_net > 0 else 0.0
+
+    # Estimated annual financing cost (explicitly labeled as reference rate estimate)
+    ibkr_rate = 0.058
+    esop_rate = 0.035
+    all_annual_interest = ibkr_debt * ibkr_rate + esop_debt * esop_rate
+    ex_esop_annual_interest = ibkr_debt * ibkr_rate
+
+    high_types = {"现金", "货币基金", "短债", "美股个股", "港股个股", "韩股个股", "欧股个股"}
+    locked_types = {"非上市股权"}
+    high_mv = sum(max(_n(h.get("marketValue")), 0.0) for h in holdings if str(h.get("assetType") or "") in high_types)
+    locked_mv = sum(max(_n(h.get("marketValue")), 0.0) for h in holdings if str(h.get("assetType") or "") in locked_types)
+    mid_mv = max(total_mv - high_mv - locked_mv, 0.0)
+
+    non_cny_mv = sum(
+        max(_n(h.get("marketValue")), 0.0)
+        for h in holdings
+        if str(h.get("currency") or "CNY").upper() not in {"CNY", "CNH", "人民币"}
+    )
+    equity_types = {"非上市股权", "A股个股", "港股个股", "美股个股", "欧股个股", "韩股个股", "ETF / 基金"}
+    all_equity_mv = sum(max(_n(h.get("marketValue")), 0.0) for h in holdings if str(h.get("assetType") or "") in equity_types)
+    ex_esop_equity_mv = max(all_equity_mv - esop_mv, 0.0)
+
+    def _top1(rows: list[dict[str, Any]], denom: float) -> tuple[str, float]:
+        if not rows or denom <= 0:
+            return "--", 0.0
+        best = max(rows, key=lambda r: _n(r.get("marketValue")))
+        return str(best.get("name") or best.get("symbol") or "--"), _n(best.get("marketValue")) / denom
+
+    top1_all_name, top1_all_pct = _top1(holdings, total_mv)
+    non_esop_holdings = [h for h in holdings if str(h.get("assetType") or "") != "非上市股权" and "esop" not in str(h.get("symbol") or "").lower()]
+    top1_ex_name, top1_ex_pct = _top1(non_esop_holdings, ex_esop_mv)
+
+    def _scope_block(
+        *,
+        scope_mv: float,
+        scope_net: float,
+        scope_debt: float,
+        scope_lev: float,
+        annual_int: float,
+        equity_mv: float,
+        fx_mv: float,
+        h_mv: float,
+        m_mv: float,
+        l_mv: float,
+        top1_name: str,
+        top1_pct: float,
+        interest_note: str,
+    ) -> dict[str, Any]:
+        eq_drop = -equity_mv * 0.20
+        fx_drop = -fx_mv * 0.05
+        return {
+            "gross_exposure_cny": round(scope_mv, 2),
+            "net_value_cny": round(scope_net, 2),
+            "total_debt_cny": round(scope_debt, 2),
+            "ibkr_debt_cny": round(ibkr_debt, 2),
+            "esop_debt_cny": round(esop_debt if l_mv > 0 else 0.0, 2),
+            "leverage_ratio": round(scope_lev, 2),
+            "ibkr_leverage": round(ibkr_lev, 2) if ibkr_lev is not None else None,
+            "estimated_annual_interest_cny": round(annual_int, 2),
+            "estimated_monthly_interest_cny": round(annual_int / 12.0, 2),
+            "interest_note": interest_note,
+            "liquidity": {
+                "high_cny": round(h_mv, 2),
+                "high_pct": round(h_mv / scope_mv, 4) if scope_mv > 0 else 0.0,
+                "mid_cny": round(m_mv, 2),
+                "mid_pct": round(m_mv / scope_mv, 4) if scope_mv > 0 else 0.0,
+                "locked_cny": round(l_mv, 2),
+                "locked_pct": round(l_mv / scope_mv, 4) if scope_mv > 0 else 0.0,
+            },
+            "stress": {
+                "equity_drop_20": {
+                    "label": "权益/科技 -20%",
+                    "impact_cny": round(eq_drop, 2),
+                    "impact_nav_pct": round(eq_drop / scope_net, 4) if scope_net > 0 else 0.0,
+                },
+                "fx_drop_5": {
+                    "label": "外币汇率 -5%",
+                    "impact_cny": round(fx_drop, 2),
+                    "impact_nav_pct": round(fx_drop / scope_net, 4) if scope_net > 0 else 0.0,
+                },
+            },
+            "equity_pct": round(equity_mv / scope_mv, 4) if scope_mv > 0 else 0.0,
+            "top1_name": top1_name,
+            "top1_pct": round(top1_pct, 4),
+        }
+
+    return {
+        "esop_value_cny": round(esop_mv, 2),
+        "has_esop": esop_mv > 1.0,
+        "all": _scope_block(
+            scope_mv=total_mv,
+            scope_net=all_net,
+            scope_debt=total_debt,
+            scope_lev=all_leverage,
+            annual_int=all_annual_interest,
+            equity_mv=all_equity_mv,
+            fx_mv=non_cny_mv,
+            h_mv=high_mv,
+            m_mv=mid_mv,
+            l_mv=locked_mv,
+            top1_name=top1_all_name,
+            top1_pct=top1_all_pct,
+            interest_note="按参考利率估算（盈透 5.8% / 内部借款 3.5%）",
+        ),
+        "ex_esop": _scope_block(
+            scope_mv=ex_esop_mv,
+            scope_net=ex_esop_net,
+            scope_debt=ibkr_debt,
+            scope_lev=ex_esop_leverage,
+            annual_int=ex_esop_annual_interest,
+            equity_mv=ex_esop_equity_mv,
+            fx_mv=non_cny_mv,
+            h_mv=high_mv,
+            m_mv=mid_mv,
+            l_mv=0.0,
+            top1_name=top1_ex_name,
+            top1_pct=top1_ex_pct,
+            interest_note="剔除 ESOP 后仅计二级市场融资（盈透参考利率 5.8%）",
+        ),
+    }
+
+
 def build_portfolio_risk_disclosure_payload_from_inputs(
     risk: dict[str, Any],
     lookthrough: dict[str, Any],
     *,
     base_currency: str = "CNY",
+    account_cards: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the investment page risk disclosure payload from current portfolio facts."""
 
@@ -830,6 +1001,7 @@ def build_portfolio_risk_disclosure_payload_from_inputs(
         reverse=True,
     )[:6]
     dashboard = _risk_dashboard(categories)
+    diagnosis = _build_risk_diagnosis(risk, lookthrough, account_cards=account_cards)
 
     return {
         "as_of": risk.get("as_of") or lookthrough.get("as_of"),
@@ -838,6 +1010,7 @@ def build_portfolio_risk_disclosure_payload_from_inputs(
         "nav_label": _money(nav),
         "inputs": build_portfolio_config_input_summary(risk, lookthrough),
         "dashboard": dashboard,
+        "diagnosis": diagnosis,
         "categories": categories,
         "highlights": highlights,
         "method": {

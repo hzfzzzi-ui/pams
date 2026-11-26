@@ -23,7 +23,7 @@ export function createAnalysisController({ root = document, host = window, viewS
   const sheet = createBottomSheet(doc);
   const { esc, setReturnAttributionHoldingDailySummary, currentRowsForClick, displayName, returnAttributionHeatmapRows, returnAttributionRows } = model;
   const { rowDetailHtml, returnAttributionDetailHtml } = templates;
-  const { renderAnalysisPanelSwitch, renderReturnAttribution, renderReturnAttributionList, renderLookthrough, renderAssetMaster } = view;
+  const { renderAnalysisPanelSwitch, renderReturnAttribution, renderReturnAttributionList, renderLookthrough, renderAssetMaster, qualityDrawerHtml } = view;
   const { setActiveChartSegment } = charts;
   const getElementById = id => root.getElementById ? root.getElementById(id) : root.querySelector('[id="' + id + '"]');
   const removers = [];
@@ -209,6 +209,12 @@ export function createAnalysisController({ root = document, host = window, viewS
         return;
       }
 
+      const qualityBtn = event.target?.closest?.('[data-open-quality-drawer]');
+      if (qualityBtn && state.lookthroughData) {
+        sheet.open('穿透质量与未穿透残差', qualityDrawerHtml());
+        return;
+      }
+
       const tab = event.target?.closest?.('[data-lookthrough-dim]');
       if (tab) {
         state.activeDimension = tab.dataset.lookthroughDim;
@@ -271,6 +277,11 @@ export function createAnalysisController({ root = document, host = window, viewS
       bindEvents();
       scheduleVisiblePanelLoads();
       listen(host, 'hashchange', scheduleVisiblePanelLoads);
+      listen(host, 'pams:risk-scope-change', (event) => {
+        if (!current()) return;
+        state.riskScope = event.detail?.scope === 'ex_esop' ? 'ex_esop' : 'all';
+        if (state.lookthroughData && isRiskPanelVisible()) renderLookthrough();
+      });
       if (typeof host.MutationObserver === 'function' && doc.body) {
         observer = new host.MutationObserver(scheduleVisiblePanelLoads);
         observer.observe(doc.body, { attributes: true, attributeFilter: ['data-invest-tab'] });
