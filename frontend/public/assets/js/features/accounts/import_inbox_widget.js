@@ -28,6 +28,7 @@ export function mountImportInbox(container, { get, win }) {
           <span>批量甩文件 / 截图</span>
           <input type="file" multiple accept=".pdf,.xls,.xlsx,.csv,.tsv,.zip,.png,.jpg,.jpeg" data-inbox-files hidden />
         </label>
+        <button type="button" class="importInboxBtn" data-inbox-email>拉取 Gmail 账单</button>
         <button type="button" class="importInboxBtn" data-inbox-scan>扫描本地收件箱</button>
       </div>
       <p class="importInboxFeedback" data-inbox-feedback hidden role="status"></p>
@@ -55,6 +56,7 @@ export function mountImportInbox(container, { get, win }) {
   const statusEl = container.querySelector('[data-inbox-status]');
   const feedbackEl = container.querySelector('[data-inbox-feedback]');
   const fileInput = container.querySelector('[data-inbox-files]');
+  const emailBtn = container.querySelector('[data-inbox-email]');
   const scanBtn = container.querySelector('[data-inbox-scan]');
   const draftsFold = container.querySelector('[data-inbox-drafts-fold]');
   const draftCountEl = container.querySelector('[data-inbox-draft-count]');
@@ -78,6 +80,9 @@ export function mountImportInbox(container, { get, win }) {
       const localNew = Number(data?.local_inbox?.new_count || 0);
       const parts = [];
       parts.push(pending > 0 ? `${pending} 份草稿待核对` : '暂无待核对草稿');
+      if (data?.email_inbox?.configured) {
+        parts.push(`Gmail 每日 ${data.email_inbox.poll_time || '08:30'} 自动拉取`);
+      }
       if (localNew > 0) parts.push(`本地收件箱发现 ${localNew} 份新文件`);
       statusEl.textContent = parts.join(' · ');
 
@@ -131,6 +136,30 @@ export function mountImportInbox(container, { get, win }) {
     await refresh();
   }
 
+  async function onPullEmail() {
+    if (busy) return;
+    busy = true;
+    if (emailBtn) emailBtn.disabled = true;
+    showFeedback('正在连接 Gmail 拉取近期账单邮件…');
+    try {
+      const fetchFn = win?.fetch?.bind(win) || fetch;
+      const resp = await fetchFn('/api/import-inbox/pull-email', { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.detail?.message || `HTTP ${resp.status}`);
+      if (data.skipped) {
+        showFeedback(data.message || '尚未配置 Gmail IMAP 环境变量。', true);
+      } else {
+        showFeedback(`Gmail 拉取完成：扫描 ${data.fetched_messages || 0} 封邮件，新增 ${data.staged_count || 0} 份草稿，跳过重复 ${data.skipped_duplicates || 0} 份。`);
+      }
+      await refresh();
+    } catch (err) {
+      showFeedback(`Gmail 拉取失败：${err?.message || String(err)}`, true);
+    } finally {
+      busy = false;
+      if (emailBtn) emailBtn.disabled = false;
+    }
+  }
+
   async function onScanLocal() {
     if (busy) return;
     busy = true;
@@ -175,6 +204,7 @@ export function mountImportInbox(container, { get, win }) {
   }
 
   fileInput?.addEventListener('change', onFilesSelected);
+  emailBtn?.addEventListener('click', onPullEmail);
   scanBtn?.addEventListener('click', onScanLocal);
   yieldForm?.addEventListener('submit', onYieldSubmit);
   void refresh();
@@ -184,6 +214,7 @@ export function mountImportInbox(container, { get, win }) {
     dispose() {
       alive = false;
       fileInput?.removeEventListener('change', onFilesSelected);
+      emailBtn?.removeEventListener('click', onPullEmail);
       scanBtn?.removeEventListener('click', onScanLocal);
       yieldForm?.removeEventListener('submit', onYieldSubmit);
     },

@@ -699,15 +699,12 @@ def should_catch_up_north_america_investments(now_utc: datetime | None = None) -
 
 
 def run_daily_imap_bill_poll():
-    """Poll configured IMAP mailbox once per day and stage new bill attachments."""
+    """Trigger daily-once Gmail IMAP bill pull via pams-api."""
     try:
-        result = poll_imap_bills()
-        if result.get("saved"):
-            _call("import-inbox/scan-local", "Import inbox scan")
-        return result
+        return _call("import-inbox/pull-email", "Daily Gmail bill pull")
     except Exception as exc:
         logger.warning("[IMAP] daily poll failed: %s", exc)
-        return {"skipped": False, "error": str(exc), "saved": []}
+        return {"skipped": False, "error": str(exc)}
 
 
 def main():

@@ -68,7 +68,11 @@ def route_file_to_accounts(filename: str, rel_path: str = "") -> RouteDecision |
     if ("santander" in low_name or "estado de cuenta" in low_name or "/santander/" in f"/{norm_rel}") and ext in {".pdf", ".csv"}:
         return RouteDecision(("santander",), "cash", "santander_statement", "santander_bill")
 
-    # 2. Guangfa Credit Card (1 PDF splits into gf_7443 CNY + gf_9711 USD)
+    # 2. Guangfa Credit Card (1 PDF splits into gf_7443 + gf_9711; HTML-derived CSVs map 1-to-1)
+    if "广发7443" in name and ext == ".csv":
+        return RouteDecision(("gf_7443",), "cash", "gf_credit_ebill", "gf_7443_ebill_csv")
+    if "广发9711" in name and ext == ".csv":
+        return RouteDecision(("gf_9711",), "cash", "gf_credit_ebill", "gf_9711_ebill_csv")
     if ("广发" in name or "综合对账单" in name or "/广发" in f"/{norm_rel}") and ext == ".pdf":
         return RouteDecision(("gf_7443", "gf_9711"), "cash", "gf_credit_statement", "gf_credit_pdf", multi_account=True)
 
