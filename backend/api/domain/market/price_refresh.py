@@ -3,10 +3,13 @@
 外部报价采集位于 domain.market.price_providers，快照与交易 roll-forward 位于 domain.market.price_snapshots。
 """
 from datetime import date
-from typing import Dict, List, Optional, Tuple, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from domain.market.price_providers import (
+    _A_STOCK_FUND_MINOR_CATEGORY,
+    _A_STOCK_MAJOR_CATEGORY,
     _OVERSEAS_MAJOR_CATEGORY,
+    _YFINANCE_CLOSE_CACHE,
     _fetch_a_stock_prices,
     _fetch_crypto_prices,
     _fetch_precious_metal_prices,
