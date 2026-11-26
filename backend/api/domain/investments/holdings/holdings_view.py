@@ -94,7 +94,7 @@ def advance_overseas_view_date(cur, candidate, *, now: datetime | None = None):
         FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') q
         JOIN pams_holdings_snapshot h ON h.symbol = q.symbol AND h.currency = q.currency
         JOIN latest_account la ON la.account_code = h.account_code AND la.account_as_of = h.as_of
-        WHERE h.major_category = '美股' AND h.asset_liability = '资产' AND h.quantity > 0
+        WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票') AND h.asset_liability = '资产' AND h.quantity > 0
           AND q.quote_date > %s AND q.quote_date <= %s
           AND q.market IN ('HK', 'KR', 'SE', 'CH')
           AND q.quote_session = 'close' AND q.return_status = 'confirmed'
@@ -197,7 +197,7 @@ MARKET_DAILY_STATUS_JOIN = """
                         ELSE NULL
                     END AS daily_pnl_status_label
                 FROM (SELECT * FROM market_observations WHERE observation_type = 'daily') md
-                WHERE h.major_category = '美股'
+                WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                   AND md.as_of = h.as_of
                   AND (
                       (COALESCE(NULLIF(h.symbol, ''), '') <> '' AND UPPER(md.symbol) = UPPER(h.symbol))
@@ -963,7 +963,7 @@ def build_holdings_by_category_payload(
                        ELSE 0
                    END AS daily_pnl_native,
                    CASE
-                       WHEN h.major_category = '美股'
+                       WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                         AND h.quantity IS NOT NULL
                         AND eff.previous_price IS NOT NULL
                        THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
@@ -977,7 +977,7 @@ def build_holdings_by_category_payload(
                        ELSE 0
                    END
                    + CASE
-                       WHEN h.major_category = '美股'
+                       WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                         AND h.quantity IS NOT NULL
                         AND eff.previous_price IS NOT NULL
                        THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
@@ -1050,7 +1050,7 @@ def build_holdings_by_category_payload(
             LEFT JOIN LATERAL (
                 SELECT o.trade_date, o.close
                 FROM pams_ohlcv_daily o
-                WHERE h.major_category = '美股'
+                WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                   AND o.market = 'YF'
                   AND o.symbol = h.symbol
                   AND o.trade_date <= {price_as_of}
@@ -1060,7 +1060,7 @@ def build_holdings_by_category_payload(
             LEFT JOIN LATERAL (
                 SELECT trade_date, close
                 FROM pams_ohlcv_daily o
-                WHERE h.major_category = '美股'
+                WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                   AND o.market = 'YF'
                   AND o.symbol = h.symbol
                   AND o.trade_date < curr_overseas_px.trade_date
@@ -1070,7 +1070,7 @@ def build_holdings_by_category_payload(
             LEFT JOIN LATERAL (
                 SELECT
                     CASE
-                        WHEN h.major_category = '美股'
+                        WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                          AND h.current_price IS NOT NULL
                          AND curr_overseas_px.close IS NOT NULL
                          AND h.current_price IS DISTINCT FROM curr_overseas_px.close
@@ -1083,7 +1083,7 @@ def build_holdings_by_category_payload(
                         )
                     END AS previous_price,
                     CASE
-                        WHEN h.major_category = '美股'
+                        WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                          AND h.current_price IS NOT NULL
                          AND curr_overseas_px.close IS NOT NULL
                          AND h.current_price IS DISTINCT FROM curr_overseas_px.close
@@ -1110,14 +1110,14 @@ def build_holdings_by_category_payload(
             LEFT JOIN LATERAL (
                 SELECT
                     CASE
-                        WHEN h.major_category = '美股'
+                        WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                          AND h.current_price IS NOT NULL
                         THEN h.current_price
                         ELSE h.current_price
                     END AS current_price,
                     prev_basis.previous_price AS previous_price,
                     CASE
-                        WHEN h.major_category = '美股'
+                        WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                          AND h.quantity IS NOT NULL
                          AND h.current_price IS NOT NULL
                         THEN h.current_price * h.quantity
@@ -1628,7 +1628,7 @@ def build_holdings_latest_payload(
                 ELSE 0
             END AS daily_pnl_native,
             CASE
-                WHEN h.major_category = '美股'
+                WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                  AND h.quantity IS NOT NULL
                  AND eff.previous_price IS NOT NULL
                 THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
@@ -1642,7 +1642,7 @@ def build_holdings_latest_payload(
                 ELSE 0
             END
             + CASE
-                WHEN h.major_category = '美股'
+                WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                  AND h.quantity IS NOT NULL
                  AND eff.previous_price IS NOT NULL
                 THEN eff.previous_price * h.quantity * ((CASE WHEN h.currency = 'CNY' THEN 1 ELSE fx.rate END) - (CASE WHEN h.currency = 'CNY' THEN 1 ELSE prev_overseas_fx.rate END))
@@ -1714,7 +1714,7 @@ def build_holdings_latest_payload(
         LEFT JOIN LATERAL (
             SELECT o.trade_date, o.close
             FROM pams_ohlcv_daily o
-            WHERE h.major_category = '美股'
+            WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
               AND o.market = 'YF'
               AND o.symbol = h.symbol
               AND o.trade_date <= {price_as_of}
@@ -1724,7 +1724,7 @@ def build_holdings_latest_payload(
         LEFT JOIN LATERAL (
             SELECT trade_date, close
             FROM pams_ohlcv_daily o
-            WHERE h.major_category = '美股'
+            WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
               AND o.market = 'YF'
               AND o.symbol = h.symbol
               AND o.trade_date < curr_overseas_px.trade_date
@@ -1734,7 +1734,7 @@ def build_holdings_latest_payload(
         LEFT JOIN LATERAL (
             SELECT
                 CASE
-                    WHEN h.major_category = '美股'
+                    WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                      AND h.current_price IS NOT NULL
                      AND curr_overseas_px.close IS NOT NULL
                      AND h.current_price IS DISTINCT FROM curr_overseas_px.close
@@ -1747,7 +1747,7 @@ def build_holdings_latest_payload(
                     )
                 END AS previous_price,
                 CASE
-                    WHEN h.major_category = '美股'
+                    WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                      AND h.current_price IS NOT NULL
                      AND curr_overseas_px.close IS NOT NULL
                      AND h.current_price IS DISTINCT FROM curr_overseas_px.close
@@ -1774,14 +1774,14 @@ def build_holdings_latest_payload(
         LEFT JOIN LATERAL (
             SELECT
                 CASE
-                    WHEN h.major_category = '美股'
+                    WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                      AND h.current_price IS NOT NULL
                     THEN h.current_price
                     ELSE h.current_price
                 END AS current_price,
                 prev_basis.previous_price AS previous_price,
                 CASE
-                    WHEN h.major_category = '美股'
+                    WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
                      AND h.quantity IS NOT NULL
                      AND h.current_price IS NOT NULL
                     THEN h.current_price * h.quantity
