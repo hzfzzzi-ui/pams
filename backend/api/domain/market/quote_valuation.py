@@ -109,7 +109,7 @@ def quote_valuation_cte(enabled: bool, *, position_prices: bool = False) -> str:
               AND q.price > 0 AND q.price::text NOT IN ('NaN', 'Infinity', '-Infinity')
               AND q.return_status IN ('estimated', 'confirmed')
               AND q.raw_json @> '{{"valuation_projection_only":true}}'::jsonb
-              AND s.quantity > 0 AND s.asset_liability = '资产' AND s.major_category = '美股'
+              AND s.quantity > 0 AND s.asset_liability = '资产' AND s.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
             ORDER BY q.quote_date DESC, q.updated_at DESC, q.quote_id DESC LIMIT 1
         ) q ON TRUE
         UNION ALL
