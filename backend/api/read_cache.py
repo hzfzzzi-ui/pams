@@ -265,9 +265,13 @@ def cache_key_for_request(path: str, query_string: str) -> str:
     return f"{path}?{query_string}" if query_string else path
 
 
-def should_bypass_cache(query_string: str, cache_control: str | None) -> bool:
+def should_bypass_cache(query_string: str, cache_control: str | None = None) -> bool:
+    """Bypass server-side read cache only on explicit query opt-out.
+
+    Frontend ``jget()`` always calls ``fetch(..., { cache: 'no-store' })`` to
+    prevent stale browser HTTP caching, which causes browsers to emit
+    ``Cache-Control: no-store`` / ``no-cache`` on every normal request. That
+    header must NOT defeat the server-side TTL cache.
+    """
     qs = (query_string or "").lower()
-    if "cache=false" in qs or "nocache=1" in qs or "fresh=1" in qs:
-        return True
-    cc = (cache_control or "").lower()
-    return "no-cache" in cc or "no-store" in cc
+    return "cache=false" in qs or "nocache=1" in qs or "fresh=1" in qs

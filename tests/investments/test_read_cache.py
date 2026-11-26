@@ -25,7 +25,10 @@ def test_read_cache_ttl_and_bypass_rules():
     assert ttl_for_path("/api/analysis/lookthrough") == 180.0
     assert ttl_for_path("/api/health") is None
     assert should_bypass_cache("cache=false", None) is True
-    assert should_bypass_cache("limit=100", "no-cache") is True
+    assert should_bypass_cache("fresh=1", None) is True
+    # Browser fetch({cache: "no-store"}) sends Cache-Control: no-store/no-cache; must still use server cache
+    assert should_bypass_cache("limit=100", "no-cache") is False
+    assert should_bypass_cache("limit=100", "no-store") is False
     assert should_bypass_cache("limit=100", None) is False
 
 
