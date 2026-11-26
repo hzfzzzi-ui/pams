@@ -30,6 +30,7 @@ export function createAnalysisState(host, viewState) {
     activeThemeFamily: '全部', underlyingSort: 'value', lookthroughData: null,
     activeReturnAttributionDimension: safeStorageGet(host, 'pams.returnAttribution.dimension') || 'holding',
     returnAttributionShowAll: false, returnAttributionData: null,
+    performanceSummaryData: null,
     activeAnalysisPanel: analysisPanelFromHash(host.location?.hash) || safeStorageGet(host, 'pams.analysis.panel') || 'return_attribution',
     returnAttributionHoldingDailySummary: null, returnAttributionHoldingDailyMap: new Map(),
   };

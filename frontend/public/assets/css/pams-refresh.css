@@ -2770,3 +2770,127 @@ body.page-investments .portfolioRiskInlineSources span {
 .incrementalResultRow.is-warn b {
   color: #fbbf24;
 }
+
+
+/* ===== Phase 2.2: Performance Benchmark & PnL Leaderboard ===== */
+.performanceBenchmarkPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.perfBenchHead h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+.perfBenchHead small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.8);
+}
+.perfBenchGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.perfBenchTile {
+  background: rgba(15, 23, 42, 0.58);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.perfBenchTile.is-primary {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.08);
+}
+.perfBenchTile span {
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.perfBenchTile strong {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f8fafc;
+  font-variant-numeric: tabular-nums;
+}
+.perfBenchTile strong.good { color: #4ade80; }
+.perfBenchTile strong.bad { color: #f87171; }
+.perfBenchTile small {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.78);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.perfLeaderGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.perfLeaderCol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.perfLeaderTitle {
+  font-size: 12px;
+  font-weight: 700;
+}
+.perfLeaderTitle.good { color: #4ade80; }
+.perfLeaderTitle.bad { color: #f87171; }
+.perfLeaderRow {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(15, 23, 42, 0.55);
+  cursor: pointer;
+}
+.perfLeaderName {
+  min-width: 0;
+}
+.perfLeaderName strong {
+  display: block;
+  font-size: 13px;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.perfLeaderName small {
+  display: block;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.8);
+}
+.perfLeaderVal {
+  text-align: right;
+  white-space: nowrap;
+}
+.perfLeaderVal b {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.perfLeaderVal b.good { color: #4ade80; }
+.perfLeaderVal b.bad { color: #f87171; }
+.perfLeaderVal em {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.85);
+}

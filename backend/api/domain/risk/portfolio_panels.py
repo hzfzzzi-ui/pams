@@ -15,7 +15,7 @@ from domain.risk.risk_state import build_risk_state
 
 def _read_account_cards(cur):
     try:
-        projected = read_page(cur, 'holdings_view', business_date=date.today(), member='account_cards')
+        projected = read_page(cur, 'holdings', business_date=date.today(), member='account_cards')
         data = (projected or {}).get('data')
         return data if isinstance(data, dict) else {}
     except Exception:
