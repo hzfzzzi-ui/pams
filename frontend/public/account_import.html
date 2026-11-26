@@ -68,6 +68,7 @@
       </section>
       <section id="review" aria-label="核对发布" hidden>
         <h2 id="review-title">草稿</h2><p id="review-meta" class="import-meta"></p>
+        <p id="duplicate-period-banner" class="import-dup-banner" hidden>本期已有已入账账单；若确认内容重复，可直接点下方「忽略草稿」，避免重复记账。</p>
         <dl id="counts" class="import-counts"></dl>
         <p id="impact" hidden></p><div id="warnings"></div><div id="issue-groups"></div>
         <label for="preview-filter">具体条目<select id="preview-filter"><option value="all">全部</option><option value="issues">异常</option><option value="excluded">已排除</option></select></label><div id="preview-rows"></div>
@@ -75,7 +76,7 @@
     </main>
     <footer id="actions" class="import-actions" hidden>
       <button id="save-draft" type="button">保存草稿</button><button id="next" type="button" class="primary">继续 →</button>
-      <button id="back" type="button" hidden>← 返回修改</button><button id="publish" type="button" class="primary" hidden disabled>确认入库</button><button id="publish-ready" type="button" class="primary" hidden disabled>录入已核对记录</button>
+      <button id="back" type="button" hidden>← 返回</button><button id="discard-draft" type="button" hidden>忽略草稿</button><button id="publish" type="button" class="primary" hidden disabled>确认入库</button><button id="publish-ready" type="button" class="primary" hidden disabled>录入已核对记录</button>
       <button id="previous-image" type="button" hidden>← 上一张</button><button id="confirm-image" type="button" class="primary" hidden>确认本图并继续</button>
       <button id="return-completed" type="button" class="primary" hidden>完成并返回</button>
     </footer>

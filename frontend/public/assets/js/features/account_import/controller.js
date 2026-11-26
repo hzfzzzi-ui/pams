@@ -224,6 +224,7 @@ export function mount(root, context = {}) {
       (sourceOnly() ? !editable() || !state.preview || state.dirty : !publishable(state.caps, state.batch, state.preview, state.dirty));
     $('publish-ready').disabled = state.busy || state.conflict || state.needsRefresh || !canPublishReady();
     $('back').disabled = state.busy; $('reload').disabled = state.busy;
+    if ($('discard-draft')) $('discard-draft').disabled = state.busy;
     $('refresh-result').disabled = state.busy;
     $('pending-result').hidden = !state.needsRefresh;
     $('new-batch').disabled = state.busy || state.needsRefresh;
@@ -240,12 +241,15 @@ export function mount(root, context = {}) {
     $('save-draft').hidden = state.step !== 1 || (state.useSourceRecords && state.mode === 'upload' && !state.suspended);
     $('next').hidden = state.step !== 1;
     for (const id of ['back', 'publish']) $(id).hidden = state.step !== 2 || imageReview;
+    if ($('discard-draft')) {
+      $('discard-draft').hidden = state.step !== 2 || imageReview || !state.useSourceRecords || !editable() || !state.batch?.batch_id;
+    }
     $('publish-ready').hidden = state.step !== 2 || imageReview || !state.preview?.can_publish_ready;
     if (!$('publish-ready').hidden) $('publish').hidden = true;
     const completed = state.batch?.status === 'published';
     if ($('return-completed')) $('return-completed').hidden = !completed;
     if (completed) {
-      for (const id of ['save-draft', 'next', 'back', 'publish', 'publish-ready']) $(id).hidden = true;
+      for (const id of ['save-draft', 'next', 'back', 'discard-draft', 'publish', 'publish-ready']) if ($(id)) $(id).hidden = true;
     }
     for (const id of ['previous-image','confirm-image']) $(id).hidden = !imageReview;
     $('upload-area').hidden = state.mode !== 'upload';
@@ -596,6 +600,9 @@ export function mount(root, context = {}) {
     const fileName = state.batch.files?.length === 1 ? state.batch.files[0].filename : '';
     $('review-title').textContent = fileName ? `草稿 · ${fileName}` : '草稿';
     $('review-meta').textContent = `草稿编号 · ${state.batch.batch_id}`;
+    if ($('duplicate-period-banner')) {
+      $('duplicate-period-banner').hidden = !(query.get('dup') === '1' && state.batch?.status === 'draft');
+    }
     $('counts').replaceChildren(...(sourceOnly() ? ['new'] : ['new', 'duplicates', 'blocked', 'pending']).map(key => {
       const node = el('div'); node.dataset.count = key; node.dataset.active = String(Number(p.counts?.[key]) > 0);
       node.append(el('dt', { new: sourceOnly() ? '流水明细' : '新增', duplicates: '重复', blocked: '阻断', pending: '待确认' }[key]), el('dd', p.counts?.[key] ?? '未知')); return node;
@@ -637,8 +644,38 @@ export function mount(root, context = {}) {
         details.append(values('原值',entry.before),values('待写入',entry.after));
         const raw = el('pre',JSON.stringify(entry,null,2)); details.append(raw); allValues.append(details);
       }
-      node.append(allValues);
       const index = state.batch.rows.findIndex(item => item.row_id === row.row_id);
+      if (state.batch.kind === 'cash') {
+        node.classList.add('import-row-compact');
+        const fold = el('details', undefined, 'import-row-fold');
+        const summary = el('summary');
+        const main = el('div', undefined, 'import-row-fold-main');
+        const actionLabel = TEXT[record.action] || ({income:'收入',expense:'支出'})[record.action] || record.action || '';
+        const noteText = record.note || record.counterparty || record.name || actionLabel || '流水';
+        main.append(document.createTextNode(noteText), el('small', [record.business_date, actionLabel, status].filter(Boolean).join(' · ')));
+        const rawAmt = record.market_value ?? record.gross_amount ?? record.net_cash ?? '';
+        const amt = el('span', [rawAmt, record.currency].filter(v => v != null && v !== '').join(' '), 'import-row-fold-amt');
+        summary.append(main, amt);
+        const body = el('div', undefined, 'import-row-fold-body');
+        if (row.issues?.length) body.append(el('p', issues(row.issues), 'import-warning'));
+        if (row.cash_preview) {
+          const cash = row.cash_preview;
+          body.append(el('p', `${account()?.label || state.batch.account_code} · 折合 ¥${cash.amount_cny} · 汇率 ${cash.fx_rate_to_cny}`, 'import-meta'));
+        }
+        body.append(allValues);
+        if (index >= 0) {
+          const ops = el('div', undefined, 'import-row-fold-ops');
+          ops.append(button(recordEditable(state.batch.rows[index]) ? '编辑 / 重复判定' : '查看 / 处理', () => openEditor(index)));
+          ops.append(button(state.batch.rows[index].excluded ? '纳入本次清单' : '排除此条', () => run(async () => {
+            state.batch.rows[index].excluded = !state.batch.rows[index].excluded; dirty(); await saveDraft(); await makePreview();
+          })));
+          body.append(ops);
+        }
+        fold.append(summary, body);
+        node.replaceChildren(fold);
+        return node;
+      }
+      node.append(allValues);
       if (index >= 0) {
         node.append(button(recordEditable(state.batch.rows[index]) ? '编辑 / 重复判定' : '查看 / 处理', () => openEditor(index)));
         node.append(button(state.batch.rows[index].excluded ? '纳入本次清单' : '排除此条', () => run(async () => {
@@ -733,6 +770,14 @@ export function mount(root, context = {}) {
     pushFlow(); window.scrollTo(0, 0);
   }));
   listen($('back'), 'click', () => run(goBack));
+  listen($('discard-draft'), 'click', () => run(async () => {
+    if (!state.batch?.batch_id) return;
+    if (!window.confirm('忽略此草稿（不会影响已入账账本，且后续自动同步将跳过此文件）？')) return;
+    const resp = await window.fetch(`/api/import-inbox/drafts/${encodeURIComponent(state.batch.batch_id)}/discard`, { method: 'POST' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data?.detail?.message || `忽略失败（HTTP ${resp.status}）`);
+    leaveContent(window, accountCenterHref(state.batch.account_code));
+  }));
   listen($('flow-back'), 'click', () => run(goBack));
   listen($('return-completed'), 'click', () => run(goBack));
   listen($('import-settings'), 'click', () => run(() => {
