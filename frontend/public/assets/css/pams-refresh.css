@@ -1609,3 +1609,379 @@ html[data-privacy="1"] :is(
   color: #f5b942;
   background: rgba(245, 165, 36, 0.14);
 }
+
+
+/* ==========================================================================
+   Risk & Allocation Redesign (Obsidian Precision — scoped to investments)
+   ========================================================================== */
+body.page-investments .riskSubnav:not([hidden]) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin: -2px 0 12px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+body.page-investments .riskSubnav a {
+  min-height: 36px;
+  padding: 6px 4px 9px;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #8e8e93;
+  font-size: 13px;
+  font-weight: 500;
+  position: relative;
+}
+body.page-investments .riskSubnav a.active {
+  color: #f5f5f7;
+  font-weight: 600;
+}
+body.page-investments .riskSubnav a.active::after {
+  content: '';
+  position: absolute;
+  left: 24%;
+  right: 24%;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: #62c2ff;
+}
+
+/* Risk Score Hero Card */
+body.page-investments .portfolioRiskDashboard {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 100% at 15% 0%, rgba(98, 194, 255, 0.08), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    var(--refresh-panel);
+}
+body.page-investments .portfolioRiskDashboard.risk {
+  background:
+    radial-gradient(120% 100% at 15% 0%, rgba(255, 100, 103, 0.12), transparent 60%),
+    var(--refresh-panel);
+}
+body.page-investments .portfolioRiskDashboard.warn {
+  background:
+    radial-gradient(120% 100% at 15% 0%, rgba(245, 185, 66, 0.11), transparent 60%),
+    var(--refresh-panel);
+}
+body.page-investments .portfolioRiskRingWrap {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  display: grid;
+  place-items: center;
+}
+body.page-investments .portfolioRiskRing {
+  width: 92px;
+  height: 92px;
+  transform: rotate(-90deg);
+}
+body.page-investments .portfolioRiskRingTrack {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 6.5;
+}
+body.page-investments .portfolioRiskRingArc {
+  fill: none;
+  stroke: #62c2ff;
+  stroke-width: 6.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body.page-investments .portfolioRiskRingArc.risk { stroke: #ff6467; }
+body.page-investments .portfolioRiskRingArc.warn { stroke: #f5b942; }
+body.page-investments .portfolioRiskRingArc.ok { stroke: #23c26b; }
+body.page-investments .portfolioRiskRingCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.05;
+}
+body.page-investments .portfolioRiskRingCenter strong {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #f5f5f7;
+}
+body.page-investments .portfolioRiskRingCenter span {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments .portfolioRiskStatusLine {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+body.page-investments .portfolioRiskStatusLine strong {
+  font-size: 16px;
+  font-weight: 650;
+  color: #f5f5f7;
+}
+body.page-investments .portfolioRiskStatusLine small {
+  font-size: 11px;
+  color: #8e8e93;
+}
+body.page-investments .portfolioRiskStatusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #62c2ff;
+  flex: 0 0 8px;
+}
+body.page-investments .portfolioRiskStatusDot.risk { background: #ff6467; box-shadow: 0 0 8px rgba(255, 100, 103, 0.55); }
+body.page-investments .portfolioRiskStatusDot.warn { background: #f5b942; box-shadow: 0 0 8px rgba(245, 185, 66, 0.45); }
+body.page-investments .portfolioRiskStatusDot.ok { background: #23c26b; }
+body.page-investments .portfolioRiskDashboardStats {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+}
+body.page-investments .portfolioRiskDashboardStats span {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px;
+  padding: 6px 10px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+body.page-investments .portfolioRiskDashboardStats em {
+  font-style: normal;
+  font-size: 11.5px !important;
+  color: #a1a1a6;
+  white-space: nowrap;
+}
+body.page-investments .portfolioRiskDashboardStats b {
+  font-size: 14px !important;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: #f5f5f7;
+}
+body.page-investments .portfolioRiskDashboardStats .risk { border-color: rgba(255, 100, 103, 0.25) !important; background: rgba(255, 100, 103, 0.07) !important; }
+body.page-investments .portfolioRiskDashboardStats .risk b { color: #ff7b7e; }
+body.page-investments .portfolioRiskDashboardStats .warn { border-color: rgba(245, 185, 66, 0.24) !important; background: rgba(245, 185, 66, 0.06) !important; }
+body.page-investments .portfolioRiskDashboardStats .warn b { color: #f5b942; }
+body.page-investments .portfolioRiskDashboardStats .ok b { color: #3fd47f; }
+
+/* Risk Exposure Panel — Flatten box-in-box nesting & unclip dimension chips */
+body.page-investments #lookthrough-exposure {
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: var(--refresh-panel);
+}
+body.page-investments #lookthrough-exposure .lookthroughQuality {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+body.page-investments #lookthrough-exposure :is(.lookthroughQualityCard, .lookthroughQualityPanel, .lookthroughExplain, .lookthroughNote, .lookthroughChartCard, .lookthroughVisualCard) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding-inline: 0 !important;
+}
+body.page-investments #lookthrough-exposure details {
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 11px !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  padding: 6px 10px !important;
+}
+body.page-investments #lookthrough-exposure details > summary {
+  font-size: 12px;
+  color: #c7c7cc;
+}
+body.page-investments #lookthroughTabs {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  overflow: visible !important;
+  gap: 6px !important;
+  margin: 0 0 12px !important;
+  padding: 0 !important;
+}
+body.page-investments #lookthroughTabs button {
+  flex: 0 0 auto;
+  min-height: 30px !important;
+  padding: 4px 10px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: #a1a1a6 !important;
+  font-size: 11.5px !important;
+  white-space: nowrap;
+}
+body.page-investments #lookthroughTabs button.active {
+  color: #62c2ff !important;
+  border-color: rgba(98, 194, 255, 0.36) !important;
+  background: rgba(71, 181, 255, 0.14) !important;
+  font-weight: 600;
+}
+body.page-investments #lookthrough-exposure .lookthroughExplain,
+body.page-investments #lookthrough-exposure .lookthroughDimensionNote {
+  padding: 0 0 10px !important;
+  margin: 0 0 10px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  font-size: 11.5px;
+  color: #8e8e93;
+  line-height: 1.5;
+}
+
+/* Risk Checklist — Unified sleek stack with left severity stripe */
+body.page-investments .portfolioRiskCategoryList {
+  display: grid;
+  gap: 8px;
+}
+body.page-investments .portfolioRiskChecklistCard {
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-left: 3px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  overflow: hidden;
+}
+body.page-investments .portfolioRiskChecklistCard.risk { border-left-color: #ff6467 !important; }
+body.page-investments .portfolioRiskChecklistCard.warn { border-left-color: #f5b942 !important; }
+body.page-investments .portfolioRiskChecklistCard.ok { border-left-color: #23c26b !important; }
+body.page-investments .portfolioRiskChecklistSummary {
+  padding: 12px 13px !important;
+  gap: 8px !important;
+}
+body.page-investments .portfolioRiskChecklistRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+body.page-investments .portfolioRiskChevron {
+  font-style: normal;
+  font-size: 16px;
+  line-height: 1;
+  color: #8e8e93;
+  transition: transform 0.2s ease;
+}
+body.page-investments .portfolioRiskChecklistCard.expanded .portfolioRiskChevron {
+  transform: rotate(90deg);
+  color: #62c2ff;
+}
+body.page-investments .portfolioRiskChecklistMeter {
+  height: 3px !important;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* Allocation / Target Config — Clean hierarchy & range gauges */
+body.page-investments #portfolio-constraints > .sectionTitle {
+  display: none;
+}
+body.page-investments .portfolioConfigPanel {
+  padding: 14px 16px !important;
+  border-radius: 18px !important;
+}
+body.page-investments .portfolioConfigBlock + .portfolioConfigBlock {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+body.page-investments .portfolioRuleList,
+body.page-investments .portfolioRuleGroupRows {
+  display: grid;
+  gap: 10px;
+}
+body.page-investments .portfolioConfigPanel .portfolioRuleNode {
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  overflow: hidden;
+}
+body.page-investments .portfolioRuleRow {
+  width: 100%;
+  padding: 12px 14px !important;
+  gap: 8px !important;
+  text-align: left;
+  background: transparent !important;
+  border: 0 !important;
+}
+body.page-investments .portfolioRuleTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+body.page-investments .portfolioRuleNameWrap {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+body.page-investments .portfolioRuleNameWrap strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+body.page-investments .portfolioRuleNameWrap small {
+  font-size: 11.5px;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments .portfolioRuleRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+body.page-investments .portfolioRulePct {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #f5f5f7;
+}
+body.page-investments .portfolioRuleTrack {
+  height: 5px !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  margin: 2px 0 !important;
+}
+body.page-investments .portfolioRuleMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px !important;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments .portfolioRuleFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: #62c2ff;
+  margin-top: 2px;
+}
+body.page-investments .portfolioRebalanceRow {
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-radius: 13px !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  padding: 11px 13px !important;
+}
