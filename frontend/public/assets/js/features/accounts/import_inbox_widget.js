@@ -1,4 +1,4 @@
-"""Unified import inbox widget mounted at the top of Account Center."""
+/* Unified import inbox widget mounted at the top of Account Center. */
 
 import { subaccountImportHref } from '../../app/routes.js';
 
