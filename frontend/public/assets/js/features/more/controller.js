@@ -5,6 +5,7 @@ import { accountSyncMetadata } from '../accounts/account_sync_view.js';
 import { showAccountReview } from '../accounts/account_review_sheet.js';
 import { mountAccountHistory } from '../accounts/account_history.js';
 import { mountImportInbox } from '../accounts/import_inbox_widget.js';
+import { mountNetworthDebtsPanel } from '../accounts/networth_debts_panel.js';
 import { accountCenterHref } from '../../app/routes.js';
 
 const mounted = new WeakMap();
@@ -36,6 +37,7 @@ export function mount(root, context) {
     win, isActive: () => alive, readAccounts: ensureAccounts,
     read: () => reads.get('monthly-overview', '/api/assets/monthly-overview'),
   });
+  mountNetworthDebtsPanel(root, get);
   function ensureAccounts() {
     accountsReady ??= loadAccountSync().then(() => {
       if (accountRetry && !accountRetry.hidden) accountsReady = null;
