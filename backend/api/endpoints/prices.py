@@ -87,6 +87,16 @@ def _price_request_instruments(
     return instruments
 
 
+@router.get("/prices/freshness")
+def get_prices_freshness():
+    """Return stale-quote alerts (>2 trading days) and Tonghuashun post-snapshot trade share projections."""
+    from domain.market.freshness_guard import build_holdings_freshness_and_projection
+    with _get_conn() as conn:
+        conn.set_session(readonly=True)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            return _json(build_holdings_freshness_and_projection(cur, today=_today_cst()))
+
+
 @router.get("/prices/holding-benchmark")
 def get_holding_benchmark(start: date, end: date):
     from domain.market.benchmark_history import benchmark_history, local_benchmark

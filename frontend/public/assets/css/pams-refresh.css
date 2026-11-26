@@ -2911,3 +2911,70 @@ body.page-investments .portfolioRiskInlineSources span {
   font-size: 11px;
   color: rgba(148, 163, 184, 0.85);
 }
+
+
+/* ===== Phase 3.1: Freshness Alert & Tonghuashun Trade Projection ===== */
+.holdingsFreshnessBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.freshnessCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.65);
+}
+.freshnessCard.is-warn {
+  border-color: rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.08);
+}
+.freshnessCard.is-info {
+  border-color: rgba(56, 189, 248, 0.32);
+  background: rgba(56, 189, 248, 0.08);
+}
+.freshnessCardBody {
+  min-width: 0;
+  flex: 1;
+}
+.freshnessCardBody strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+.freshnessCardBody small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(203, 213, 225, 0.85);
+}
+.freshnessStatusNote {
+  display: block;
+  margin-top: 3px;
+  font-style: normal;
+  font-size: 11px;
+  color: #38bdf8;
+}
+.freshnessRefreshBtn {
+  flex-shrink: 0;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.16);
+  color: #fef3c7;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.freshnessRefreshBtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
