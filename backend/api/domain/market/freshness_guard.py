@@ -92,26 +92,69 @@ def compute_ths_trade_projection(
     return sorted(adjustments, key=lambda x: (-abs(x["delta_qty"]), x["symbol"]))
 
 
+def _parse_iso_date(value: Any) -> date | None:
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()[:10]
+    if len(text) == 10:
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            return None
+    return None
+
+
 def build_holdings_freshness_and_projection(cur, *, today: date | None = None) -> dict[str, Any]:
+    from domain.investments.valuation.page_projection import read_page
+
     ref_day = today or date.today()
+    account_cards: dict[str, Any] = {}
+    try:
+        projected = read_page(cur, "holdings", business_date=ref_day, member="account_cards")
+        if isinstance((projected or {}).get("data"), dict):
+            account_cards = projected["data"]
+    except Exception:
+        account_cards = {}
+
+    # Check actual market quote / valuation freshness (not broker snapshot export date)
+    a_stock_day: date | None = None
+    try:
+        cur.execute(
+            "SELECT MAX(as_of) AS max_as_of FROM market_observations WHERE market = 'CN_A' AND observation_type IN ('quote', 'daily')"
+        )
+        row = cur.fetchone()
+        a_stock_day = _parse_iso_date(row["max_as_of"] if isinstance(row, dict) else (row[0] if row else None))
+    except Exception:
+        a_stock_day = None
+
+    def _card_day(code: str) -> date | None:
+        card = account_cards.get(code)
+        if not isinstance(card, dict):
+            return None
+        for field in ("recent_daily_pnl", "market_value", "net_value"):
+            node = card.get(field)
+            d = _parse_iso_date(node.get("as_of") if isinstance(node, dict) else None)
+            if d is not None:
+                return d
+        return None
+
+    def _snap_day(code: str) -> date | None:
+        cur.execute("SELECT MAX(as_of) AS max_as_of FROM pams_holdings_snapshot WHERE account_code = %s", (code,))
+        row = cur.fetchone()
+        return _parse_iso_date(row["max_as_of"] if isinstance(row, dict) else (row[0] if row else None))
+
     sources = [
-        ("ibkr", "盈透日结"),
-        ("tonghuashun", "同花顺持仓"),
-        ("tencent_licaitong", "理财通基金"),
+        ("ibkr", "盈透日结", _card_day("ibkr") or _snap_day("ibkr")),
+        ("a_stock", "A股行情", a_stock_day or _card_day("tonghuashun") or _snap_day("tonghuashun")),
+        ("tencent_licaitong", "基金净值", _card_day("tencent_licaitong") or _snap_day("tencent_licaitong")),
     ]
     stale_items: list[dict[str, Any]] = []
     source_dates: dict[str, str | None] = {}
 
-    for code, label in sources:
-        cur.execute(
-            "SELECT MAX(as_of) AS max_as_of FROM pams_holdings_snapshot WHERE account_code = %s",
-            (code,),
-        )
-        row = cur.fetchone()
-        max_day = row["max_as_of"] if isinstance(row, dict) else (row[0] if row else None)
-        source_dates[code] = max_day.isoformat() if hasattr(max_day, "isoformat") else (str(max_day) if max_day else None)
-        lag = business_days_between(max_day, ref_day) if isinstance(max_day, date) else 0
-        if max_day is not None and lag > 2:
+    for code, label, max_day in sources:
+        source_dates[code] = max_day.isoformat() if max_day else None
+        lag = business_days_between(max_day, ref_day) if max_day else 0
+        if max_day is not None and lag >= 2:
             stale_items.append({
                 "account_code": code,
                 "label": label,
