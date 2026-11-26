@@ -24,6 +24,7 @@ import requests
 import schedule
 from refresh_state import RefreshJournal, job_lock, latest_due_date, read_state, result_issues, store_job
 from flex_confirmation import FlexConfirmationJournal
+from imap_bill_watcher import poll_imap_bills
 
 
 logging.basicConfig(
@@ -697,6 +698,18 @@ def should_catch_up_north_america_investments(now_utc: datetime | None = None) -
     )
 
 
+def run_daily_imap_bill_poll():
+    """Poll configured IMAP mailbox once per day and stage new bill attachments."""
+    try:
+        result = poll_imap_bills()
+        if result.get("saved"):
+            _call("import-inbox/scan-local", "Import inbox scan")
+        return result
+    except Exception as exc:
+        logger.warning("[IMAP] daily poll failed: %s", exc)
+        return {"skipped": False, "error": str(exc), "saved": []}
+
+
 def main():
     if os.environ.get("PAMS_SOURCE_MODE", "").strip().lower() == "development":
         logger.warning("Scheduler is disabled in development mode")
@@ -716,6 +729,8 @@ def main():
     schedule.every().day.at(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ).do(
         lambda: run_due_window("north_america")
     )
+    imap_poll_time = os.environ.get("PAMS_IMAP_POLL_TIME", "08:30")
+    schedule.every().day.at(imap_poll_time, ASIA_PACIFIC_REFRESH_TZ).do(run_daily_imap_bill_poll)
     schedule.every(30).minutes.do(refresh_crypto)
     schedule.every(5).minutes.do(refresh_us_quotes)
     schedule.every(5).minutes.do(refresh_overseas_quotes)

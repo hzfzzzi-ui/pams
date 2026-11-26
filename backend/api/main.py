@@ -29,6 +29,7 @@ from endpoints import portfolio_state as portfolio_state_endpoint
 from endpoints import account_sync
 from endpoints import analysis
 from endpoints import account_import
+from endpoints import import_inbox
 from domain.accounts.views import account_overview
 from domain.accounts.views import account_policy
 from domain.accounts.views.accounts_view import (
@@ -110,6 +111,7 @@ app.include_router(portfolio_state_endpoint.router, prefix="/api")
 app.include_router(account_sync.router, prefix="/api")
 app.include_router(analysis.router, prefix="/api")
 app.include_router(account_import.router, prefix="/api")
+app.include_router(import_inbox.router, prefix="/api")
 
 def _allowed_web_origins() -> list[str]:
     raw = os.environ.get("PAMS_ALLOWED_ORIGINS", "")

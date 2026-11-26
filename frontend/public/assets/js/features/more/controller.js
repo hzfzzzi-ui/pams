@@ -4,6 +4,7 @@ import { createAccountSyncLoader } from '../accounts/account_sync_controller.js'
 import { accountSyncMetadata } from '../accounts/account_sync_view.js';
 import { showAccountReview } from '../accounts/account_review_sheet.js';
 import { mountAccountHistory } from '../accounts/account_history.js';
+import { mountImportInbox } from '../accounts/import_inbox_widget.js';
 import { accountCenterHref } from '../../app/routes.js';
 
 const mounted = new WeakMap();
@@ -30,6 +31,7 @@ export function mount(root, context) {
   let navGrowthPending;
   let reviewPanel;
   let accountsReady = null;
+  let inboxWidget = null;
   const overview = createAssetOverview(root, {
     win, isActive: () => alive, readAccounts: ensureAccounts,
     read: () => reads.get('monthly-overview', '/api/assets/monthly-overview'),
@@ -99,7 +101,11 @@ export function mount(root, context) {
       if (link.hash === '#' + id) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     }
-    if (id === 'account-center') return ensureAccounts();
+    if (id === 'account-center') {
+      if (!inboxWidget) inboxWidget = mountImportInbox(find('accountImportInbox'), { get, win });
+      else inboxWidget.refresh();
+      return ensureAccounts();
+    }
     if (id === 'asset-overview') return overview.load();
   }
 
@@ -132,6 +138,7 @@ export function mount(root, context) {
     if (!alive) return;
     alive = false;
     overview.dispose();
+    inboxWidget?.dispose();
     reads.dispose();
     if (reviewPanel?.isConnected) closeSheet?.();
     details?.removeEventListener('toggle', onToggle);
