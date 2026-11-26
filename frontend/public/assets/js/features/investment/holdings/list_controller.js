@@ -55,19 +55,8 @@ export function mount(root, context) {
     });
   }
   async function loadPendingReviewCount() {
-    if (!reviewPill || !scope.active) return;
-    try {
-      const queue = await scope.get('/api/investment-transactions/auto-review/queue?kind=needs_human_review&limit=1');
-      if (!scope.active) return;
-      const counts = queue?.counts || {};
-      const pending = Number(counts.needs_human_review ?? counts.needs_review ?? (queue?.items?.length || 0));
-      if (pending > 0) {
-        reviewPill.innerHTML = `<span class="pamsTodoDot" aria-hidden="true"></span><span>待复盘交易 · <strong>${pending}</strong> 笔</span><span class="pamsTodoArrow" aria-hidden="true">›</span>`;
-        reviewPill.hidden = false;
-      } else {
-        reviewPill.hidden = true;
-      }
-    } catch { /* Non-blocking reminder pill. */ }
+    // Pending review alerts are surfaced in the top-right header reminder bell.
+    if (reviewPill) reviewPill.hidden = true;
   }
   function showCashStatus(missing = []) {
     if (!cashNote) return;
