@@ -171,8 +171,91 @@ function renderReturnAttributionList() {
   `;
 }
 
+function fmtSignedPct(val) {
+  if (val === null || val === undefined || !Number.isFinite(Number(val))) return '--';
+  const num = Number(val);
+  return `${num >= 0 ? '+' : ''}${num.toFixed(1)}%`;
+}
+
+function fmtSignedYuan(val) {
+  if (val === null || val === undefined || !Number.isFinite(Number(val))) return '--';
+  const num = Number(val);
+  const abs = Math.abs(num);
+  const sign = num >= 0 ? '+' : '-';
+  if (abs >= 10000) return `${sign}¥${(abs / 10000).toFixed(2)}万`;
+  return `${sign}¥${Math.round(abs).toLocaleString('zh-CN')}`;
+}
+
+function renderPerformanceSummary() {
+  const el = getElementById('performanceBenchmarkPanel');
+  if (!el) return;
+  const data = state.performanceSummaryData;
+  if (!data) {
+    el.innerHTML = '<div class="muted">正在加载基准对比与盈亏榜...</div>';
+    return;
+  }
+  const p = data.portfolio || {};
+  const benchmarks = data.benchmarks || [];
+  const winners = data.leaderboard?.winners || [];
+  const losers = data.leaderboard?.losers || [];
+  const myPct = p.ex_esop_return_pct;
+  const myTone = myPct == null ? '' : myPct >= 0 ? 'good' : 'bad';
+
+  const benchCards = [
+    `<div class="perfBenchTile is-primary">
+      <span>我的二级市场</span>
+      <strong class="${myTone}">${esc(fmtSignedPct(myPct))}</strong>
+      <small>剔除ESOP · 浮盈 ${esc(fmtSignedYuan(p.ex_esop_pnl_cny))}</small>
+    </div>`,
+    ...benchmarks.map((b) => {
+      const ytd = b.ytd_return_pct;
+      const m1 = b.m1_return_pct;
+      const tone = ytd == null ? '' : ytd >= 0 ? 'good' : 'bad';
+      return `<div class="perfBenchTile">
+        <span>${esc(b.name)}</span>
+        <strong class="${tone}">${esc(ytd != null ? fmtSignedPct(ytd) : (m1 != null ? fmtSignedPct(m1) : '--'))}</strong>
+        <small>${ytd != null ? `年初至今 · 近1月 ${esc(fmtSignedPct(m1))}` : (m1 != null ? `近1月 · ${esc(b.as_of || '')}` : '行情待补')}</small>
+      </div>`;
+    }),
+  ].join('');
+
+  const leaderRow = (row, tone) => `
+    <button type="button" class="perfLeaderRow is-${tone}" data-jump-trade-review="${esc(row.symbol || '')}">
+      <div class="perfLeaderName">
+        <strong>${esc(row.name || row.symbol)}</strong>
+        <small>${esc(row.symbol || '')} · ${esc(row.account || '')}</small>
+      </div>
+      <div class="perfLeaderVal">
+        <b class="${tone}">${esc(fmtSignedYuan(row.pnl_cny))}</b>
+        <em>${esc(fmtSignedPct(row.pnl_pct))} · 复盘 ›</em>
+      </div>
+    </button>
+  `;
+
+  el.innerHTML = `
+    <div class="perfBenchHead">
+      <div>
+        <h3>二级市场基准对比与盈亏榜</h3>
+        <small>${esc(p.method_note || '')}</small>
+      </div>
+    </div>
+    <div class="perfBenchGrid">${benchCards}</div>
+    <div class="perfLeaderGrid">
+      <div class="perfLeaderCol">
+        <div class="perfLeaderTitle good">浮盈 Top 3</div>
+        ${winners.length ? winners.map((r) => leaderRow(r, 'good')).join('') : '<div class="lookthroughEmpty compact">暂无正浮盈标的</div>'}
+      </div>
+      <div class="perfLeaderCol">
+        <div class="perfLeaderTitle bad">浮亏 Top 3</div>
+        ${losers.length ? losers.map((r) => leaderRow(r, 'bad')).join('') : '<div class="lookthroughEmpty compact">暂无浮亏标的</div>'}
+      </div>
+    </div>
+  `;
+}
+
 function renderReturnAttribution() {
   renderAnalysisPanelSwitch();
+  renderPerformanceSummary();
   renderReturnAttributionSummary();
   renderReturnAttributionTabs();
   renderReturnAttributionList();
@@ -280,5 +363,5 @@ function renderAssetMaster() {
   `;
 }
 
-  return { renderAnalysisPanelSwitch, renderTabs, renderExposureRows, renderQuality, qualityDrawerHtml, renderReturnAttributionTabs, renderReturnAttributionSummary, renderReturnAttributionList, renderReturnAttribution, renderLookthrough, renderAssetMaster };
+  return { renderAnalysisPanelSwitch, renderTabs, renderExposureRows, renderQuality, qualityDrawerHtml, renderPerformanceSummary, renderReturnAttributionTabs, renderReturnAttributionSummary, renderReturnAttributionList, renderReturnAttribution, renderLookthrough, renderAssetMaster };
 }

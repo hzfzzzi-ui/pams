@@ -23,7 +23,7 @@ export function createAnalysisController({ root = document, host = window, viewS
   const sheet = createBottomSheet(doc);
   const { esc, setReturnAttributionHoldingDailySummary, currentRowsForClick, displayName, returnAttributionHeatmapRows, returnAttributionRows } = model;
   const { rowDetailHtml, returnAttributionDetailHtml } = templates;
-  const { renderAnalysisPanelSwitch, renderReturnAttribution, renderReturnAttributionList, renderLookthrough, renderAssetMaster, qualityDrawerHtml } = view;
+  const { renderAnalysisPanelSwitch, renderPerformanceSummary, renderReturnAttribution, renderReturnAttributionList, renderLookthrough, renderAssetMaster, qualityDrawerHtml } = view;
   const { setActiveChartSegment } = charts;
   const getElementById = id => root.getElementById ? root.getElementById(id) : root.querySelector('[id="' + id + '"]');
   const removers = [];
@@ -33,6 +33,7 @@ export function createAnalysisController({ root = document, host = window, viewS
   let lookthroughLoadPromise = null;
   let returnAttributionLoadPromise = null;
   let returnAttributionHoldingDailyLoadPromise = null;
+  let performanceSummaryLoadPromise = null;
 
   function current() { return !disposed && owners.get(root) === controller; }
   function listen(target, type, callback, options) {
@@ -134,8 +135,28 @@ export function createAnalysisController({ root = document, host = window, viewS
     return returnAttributionLoadPromise;
   }
 
+  function loadPerformanceSummaryData() {
+    if (!current() || !getElementById('performanceBenchmarkPanel')) return Promise.resolve(null);
+    if (state.performanceSummaryData) {
+      renderPerformanceSummary();
+      return Promise.resolve(state.performanceSummaryData);
+    }
+    if (performanceSummaryLoadPromise) return performanceSummaryLoadPromise;
+    performanceSummaryLoadPromise = reads.run('perf-summary', signal => requests.performanceSummary({signal}))
+      .then(data => {
+        if (!current()) return null;
+        state.performanceSummaryData = data;
+        renderPerformanceSummary();
+        return data;
+      })
+      .catch(() => null)
+      .finally(() => { performanceSummaryLoadPromise = null; });
+    return performanceSummaryLoadPromise;
+  }
+
   function loadActiveAnalysisPanel() {
     if (!current()) return Promise.resolve();
+    loadPerformanceSummaryData();
     if (state.activeAnalysisPanel === 'return_attribution') return loadReturnAttributionData().catch(() => {});
     if (state.activeAnalysisPanel === 'trade_attribution') {
       host.dispatchEvent(new host.CustomEvent('pams:load-trade-attribution'));
@@ -206,6 +227,18 @@ export function createAnalysisController({ root = document, host = window, viewS
       if (returnMore) {
         state.returnAttributionShowAll = !state.returnAttributionShowAll;
         renderReturnAttributionList();
+        return;
+      }
+
+      const jumpReviewBtn = event.target?.closest?.('[data-jump-trade-review]');
+      if (jumpReviewBtn) {
+        const txTab = doc.querySelector('[data-invest-tab-btn="transactions"], [data-invest-nav="transactions"], button[data-tab="transactions"]');
+        if (txTab) txTab.click();
+        else if (doc.body) doc.body.dataset.investTab = 'transactions';
+        host.setTimeout(() => {
+          const campaignTab = doc.querySelector('[data-trade-view-mode="campaigns"]');
+          if (campaignTab) campaignTab.click();
+        }, 120);
         return;
       }
 

@@ -13,6 +13,7 @@ from domain.assets.asset_master import AmbiguousAssetIdentityError, AssetMasterS
 from domain.assets.lookthrough_state import build_lookthrough_payload
 from domain.investments.valuation.portfolio_state import get_conn
 from domain.investments.attribution.return_attribution import build_return_attribution_payload
+from domain.investments.returns.benchmark_summary import build_performance_summary_payload
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -58,6 +59,15 @@ def return_attribution_summary(baseCurrency: str = Query("CNY")) -> dict[str, An
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return build_return_attribution_payload(cur, base_currency=baseCurrency)
+
+
+@router.get("/performance-summary")
+def performance_benchmark_summary() -> dict[str, Any]:
+    """Return secondary-market benchmark comparison (HS300/QQQ) and Top 3 winners/losers."""
+    with get_conn() as conn:
+        conn.set_session(readonly=True)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            return build_performance_summary_payload(cur)
 
 
 @router.post("/asset-master/sync")
