@@ -7,7 +7,7 @@ import re
 
 PROFILE = "ths_broker_ledger_v1"
 REQUIRED = {"成交日期", "证券代码", "证券名称", "操作", "成交数量", "成交均价", "成交金额", "发生金额"}
-EXTRA_HEADERS = {"其他杂费", "本次金额", "合同编号", "交易市场", "余额", "定位串", "市场代码"}
+EXTRA_HEADERS = {"其他杂费", "本次金额", "合同编号", "交易市场", "余额", "定位串", "市场代码", "真实操作"}
 MAPPING = {"business_date": "成交日期", "trade_time": "成交时间", "symbol": "证券代码",
            "name": "证券名称", "action": "操作", "quantity": "成交数量", "price": "成交均价",
            "gross_amount": "成交金额", "net_cash": "发生金额", "fee_amount": "手续费", "tax_amount": "印花税"}
