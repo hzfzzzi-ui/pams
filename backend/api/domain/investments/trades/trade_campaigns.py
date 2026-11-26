@@ -438,6 +438,22 @@ def build_position_campaigns_payload(
         where.append("LOWER(COALESCE(NULLIF(f.symbol, ''), NULLIF(f.name, ''), '')) = %s")
         params.append(asset_key.lower())
     cur.execute(
+        """
+        SELECT to_regclass('public.investment_trade_review') IS NOT NULL AS has_review_table,
+               EXISTS (
+                   SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'pams_investment_trade_fact'
+                     AND column_name = 'realized_pnl'
+               ) AS has_realized_pnl
+        """
+    )
+    schema_info = dict(cur.fetchone() or {})
+    has_review = bool(schema_info.get("has_review_table"))
+    has_realized = bool(schema_info.get("has_realized_pnl"))
+    r_alias = "r" if has_review else "f"
+    review_join = "LEFT JOIN investment_trade_review r ON r.trade_id = f.trade_id" if has_review else ""
+    realized_cols = "f.realized_pnl, f.realized_pnl_cny," if has_realized else "NULL::numeric AS realized_pnl, NULL::numeric AS realized_pnl_cny,"
+    cur.execute(
         f"""
         SELECT
             f.trade_id,
@@ -457,20 +473,20 @@ def build_position_campaigns_payload(
             f.tax_amount,
             NULL::jsonb AS raw_json,
             f.net_cash,
-            f.realized_pnl,
-            f.realized_pnl_cny,
-            f.buy_reason,
-            f.sell_reason,
-            f.review_note,
-            COALESCE(f.review_tags, ARRAY[]::text[]) AS review_tags,
-            f.initial_position_identity,
-            f.current_position_identity,
+            {realized_cols}
+            {r_alias}.buy_reason,
+            {r_alias}.sell_reason,
+            {r_alias}.review_note,
+            COALESCE({r_alias}.review_tags, ARRAY[]::text[]) AS review_tags,
+            {r_alias}.initial_position_identity,
+            {r_alias}.current_position_identity,
             CASE
-                WHEN f.review_status IN ('auto', 'needs_review', 'reviewed', 'ignored') THEN f.review_status
+                WHEN {r_alias}.review_status IN ('auto', 'needs_review', 'reviewed', 'ignored') THEN {r_alias}.review_status
                 ELSE 'auto'
             END AS review_status
         FROM pams_investment_trade_fact f
         LEFT JOIN pams_accounts a ON a.account_code = f.account_code
+        {review_join}
         WHERE {" AND ".join(where)}
         ORDER BY f.account_code, COALESCE(NULLIF(f.symbol, ''), f.name), f.trade_date, f.trade_time, f.trade_id
         """,
