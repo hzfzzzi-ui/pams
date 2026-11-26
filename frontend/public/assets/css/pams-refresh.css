@@ -2978,3 +2978,154 @@ body.page-investments .portfolioRiskInlineSources span {
   opacity: 0.6;
   cursor: wait;
 }
+
+
+/* ===== Unified Flat Dark-App Surfaces for Risk & Allocation ===== */
+.page-investments #portfolio-constraints.portfolioConfigPanel,
+.page-investments #portfolio-risk-disclosure.portfolioRiskPanel {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.page-investments #portfolio-constraints > .sectionTitle {
+  display: none;
+}
+.page-investments .portfolioConfigGrid {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 18px !important;
+}
+.page-investments .portfolioConfigBlock,
+.page-investments .portfolioRiskBlock {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+.page-investments .portfolioConfigHead {
+  padding: 0 2px 8px !important;
+  margin: 0 !important;
+}
+.page-investments .portfolioRuleList,
+.page-investments .portfolioRebalanceList,
+.page-investments .portfolioRiskCategoryList,
+.page-investments .incrementalCalcCard {
+  background: var(--pams-bg-panel, #11151d) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+.page-investments .portfolioRuleList,
+.page-investments .portfolioRebalanceList {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+.page-investments .portfolioRuleNode {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.page-investments .portfolioRuleNode:last-child {
+  border-bottom: 0 !important;
+}
+.page-investments .portfolioRuleRow {
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 14px 16px !important;
+  margin: 0 !important;
+  width: 100%;
+}
+.page-investments .portfolioRuleRow::before,
+.page-investments .portfolioRuleRow::after {
+  display: none !important;
+  content: none !important;
+}
+.page-investments .portfolioRuleFooter {
+  margin-top: 8px !important;
+  padding-top: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+.page-investments .portfolioRuleCheck,
+.page-investments .portfolioRuleDrill {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  font-size: 11px !important;
+  color: rgba(148, 163, 184, 0.85) !important;
+  font-weight: 500 !important;
+}
+.page-investments .portfolioRuleDrill {
+  color: rgba(203, 213, 225, 0.9) !important;
+}
+.page-investments .portfolioRuleChildren {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  padding: 8px 14px 12px !important;
+}
+.page-investments .portfolioRebalanceRow {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 13px 16px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.page-investments .portfolioRebalanceRow:last-child {
+  border-bottom: 0 !important;
+}
+.page-investments .portfolioRiskDashboard,
+.page-investments .portfolioExposurePanel {
+  background: var(--pams-bg-panel, #11151d) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  padding: 16px !important;
+}
+.page-investments .riskDiagnosisTile,
+.page-investments .riskStressStrip {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.page-investments .portfolioRiskCategoryList {
+  padding: 0 !important;
+  gap: 0 !important;
+}
+.page-investments .portfolioRiskChecklistCard {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.page-investments .portfolioRiskChecklistCard:last-child {
+  border-bottom: 0 !important;
+}
+.page-investments .portfolioRiskChecklistCard::before {
+  display: none !important;
+}
+.page-investments .incrementalCalcCard {
+  padding: 14px 16px !important;
+}
+.page-investments .incrementalResultRow {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-left: 3px solid rgba(56, 189, 248, 0.65) !important;
+}
+.page-investments .incrementalResultRow.is-warn {
+  border-left-color: #fbbf24 !important;
+}

@@ -211,4 +211,159 @@ const initialContent = contentUrl();
 document.body.dataset.contentPage = initialContent.pathname.split('/').pop();
 frame.src = initialContent.href;
 
+// Top-right Reminder Center (red badge bell + bottom sheet)
+const reminderBtn = document.querySelector('[data-reminders-toggle]');
+const reminderBadge = document.querySelector('[data-reminders-badge]');
+const reminderBackdrop = document.getElementById('pamsRemindersBackdrop');
+const reminderBody = document.getElementById('pamsRemindersBody');
+const reminderClose = document.querySelector('[data-reminders-close]');
+
+if (reminderBtn && reminderBackdrop && reminderBody) {
+  let reminderState = { pendingReviews: 0, staleItems: [], thsAdjustments: [], refreshing: false, note: '' };
+  const escHtml = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const fmtQty = v => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '--';
+    return Math.abs(n - Math.round(n)) < 1e-4 ? Math.round(n).toLocaleString('zh-CN') : n.toFixed(2);
+  };
+
+  function renderReminders() {
+    const alertCount = (reminderState.pendingReviews > 0 ? 1 : 0) + reminderState.staleItems.length;
+    if (reminderBadge) {
+      if (alertCount > 0) {
+        reminderBadge.textContent = alertCount > 9 ? '9+' : String(alertCount);
+        reminderBadge.hidden = false;
+        reminderBtn.classList.add('has-alerts');
+      } else {
+        reminderBadge.hidden = true;
+        reminderBtn.classList.remove('has-alerts');
+      }
+    }
+    const cards = [];
+    if (reminderState.pendingReviews > 0) {
+      cards.push(`
+        <button type="button" class="pams-reminder-item is-alert" data-reminder-action="review">
+          <span class="pams-reminder-dot is-red" aria-hidden="true"></span>
+          <div class="pams-reminder-copy">
+            <strong>待复盘交易 · ${reminderState.pendingReviews} 笔</strong>
+            <small>趁记忆清晰补一句买入/卖出核心逻辑，沉淀交易复盘</small>
+          </div>
+          <span class="pams-reminder-arrow" aria-hidden="true">›</span>
+        </button>
+      `);
+    }
+    if (reminderState.staleItems.length) {
+      const desc = reminderState.staleItems.map(item => `${item.label}（${item.as_of}，落后${item.trading_days_stale}个交易日）`).join(' · ');
+      cards.push(`
+        <div class="pams-reminder-item is-alert">
+          <span class="pams-reminder-dot is-red" aria-hidden="true"></span>
+          <div class="pams-reminder-copy">
+            <strong>行情 / 净值落后提醒</strong>
+            <small>${escHtml(desc)}</small>
+            ${reminderState.note ? `<em class="pams-reminder-note">${escHtml(reminderState.note)}</em>` : ''}
+          </div>
+          <button type="button" class="pams-reminder-actbtn" data-reminder-action="refresh-prices" ${reminderState.refreshing ? 'disabled' : ''}>
+            ${reminderState.refreshing ? '刷新中…' : '一键刷新'}
+          </button>
+        </div>
+      `);
+    }
+    if (reminderState.thsAdjustments.length) {
+      const lines = reminderState.thsAdjustments.slice(0, 3).map(item => {
+        const sign = Number(item.delta_qty) >= 0 ? '+' : '';
+        return `${item.name} ${sign}${fmtQty(item.delta_qty)} 股 → 推演 ${fmtQty(item.projected_qty)} 股（含 ${item.latest_trade_date} 成交）`;
+      }).join('；');
+      cards.push(`
+        <div class="pams-reminder-item is-info">
+          <span class="pams-reminder-dot is-blue" aria-hidden="true"></span>
+          <div class="pams-reminder-copy">
+            <strong>同花顺成交推演（较快照 ${escHtml(reminderState.thsAdjustments[0].snapshot_as_of || '--')}）</strong>
+            <small>${escHtml(lines)}</small>
+          </div>
+        </div>
+      `);
+    }
+    reminderBody.innerHTML = cards.length
+      ? cards.join('')
+      : '<div class="pams-reminders-empty">当前没有待处理的提醒</div>';
+  }
+
+  async function loadReminders() {
+    try {
+      const [queueRes, freshRes] = await Promise.all([
+        fetch('/api/investment-transactions/auto-review/queue?kind=needs_human_review&limit=1').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/prices/freshness').then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      const counts = queueRes?.counts || {};
+      reminderState.pendingReviews = Number(counts.needs_human_review ?? counts.needs_review ?? (queueRes?.items?.length || 0));
+      reminderState.staleItems = Array.isArray(freshRes?.stale_items) ? freshRes.stale_items : [];
+      reminderState.thsAdjustments = Array.isArray(freshRes?.ths_projected_adjustments) ? freshRes.ths_projected_adjustments : [];
+      renderReminders();
+    } catch { /* non-blocking */ }
+  }
+
+  function closeReminders() {
+    reminderBackdrop.hidden = true;
+    reminderBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  reminderBtn.addEventListener('click', () => {
+    const opening = reminderBackdrop.hidden;
+    reminderBackdrop.hidden = !opening;
+    reminderBtn.setAttribute('aria-expanded', String(opening));
+    if (opening) loadReminders();
+  });
+  reminderClose?.addEventListener('click', closeReminders);
+  reminderBackdrop.addEventListener('click', event => {
+    if (event.target === reminderBackdrop) closeReminders();
+  });
+  reminderBody.addEventListener('click', async event => {
+    const trigger = event.target?.closest?.('[data-reminder-action]');
+    if (!trigger) return;
+    const action = trigger.dataset.reminderAction;
+    if (action === 'review') {
+      closeReminders();
+      const target = new URL('investments.html#investment-ledger', location.href);
+      navigate(target);
+      window.setTimeout(() => {
+        try {
+          const childDoc = frame.contentDocument;
+          childDoc?.querySelector('[data-invest-tab="transactions"]')?.click();
+          window.setTimeout(() => childDoc?.querySelector('[data-trade-view-mode="campaigns"]')?.click(), 160);
+        } catch { /* ignore */ }
+      }, 280);
+      return;
+    }
+    if (action === 'refresh-prices' && !reminderState.refreshing) {
+      reminderState.refreshing = true;
+      reminderState.note = '正在刷新全市场行情…';
+      renderReminders();
+      try {
+        const res = await fetch('/api/prices/refresh/investments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scopes: ['a_stock', 'us_stock', 'a_fund', 'precious_metal'] }),
+        }).then(r => r.json());
+        reminderState.note = `已更新 ${Number(res?.total_updated || 0)} 项，正在重算持仓估值…`;
+        renderReminders();
+        await fetch('/api/investment/page-projection/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        }).catch(() => {});
+        reminderState.refreshing = false;
+        reminderState.note = '刷新完成，已同步最新估值。';
+        await loadReminders();
+        try { frame.contentWindow?.location?.reload(); } catch { /* ignore */ }
+      } catch (err) {
+        reminderState.refreshing = false;
+        reminderState.note = `刷新失败：${err?.message || err}`;
+        renderReminders();
+      }
+    }
+  });
+
+  loadReminders();
+}
+
 }

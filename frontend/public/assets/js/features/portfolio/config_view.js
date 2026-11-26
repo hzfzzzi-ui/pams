@@ -89,7 +89,7 @@ function ruleRow(rule, state, { level = 'top' } = {}) {
     ? `data-portfolio-subrule="${esc(rule.id)}"`
     : `data-portfolio-rule="${esc(rule.id)}"`;
   const childHint = canExpand
-    ? `<span class="portfolioRuleDrill">${expanded ? '收起' : `${rule.children.length} 项`}</span>`
+    ? `<span class="portfolioRuleDrill">${expanded ? '收起 ▴' : `${rule.children.length} 项 ›`}</span>`
     : '';
   const childTotal = childAmountTotal(rule.children);
   const totalDiff = Math.abs(childTotal - n(rule.currentAmountCny));
