@@ -56,9 +56,9 @@ def _known_source_hashes(cur) -> set[str]:
         return set()
     cur.execute(
         """
-        SELECT DISTINCT LOWER(content_sha256) AS digest
+        SELECT DISTINCT LOWER(sha256) AS digest
         FROM public.source_records
-        WHERE content_sha256 IS NOT NULL AND content_sha256 <> ''
+        WHERE sha256 IS NOT NULL AND sha256 <> ''
         """
     )
     return {r["digest"] for r in cur.fetchall() if r.get("digest")}
