@@ -99,21 +99,21 @@ function ruleRow(rule, state, { level = 'top' } = {}) {
   return `
     <button type="button" class="portfolioRuleRow ${esc(rule.tone)} level-${esc(level)} ${expanded ? 'is-expanded' : ''}" ${dataAttr} ${canExpand ? `aria-expanded="${expanded ? 'true' : 'false'}"` : ''}>
       <div class="portfolioRuleTop">
-        <strong>${esc(rule.name)}</strong>
-        <span class="portfolioRuleStatus ${esc(rule.tone)}">${esc(rule.status)}</span>
+        <div class="portfolioRuleNameWrap">
+          <strong>${esc(rule.name)}</strong>
+          <small>${esc(rule.currentAmountLabel)}</small>
+        </div>
+        <div class="portfolioRuleRight">
+          <b class="portfolioRulePct">${fmtPct(rule.current)}</b>
+          <span class="portfolioRuleStatus ${esc(rule.tone)}">${esc(rule.status)}</span>
+        </div>
       </div>
+      ${ruleTrack(rule)}
       <div class="portfolioRuleMeta">
-        <span>当前 ${fmtPct(rule.current)}</span>
-        <span>目标 ${esc(rule.targetLabel)}</span>
+        <span>目标 ${esc(rule.targetLabel)}（${esc(rule.targetAmountLabel)}）</span>
         <span>边界 ${esc(rule.limitLabel)}</span>
       </div>
-      <div class="portfolioRuleAmounts">
-        <span>当前 ${esc(rule.currentAmountLabel)}</span>
-        <span>目标 ${esc(rule.targetAmountLabel)}</span>
-        <span>边界 ${esc(rule.limitAmountLabel)}</span>
-      </div>
-      <div class="portfolioRuleFooter">${childHint}${totalCheck}</div>
-      ${ruleTrack(rule)}
+      ${(childHint || totalCheck) ? `<div class="portfolioRuleFooter">${totalCheck}${childHint}</div>` : ''}
     </button>
   `;
 }

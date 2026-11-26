@@ -97,29 +97,43 @@ function dashboardView(payload) {
   const tone = dashboard.status_tone || 'info';
   const severity = dashboardSeverity(dashboard);
   const counts = severity.counts;
+  const pct = clamp((Number(dashboard?.score ?? 0) / clamp(dashboard?.max_score ?? 100, 1, 999)) * 100);
+  const radius = 38;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = (circumference * (1 - pct / 100)).toFixed(2);
 
   return `
     <section class="portfolioRiskDashboard ${esc(tone)}">
-      <div
-        class="portfolioRiskGauge"
-        style="--needle-angle:${esc(severity.needleAngle)}deg"
-      >
-        <div class="portfolioRiskNeedle" aria-hidden="true"></div>
-        <div class="portfolioRiskGaugeHub" aria-hidden="true"></div>
-        <strong>${esc(severity.scoreLabel)}</strong>
-        <span>${esc(severity.maxScoreLabel)}</span>
+      <div class="portfolioRiskRingWrap" aria-label="风险评分 ${esc(severity.scoreLabel)}${esc(severity.maxScoreLabel)}">
+        <svg class="portfolioRiskRing" viewBox="0 0 92 92" aria-hidden="true">
+          <circle class="portfolioRiskRingTrack" cx="46" cy="46" r="${radius}" />
+          <circle
+            class="portfolioRiskRingArc ${esc(tone)}"
+            cx="46"
+            cy="46"
+            r="${radius}"
+            stroke-dasharray="${circumference.toFixed(2)}"
+            stroke-dashoffset="${dashOffset}"
+          />
+        </svg>
+        <div class="portfolioRiskRingCenter">
+          <strong>${esc(severity.scoreLabel)}</strong>
+          <span>${esc(severity.maxScoreLabel)}</span>
+        </div>
       </div>
       <div class="portfolioRiskDashboardBody">
         <div class="portfolioRiskDashboardTop">
-          <div>
+          <div class="portfolioRiskStatusLine">
+            <span class="portfolioRiskStatusDot ${esc(tone)}" aria-hidden="true"></span>
             <strong>${esc(dashboard.status_label || toneLabel(tone))}</strong>
+            <small>综合风险评分</small>
           </div>
         </div>
         <div class="portfolioRiskDashboardStats">
-          <span class="risk"><b>${esc(counts.risk)}</b><em>高风险</em></span>
-          <span class="warn"><b>${esc(counts.warn)}</b><em>偏高</em></span>
-          <span class="info"><b>${esc(counts.info)}</b><em>观察</em></span>
-          <span class="ok"><b>${esc(counts.ok)}</b><em>正常</em></span>
+          <span class="risk"><em>高风险</em><b>${esc(counts.risk)}</b></span>
+          <span class="warn"><em>偏高</em><b>${esc(counts.warn)}</b></span>
+          <span class="info"><em>观察</em><b>${esc(counts.info)}</b></span>
+          <span class="ok"><em>正常</em><b>${esc(counts.ok)}</b></span>
         </div>
       </div>
     </section>
@@ -269,7 +283,10 @@ function checklistCard(category, index, expandedRiskCategoryId) {
               <small>${esc(category.description || '')}</small>
             </div>
           </div>
-          <em>${esc(checklist.status_label || toneLabel(tone))}</em>
+          <div class="portfolioRiskChecklistRight">
+            <em>${esc(checklist.status_label || toneLabel(tone))}</em>
+            <i class="portfolioRiskChevron" aria-hidden="true">›</i>
+          </div>
         </div>
         <div class="portfolioRiskChecklistMeter" aria-hidden="true"><i></i></div>
         <div class="portfolioRiskChecklistMeta">
@@ -281,7 +298,6 @@ function checklistCard(category, index, expandedRiskCategoryId) {
             <i>${esc(total)} 项</i>
           </span>
         </div>
-        <div class="portfolioRiskExpandCue">${isExpanded ? '收起' : '展开'}</div>
       </button>
       ${isExpanded ? expandedChecklist(category) : ''}
     </section>
