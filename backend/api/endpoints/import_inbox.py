@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from domain.imports import isolation
 from domain.imports.account_import import account_import_access as access
 from domain.imports.account_import import account_import_store as store
+from domain.imports.account_import.email_inbox import fetch_gmail_bill_artifacts, imap_status
 from domain.imports.account_import.inbox_router import (
     compute_cash_yield_reconciliation,
     route_file_to_accounts,
@@ -102,6 +103,7 @@ def inbox_summary():
     return {
         "pending_drafts": drafts,
         "pending_count": len(drafts),
+        "email_inbox": imap_status(),
         "local_inbox": {
             "exists": local_scan["exists"],
             "directory": local_scan["directory"],
@@ -210,6 +212,65 @@ def inbox_scan_local(request: Request):
         "staged": staged_all,
         "skipped_duplicates": scan["duplicate_count"],
         "unrecognized": scan["unrecognized"],
+        "errors": errors,
+    }
+
+
+@router.post("/pull-email")
+def inbox_pull_email(request: Request):
+    """Pull recent bank statement emails via configured Gmail IMAP and stage new drafts."""
+    access.same_origin(request)
+    status_info = imap_status()
+    if not status_info["configured"]:
+        return {
+            "configured": False,
+            "skipped": True,
+            "message": "尚未配置 Gmail IMAP（请在宿主机 .env 配置 PAMS_IMAP_USER 与 PAMS_IMAP_PASSWORD）",
+            "staged_count": 0,
+            "skipped_duplicates": 0,
+            "staged": [],
+            "errors": [],
+        }
+
+    staged_all: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    with isolation.account_import_scope(), store.get_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            known = _known_source_hashes(cur)
+            try:
+                pulled = fetch_gmail_bill_artifacts(known_hashes=known)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail={"code": "imap_pull_failed", "message": f"Gmail 拉取失败：{exc}"},
+                ) from exc
+
+            for artifact in pulled["artifacts"]:
+                filename = artifact["filename"]
+                decision = route_file_to_accounts(filename)
+                if decision is None:
+                    continue
+                try:
+                    staged_all.extend(
+                        _stage_bytes_for_decision(
+                            cur,
+                            content=artifact["content"],
+                            filename=filename,
+                            decision=decision,
+                        )
+                    )
+                except Exception as exc:
+                    errors.append({"file": filename, "error": str(exc)})
+        conn.commit()
+
+    return {
+        "configured": True,
+        "skipped": False,
+        "folder": pulled.get("folder"),
+        "fetched_messages": pulled.get("fetched_messages", 0),
+        "staged_count": len(staged_all),
+        "skipped_duplicates": pulled.get("skipped_duplicates", 0),
+        "staged": staged_all,
         "errors": errors,
     }
 
