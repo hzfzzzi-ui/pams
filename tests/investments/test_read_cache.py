@@ -47,3 +47,46 @@ def test_scheduler_polling_does_not_evict_monthly_overview():
     # User ledger/import mutation clears everything including monthly-overview
     assert cache.invalidate_for_mutation("/api/ledger/rows/123") == 1
     assert cache.get("/api/assets/monthly-overview", now=110.0) is None
+
+
+def test_shared_disk_cache_across_workers_and_invalidation(tmp_path):
+    worker_a = ReadResponseCache(max_entries=16, cache_dir=tmp_path)
+    worker_b = ReadResponseCache(max_entries=16, cache_dir=tmp_path)
+
+    worker_a.set(
+        "/api/assets/monthly-overview",
+        status_code=200,
+        body=b'{"months":[1,2]}',
+        media_type="application/json",
+        ttl=1800.0,
+        now=1000.0,
+    )
+    worker_a.set(
+        "/api/analysis/lookthrough?baseCurrency=CNY",
+        status_code=200,
+        body=b'{"rows":[]}',
+        media_type="application/json",
+        ttl=180.0,
+        now=1000.0,
+    )
+
+    # Worker B immediately hits both entries written by Worker A
+    assert worker_b.get("/api/assets/monthly-overview", now=1010.0) == (
+        200,
+        b'{"months":[1,2]}',
+        "application/json",
+    )
+    assert worker_b.get("/api/analysis/lookthrough?baseCurrency=CNY", now=1010.0) == (
+        200,
+        b'{"rows":[]}',
+        "application/json",
+    )
+
+    # Market refresh on Worker A invalidates lookthrough on Worker B, keeps monthly-overview
+    worker_a.invalidate_for_mutation("/api/prices/refresh/investments", now=1020.0)
+    assert worker_b.get("/api/analysis/lookthrough?baseCurrency=CNY", now=1021.0) is None
+    assert worker_b.get("/api/assets/monthly-overview", now=1021.0) is not None
+
+    # User ledger write on Worker A invalidates monthly-overview on Worker B
+    worker_a.invalidate_for_mutation("/api/ledger/rows/99", now=1030.0)
+    assert worker_b.get("/api/assets/monthly-overview", now=1031.0) is None
