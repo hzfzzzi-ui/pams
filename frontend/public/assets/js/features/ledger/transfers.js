@@ -243,16 +243,33 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
       </details>`;
   }
 
+  function isHighConfidenceCandidate(row) {
+    if (!row || !row.confirmation_supported) return false;
+    const conf = String(row.confidence || '').toLowerCase();
+    const score = Number(row.score ?? row.confidence_score ?? 0);
+    if (conf === 'high' || score >= 0.9) return true;
+    const sameDay = row.source_date && row.target_date && row.source_date === row.target_date;
+    const sameAmt = row.amount != null && row.target_amount != null && Math.abs(Math.abs(Number(row.amount)) - Math.abs(Number(row.target_amount))) < 0.01;
+    return Boolean(sameDay && sameAmt && (row.match_type === 'internal_transfer' || row.match_type === 'credit_card_payment'));
+  }
+
   function renderList(element, rows, pending) {
     const limit = pending ? pendingLimit : confirmedLimit;
     const empty = pending ? '本期暂无可核对的配对候选。' : '本期暂无已确认的划转。';
     const page = rows.slice(0, limit);
     const card = row => renderPair(row, pending);
+    const highConf = pending ? rows.filter(isHighConfidenceCandidate) : [];
+    const batchBar = highConf.length
+      ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;padding:8px 10px;border-radius:10px;background:rgba(56,189,248,0.09);border:1px solid rgba(56,189,248,0.25);">
+          <span style="font-size:12px;color:#e0f2fe">识别到 <b>${highConf.length}</b> 对同日等额高置信划转</span>
+          <button class="btn primary" type="button" style="padding:5px 11px;font-size:12px" data-confirm-high-conf>一键确认 (${highConf.length})</button>
+        </div>`
+      : '';
     element.innerHTML = rows.length
-      ? state.recentAmountSort ? page.map(card).join('') : renderLedgerDays(page, rowDate, card, {
+      ? batchBar + (state.recentAmountSort ? page.map(card).join('') : renderLedgerDays(page, rowDate, card, {
         countUnit: pending ? '个候选' : '对',
         partialLastDay: limit < rows.length && rows[limit - 1].match_date === rows[limit].match_date,
-      })
+      }))
       : `<p class="muted">${empty}</p>`;
     if (rows.length > limit) {
       element.insertAdjacentHTML('beforeend', `<button class="btn ledgerPairMore" type="button"
@@ -425,6 +442,25 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         }
       } else if (button.hasAttribute('data-retry-transfers')) {
         load();
+      if (button.hasAttribute('data-confirm-high-conf')) {
+        if (submitting || !candidates) return;
+        const batch = visibleRows(candidates).filter(isHighConfidenceCandidate);
+        if (!batch.length) return;
+        submitting = true;
+        button.disabled = true;
+        let done = 0;
+        for (const pair of batch) {
+          button.textContent = `确认中 ${done + 1}/${batch.length}…`;
+          try { await confirmTransferPair(pair); done++; } catch { /* continue remaining */ }
+        }
+        submitting = false;
+        candidates = null;
+        if (current()) {
+          message('transferReviewStatus', `已批量确认 ${done}/${batch.length} 对高置信划转。`);
+          await loadCandidates();
+          await reloadWorkbench?.();
+        }
+        return;
       } else if (button.hasAttribute('data-retry-candidates')) {
         loadCandidates();
       } else if (button.hasAttribute('data-expand-manual')) {

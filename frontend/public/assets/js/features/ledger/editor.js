@@ -2,6 +2,29 @@ import { isReadCancelled } from '../../shared/read_scope.js';
 import { LEDGER_EDIT_DEFAULTS } from './legacy_model.js';
 import { updateLedgerRow } from './requests.js';
 
+const MERCHANT_RULES_KEY = 'pams.ledger.merchantRules.v1';
+
+function merchantRuleKey(row) {
+  const raw = String(row?.counterparty || row?.merchant || row?.summary || row?.description || '').trim();
+  const cleaned = raw.replace(/\d{4,}/g, '').replace(/\s+/g, ' ').trim().slice(0, 18);
+  return cleaned.length >= 2 ? cleaned.toLowerCase() : '';
+}
+
+function loadMerchantRules() {
+  try { return JSON.parse(localStorage.getItem(MERCHANT_RULES_KEY) || '{}') || {}; } catch { return {}; }
+}
+
+function saveMerchantRule(row, rule) {
+  const key = merchantRuleKey(row);
+  if (!key || !rule?.category) return;
+  try {
+    const map = loadMerchantRules();
+    map[key] = { ...rule, updatedAt: Date.now() };
+    const entries = Object.entries(map).sort((a, b) => (b[1]?.updatedAt || 0) - (a[1]?.updatedAt || 0)).slice(0, 120);
+    localStorage.setItem(MERCHANT_RULES_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch { /* ignore storage quota errors */ }
+}
+
 export function createLedgerEditor({ model, templates, sheets, dom, current, canEdit = () => true, reload }) {
   const { isEditableLedgerRow, findLedgerRowById, ledgerCategoryOptions, ledgerSubcategoryOptions, ledgerEditSubmitLabel, ledgerEditType } = model;
   const { optionHtml, expenseChoicesHtml, ledgerEditSheetHtml } = templates;
@@ -120,6 +143,33 @@ function bindLedgerEditSheet(row, session) {
     syncSubmit();
   });
   syncClassificationFields();
+
+  // Phase 3.2: Merchant rule memory 1-click suggestion chip
+  const rememberedKey = merchantRuleKey(row);
+  const rememberedRule = rememberedKey ? loadMerchantRules()[rememberedKey] : null;
+  if (rememberedRule && rememberedRule.category && (row.needs_review || !initialCategory || initialCategory !== rememberedRule.category)) {
+    const hint = document.createElement('div');
+    hint.className = 'ledgerRuleMemoryHint';
+    hint.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;margin-bottom:10px;border-radius:10px;background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.28);font-size:12px;';
+    hint.innerHTML = `<span style="color:#e0f2fe">规则记忆：<b>${rememberedRule.category}${rememberedRule.subcategory ? ' · ' + rememberedRule.subcategory : ''}</b></span><button type="button" class="btn" style="padding:4px 10px;font-size:11px" data-apply-merchant-rule>一键套用</button>`;
+    form.prepend(hint);
+    session.listen(hint.querySelector('[data-apply-merchant-rule]'), 'click', () => {
+      const targetGroup = rememberedRule.cashflow_type === 'operating_income'
+        ? 'operating_income'
+        : rememberedRule.cashflow_type === 'operating_expense' || rememberedRule.cashflow_type === 'fee'
+          ? 'operating_expense'
+          : 'internal_transfer';
+      if (field('flow_group')) field('flow_group').value = targetGroup;
+      if (targetGroup === 'internal_transfer' && field('transfer_type')) {
+        field('transfer_type').value = rememberedRule.cashflow_type || 'internal_transfer';
+      }
+      updateLedgerCategoryOptions(form, classificationType(), rememberedRule.category);
+      updateLedgerSubcategoryOptions(form, classificationType(), rememberedRule.subcategory || '');
+      syncClassificationFields();
+      hint.remove();
+    });
+  }
+
   session.listen(form, 'submit', async event => {
     event.preventDefault();
     if (submitBtn?.disabled || pending || !current() || !session.active()) return;
@@ -143,6 +193,7 @@ function bindLedgerEditSheet(row, session) {
         ...(!counterAccount.disabled && { counter_account_code: fieldValue('counter_account_code') }),
         counterparty: fieldValue('counterparty'),
       });
+      saveMerchantRule(row, { cashflow_type: cashflowType, category, subcategory });
       saved = true;
       if (!current() || !session.active()) return;
       session.close();
