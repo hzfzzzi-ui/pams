@@ -88,6 +88,9 @@ def _get_holdings_with_symbol(
                 select_params.extend(exclude_minor_categories)
             if _use_latest_account_snapshot_bucket(category, exclude_minor_categories):
                 if category == _OVERSEAS_MAJOR_CATEGORY:
+                    overseas_categories = ["美股", "港股", "韩股", "瑞典", "欧股", "瑞士", "海外股票"]
+                    overseas_cte_params: List[object] = [overseas_categories, *exclude_minor_categories]
+                    overseas_select_params: List[object] = [overseas_categories, *exclude_minor_categories]
                     bucket_expr = _overseas_market_bucket_case()
                     h_bucket_expr = _overseas_market_bucket_case("h")
                     cur.execute(f"""
@@ -100,7 +103,7 @@ def _get_holdings_with_symbol(
                                 {bucket_expr} AS market_bucket,
                                 MAX(as_of) AS as_of
                             FROM pams_holdings_snapshot
-                            WHERE major_category = %s
+                            WHERE major_category = ANY(%s::text[])
                               {excluded_sql}
                             GROUP BY account_code, asset_liability, major_category, minor_category, {bucket_expr}
                         )
@@ -116,11 +119,11 @@ def _get_holdings_with_symbol(
                          AND lb.minor_category = h.minor_category
                          AND lb.market_bucket = {h_bucket_expr}
                          AND lb.as_of = h.as_of
-                        WHERE h.major_category = %s
+                        WHERE h.major_category = ANY(%s::text[])
                           AND h.symbol IS NOT NULL AND h.symbol != ''
                           AND h.quantity IS NOT NULL AND h.quantity > 0
                           {excluded_sql_h}
-                    """, [*cte_params, *select_params])
+                    """, [*overseas_cte_params, *overseas_select_params])
                 else:
                     cur.execute(f"""
                         WITH latest_bucket AS (
