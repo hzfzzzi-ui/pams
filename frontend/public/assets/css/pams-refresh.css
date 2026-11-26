@@ -1550,3 +1550,39 @@ html[data-privacy="1"] :is(
 .importYieldFoot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .importYieldResult { font-size: 12px; font-weight: 600; color: var(--pams-profit); font-variant-numeric: tabular-nums; }
 .importYieldResult.is-warn { color: var(--pams-warning); }
+
+.importInboxBatchBar { margin-bottom: 8px; }
+.importInboxRowMain { min-width: 0; flex: 1 1 auto; }
+.importInboxRowMain small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.importInboxRowOps { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.importInboxMiniBtn, .importInboxMiniLink {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.importInboxMiniBtn.is-confirm {
+  color: #56d38a;
+  background: rgba(35, 194, 107, 0.14);
+  border: 1px solid rgba(35, 194, 107, 0.32);
+}
+.importInboxMiniBtn.is-discard {
+  color: #a1a1a6;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--refresh-border);
+}
+.importInboxMiniLink { color: #62c2ff; padding: 3px 4px; }
+.importInboxWarnTag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #f5b942;
+  background: rgba(245, 165, 36, 0.14);
+}
