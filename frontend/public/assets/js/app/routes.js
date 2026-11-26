@@ -33,9 +33,10 @@ export function accountCenterHref(account = '', review = false) {
   return 'more.html' + (params.size ? '?' + params : '') + '#account-center';
 }
 
-export function subaccountImportHref(account, batchId = '') {
+export function subaccountImportHref(account, batchId = '', duplicatePeriod = false) {
   const params = new URLSearchParams({account, scope: 'account', return: accountCenterHref(account)});
   if (batchId) params.set('batch', batchId);
+  if (duplicatePeriod) params.set('dup', '1');
   return 'account_import.html?' + params;
 }
 

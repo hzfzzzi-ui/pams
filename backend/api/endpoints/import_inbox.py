@@ -445,6 +445,38 @@ def inbox_discard_draft(source_id: UUID, request: Request):
     return store.norm(dict(row))
 
 
+@router.post("/discard-duplicates")
+def inbox_discard_duplicates(
+    request: Request,
+    scope: str = Query("duplicates", pattern="^(duplicates|stale)$"),
+):
+    """Bulk void duplicate-period drafts (or all duplicate + legacy non-file drafts) while keeping sha256."""
+    access.same_origin(request)
+    discarded: list[dict[str, Any]] = []
+    with isolation.account_import_scope(), store.get_conn() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            drafts = _pending_drafts(cur, limit=200)
+            target_ids = [
+                str(d["source_id"])
+                for d in drafts
+                if d.get("duplicate_period_hint")
+                or (scope == "stale" and d.get("acquisition_method") != "file")
+            ]
+            if target_ids:
+                cur.execute(
+                    """
+                    UPDATE public.source_records
+                    SET status = 'voided', revision = revision + 1, updated_at = now()
+                    WHERE source_id = ANY(%s::uuid[]) AND status = 'draft'
+                    RETURNING source_id, account_code, filename, status
+                    """,
+                    (target_ids,),
+                )
+                discarded = [store.norm(dict(r)) for r in cur.fetchall()]
+        conn.commit()
+    return {"scope": scope, "discarded_count": len(discarded), "discarded": discarded}
+
+
 @router.post("/confirm-ready")
 def inbox_confirm_ready(request: Request):
     """Batch confirm all zero-issue, non-duplicate-period file drafts in the inbox."""
