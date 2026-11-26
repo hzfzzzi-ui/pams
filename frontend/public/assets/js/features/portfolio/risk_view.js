@@ -119,13 +119,15 @@ function diagnosisSectionHtml(diagnosis, scope = 'all') {
   const levText = d.leverage_ratio > 0 ? `${Number(d.leverage_ratio).toFixed(2)}x` : '1.00x';
   const levSub = activeScope === 'all' && d.ibkr_leverage
     ? `盈透 ${Number(d.ibkr_leverage).toFixed(2)}x`
-    : `净资产 ${fmtWan(d.net_value_cny)}`;
+    : `可交易净值 ${fmtWan(d.net_value_cny)}`;
   const debtSub = d.total_debt_cny > 0
-    ? `约 ${fmtWan(d.estimated_monthly_interest_cny)}/月 · 负债 ${fmtWan(d.total_debt_cny)}`
-    : '当前无显著融资负债';
-  const liqSub = activeScope === 'all'
-    ? `T+1 ${fmtPct1(liq.mid_pct)} · 锁定 ${fmtPct1(liq.locked_pct)}`
-    : `T+1/基金 ${fmtPct1(liq.mid_pct)} · 无锁定`;
+    ? `月息 ${fmtWan(d.estimated_monthly_interest_cny)} · 负债 ${fmtWan(d.total_debt_cny)}`
+    : '无显著融资负债';
+  const highPct = Math.max(0, Number(liq.high_pct || 0) * 100);
+  const midPct = Math.max(0, Number(liq.mid_pct || 0) * 100);
+  const lockPct = Math.max(0, Number(liq.locked_pct || 0) * 100);
+  const eqBar = Math.min(100, Math.abs(Number(eq20.impact_nav_pct || 0)) * 250);
+  const fxBar = Math.min(100, Math.abs(Number(fx5.impact_nav_pct || 0)) * 250);
   return `
     <div class="riskDiagnosisWrap">
       ${diagnosis.has_esop ? `
@@ -134,7 +136,7 @@ function diagnosisSectionHtml(diagnosis, scope = 'all') {
             <button type="button" role="tab" class="${activeScope === 'all' ? 'active' : ''}" aria-selected="${activeScope === 'all'}" data-risk-scope="all">全口径</button>
             <button type="button" role="tab" class="${activeScope === 'ex_esop' ? 'active' : ''}" aria-selected="${activeScope === 'ex_esop'}" data-risk-scope="ex_esop">剔除 ESOP</button>
           </div>
-          <span class="riskScopeMeta">${activeScope === 'ex_esop' ? `可交易净值 ${fmtWan(d.net_value_cny)}` : `ESOP ${fmtWan(diagnosis.esop_value_cny)}`}</span>
+          <span class="riskScopeMeta">${activeScope === 'ex_esop' ? `净值 ${fmtWan(d.net_value_cny)}` : `ESOP ${fmtWan(diagnosis.esop_value_cny)}`}</span>
         </div>
       ` : ''}
       <div class="riskDiagnosisGrid">
@@ -149,24 +151,41 @@ function diagnosisSectionHtml(diagnosis, scope = 'all') {
           <small>${esc(debtSub)}</small>
         </div>
         <div class="riskDiagnosisTile">
-          <span>高流动性占比</span>
-          <strong>${esc(fmtPct1(liq.high_pct))}</strong>
-          <small>${esc(liqSub)}</small>
-        </div>
-        <div class="riskDiagnosisTile">
           <span>最大单一标的</span>
           <strong class="${d.top1_pct >= 0.3 ? 'is-risk' : d.top1_pct >= 0.15 ? 'is-warn' : ''}">${esc(fmtPct1(d.top1_pct))}</strong>
           <small title="${esc(d.top1_name || '')}">${esc(cleanAssetName(d.top1_name))}</small>
         </div>
+        <div class="riskDiagnosisTile">
+          <span>权益敞口占比</span>
+          <strong>${esc(fmtPct1(d.equity_pct))}</strong>
+          <small>总敞口 ${esc(fmtWan(d.gross_exposure_cny))}</small>
+        </div>
+      </div>
+      <div class="riskLiqChart">
+        <div class="riskLiqHead">
+          <span>流动性结构</span>
+          <small>高流动 ${esc(fmtPct1(liq.high_pct))} · T+1 ${esc(fmtPct1(liq.mid_pct))}${activeScope === 'all' ? ` · 锁定 ${esc(fmtPct1(liq.locked_pct))}` : ''}</small>
+        </div>
+        <div class="riskLiqBar" aria-hidden="true">
+          ${highPct > 0 ? `<i style="width:${highPct.toFixed(1)}%;background:#38bdf8"></i>` : ''}
+          ${midPct > 0 ? `<i style="width:${midPct.toFixed(1)}%;background:#818cf8"></i>` : ''}
+          ${lockPct > 0 ? `<i style="width:${lockPct.toFixed(1)}%;background:rgba(148,163,184,0.45)"></i>` : ''}
+        </div>
       </div>
       <div class="riskStressStrip">
-        <div class="riskStressRow">
-          <span>${esc(eq20.label || '权益/科技 -20%')}</span>
-          <strong class="is-risk">${esc(fmtWan(eq20.impact_cny))} <em>(${esc(fmtPct1(eq20.impact_nav_pct))} 净值)</em></strong>
+        <div class="riskStressItem">
+          <div class="riskStressRow">
+            <span>${esc(eq20.label || '权益/科技 -20%')}</span>
+            <strong class="is-risk">${esc(fmtWan(eq20.impact_cny))} <em>${esc(fmtPct1(eq20.impact_nav_pct))} 净值</em></strong>
+          </div>
+          <div class="riskStressTrack"><i class="is-risk" style="width:${eqBar.toFixed(1)}%"></i></div>
         </div>
-        <div class="riskStressRow">
-          <span>${esc(fx5.label || '外币汇率 -5%')}</span>
-          <strong class="is-warn">${esc(fmtWan(fx5.impact_cny))} <em>(${esc(fmtPct1(fx5.impact_nav_pct))} 净值)</em></strong>
+        <div class="riskStressItem">
+          <div class="riskStressRow">
+            <span>${esc(fx5.label || '外币汇率 -5%')}</span>
+            <strong class="is-warn">${esc(fmtWan(fx5.impact_cny))} <em>${esc(fmtPct1(fx5.impact_nav_pct))} 净值</em></strong>
+          </div>
+          <div class="riskStressTrack"><i class="is-warn" style="width:${fxBar.toFixed(1)}%"></i></div>
         </div>
       </div>
       <div class="riskDiagnosisNote">${esc(d.interest_note || '')}</div>

@@ -26,48 +26,63 @@ export function mountNetworthDebtsPanel(root, get) {
       const debts = data.debts || {};
       const items = debts.items || [];
       const savings = Number(attr.monthly_savings_cny || 0);
+      const totalDebt = Math.max(0, Number(debts.total_debt_cny || 0));
+      const palette = ['#fbbf24', '#60a5fa', '#a78bfa', '#34d399'];
+
+      const barHtml = totalDebt > 0 && items.length ? `
+        <div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.06);margin:14px 0 6px;gap:2px" aria-hidden="true">
+          ${items.map((row, i) => {
+            const pct = Math.max(2, (Number(row.balance_cny || 0) / totalDebt) * 100);
+            return `<span style="width:${pct.toFixed(1)}%;background:${palette[i % palette.length]}"></span>`;
+          }).join('')}
+        </div>
+      ` : '';
+
       el.innerHTML = `
-        <div class="card" style="margin-bottom:12px">
-          <div class="sectionTitle">
-            <h3>${esc(data.month || '本月')} 净资产归因与负债提醒</h3>
-            <span class="miniBadge data">${esc(data.as_of || '--')}</span>
+        <section class="assetCard" style="background:transparent;border:0;border-top:1px solid rgba(255,255,255,0.08);border-radius:0;padding:16px 0 8px;margin:0">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
+            <h2 style="margin:0;font-size:15px;font-weight:700;color:#f8fafc">${esc(data.month || '本月')} 收支与负债结构</h2>
+            <span style="font-size:11px;color:rgba(148,163,184,0.75)">${esc(data.as_of || '--')}</span>
           </div>
-          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px">
-            <div style="background:rgba(15,23,42,0.58);border:1px solid rgba(148,163,184,0.14);border-radius:10px;padding:9px">
-              <div style="font-size:11px;color:rgba(148,163,184,0.88)">本月收支结余</div>
-              <strong style="font-size:15px;color:${savings >= 0 ? '#4ade80' : '#f87171'}">${esc(fmtMoney(savings, true))}</strong>
-              <div style="font-size:10px;color:rgba(148,163,184,0.75)">入 ${esc(fmtMoney(attr.monthly_income_cny))} / 出 ${esc(fmtMoney(attr.monthly_expense_cny))}</div>
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,0.07)">
+            <div>
+              <div style="font-size:11px;color:rgba(148,163,184,0.8)">总负债</div>
+              <strong style="display:block;margin-top:2px;font-size:22px;font-weight:700;letter-spacing:-0.02em;color:#f8fafc;font-variant-numeric:tabular-nums">${esc(fmtMoney(totalDebt))}</strong>
+              <div style="margin-top:2px;font-size:11px;color:rgba(148,163,184,0.75)">估算月息 ${esc(fmtMoney(debts.total_monthly_interest_cny))}</div>
             </div>
-            <div style="background:rgba(15,23,42,0.58);border:1px solid rgba(148,163,184,0.14);border-radius:10px;padding:9px">
-              <div style="font-size:11px;color:rgba(148,163,184,0.88)">投资账户净值</div>
-              <strong style="font-size:15px;color:#f8fafc">${esc(fmtMoney(attr.investment_net_value_cny))}</strong>
-              <div style="font-size:10px;color:rgba(148,163,184,0.75)">同源估值投影</div>
-            </div>
-            <div style="background:rgba(15,23,42,0.58);border:1px solid rgba(148,163,184,0.14);border-radius:10px;padding:9px">
-              <div style="font-size:11px;color:rgba(148,163,184,0.88)">总负债 / 月息(估)</div>
-              <strong style="font-size:15px;color:#fbbf24">${esc(fmtMoney(debts.total_debt_cny))}</strong>
-              <div style="font-size:10px;color:rgba(148,163,184,0.75)">约 ${esc(fmtMoney(debts.total_monthly_interest_cny))}/月</div>
+            <div>
+              <div style="font-size:11px;color:rgba(148,163,184,0.8)">本月收支结余</div>
+              <strong style="display:block;margin-top:2px;font-size:22px;font-weight:700;letter-spacing:-0.02em;color:${savings >= 0 ? '#4ade80' : '#f87171'};font-variant-numeric:tabular-nums">${esc(fmtMoney(savings, true))}</strong>
+              <div style="margin-top:2px;font-size:11px;color:rgba(148,163,184,0.75)">入 ${esc(fmtMoney(attr.monthly_income_cny))} · 出 ${esc(fmtMoney(attr.monthly_expense_cny))}</div>
             </div>
           </div>
+          ${barHtml}
           ${items.length ? `
-            <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
-              ${items.map((row) => `
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:10px;background:rgba(15,23,42,0.5);border-left:3px solid ${row.apr_pct > 0 ? '#fbbf24' : '#38bdf8'}">
-                  <div style="min-width:0">
-                    <strong style="display:block;font-size:13px;color:#f8fafc">${esc(row.name)}</strong>
-                    <small style="display:block;font-size:11px;color:rgba(148,163,184,0.85)">${esc(row.note)}</small>
+            <div>
+              ${items.map((row, i) => {
+                const share = totalDebt > 0 ? ((Number(row.balance_cny || 0) / totalDebt) * 100).toFixed(1) : '0.0';
+                const color = palette[i % palette.length];
+                return `
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                    <div style="display:flex;align-items:flex-start;gap:8px;min-width:0">
+                      <span style="width:7px;height:7px;border-radius:50%;background:${color};margin-top:5px;flex-shrink:0"></span>
+                      <div style="min-width:0">
+                        <strong style="display:block;font-size:13px;font-weight:600;color:#f8fafc">${esc(row.name)}</strong>
+                        <small style="display:block;margin-top:2px;font-size:11px;color:rgba(148,163,184,0.75)">${esc(row.note)}</small>
+                      </div>
+                    </div>
+                    <div style="text-align:right;white-space:nowrap">
+                      <b style="display:block;font-size:14px;font-weight:700;color:#f8fafc;font-variant-numeric:tabular-nums">${esc(fmtMoney(row.balance_cny))}</b>
+                      <em style="display:block;margin-top:1px;font-style:normal;font-size:11px;color:${row.days_until_due != null && row.days_until_due <= 5 ? '#f87171' : 'rgba(148,163,184,0.78)'}">
+                        ${row.days_until_due != null ? `${row.days_until_due}天后还款` : `${share}% · ${row.apr_pct}%`}
+                      </em>
+                    </div>
                   </div>
-                  <div style="text-align:right;white-space:nowrap">
-                    <b style="display:block;font-size:13px;color:#f8fafc">${esc(fmtMoney(row.balance_cny))}</b>
-                    <em style="display:block;font-style:normal;font-size:11px;color:${row.days_until_due != null && row.days_until_due <= 5 ? '#f87171' : 'rgba(148,163,184,0.88)'}">
-                      ${row.days_until_due != null ? `${row.days_until_due}天后还款 (${esc(row.due_date.slice(5))})` : `年化 ${row.apr_pct}%`}
-                    </em>
-                  </div>
-                </div>
-              `).join('')}
+                `;
+              }).join('')}
             </div>
           ` : ''}
-        </div>
+        </section>
       `;
       el.hidden = false;
     })

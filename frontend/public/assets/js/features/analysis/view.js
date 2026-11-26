@@ -201,23 +201,32 @@ function renderPerformanceSummary() {
   const myPct = p.ex_esop_return_pct;
   const myTone = myPct == null ? '' : myPct >= 0 ? 'good' : 'bad';
 
-  const benchCards = [
-    `<div class="perfBenchTile is-primary">
-      <span>我的二级市场</span>
-      <strong class="${myTone}">${esc(fmtSignedPct(myPct))}</strong>
-      <small>浮盈 ${esc(fmtSignedYuan(p.ex_esop_pnl_cny))}</small>
-    </div>`,
-    ...benchmarks.map((b) => {
-      const ytd = b.ytd_return_pct;
-      const m1 = b.m1_return_pct;
-      const tone = ytd == null ? '' : ytd >= 0 ? 'good' : 'bad';
-      return `<div class="perfBenchTile">
-        <span>${esc(b.name)}</span>
-        <strong class="${tone}">${esc(ytd != null ? fmtSignedPct(ytd) : (m1 != null ? fmtSignedPct(m1) : '--'))}</strong>
-        <small>${ytd != null ? `YTD · 1M ${esc(fmtSignedPct(m1))}` : (m1 != null ? `1M · ${esc(b.as_of || '')}` : '行情待补')}</small>
-      </div>`;
-    }),
-  ].join('');
+  const benchSeries = [
+    { name: '我的二级市场', val: myPct, sub: `浮盈 ${fmtSignedYuan(p.ex_esop_pnl_cny)}`, primary: true },
+    ...benchmarks.map((b) => ({
+      name: b.name,
+      val: b.ytd_return_pct ?? b.m1_return_pct,
+      sub: b.ytd_return_pct != null ? `YTD · 1M ${fmtSignedPct(b.m1_return_pct)}` : (b.m1_return_pct != null ? `1M · ${b.as_of || ''}` : '行情待补'),
+      primary: false,
+    })),
+  ];
+  const maxAbsBench = Math.max(10, ...benchSeries.map(s => Math.abs(Number(s.val || 0))));
+  const benchCards = benchSeries.map((s) => {
+    const num = s.val == null ? null : Number(s.val);
+    const tone = num == null ? '' : num >= 0 ? 'good' : 'bad';
+    const widthPct = num == null ? 0 : Math.max(3, (Math.abs(num) / maxAbsBench) * 100);
+    return `
+      <div class="perfBenchBarRow ${s.primary ? 'is-primary' : ''}">
+        <div class="perfBenchBarTop">
+          <span>${esc(s.name)} <em>${esc(s.sub)}</em></span>
+          <strong class="${tone}">${esc(fmtSignedPct(num))}</strong>
+        </div>
+        <div class="perfBenchTrack" aria-hidden="true">
+          <i class="${tone}" style="width:${widthPct.toFixed(1)}%"></i>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   const leaderRow = (row, tone) => `
     <button type="button" class="perfLeaderRow is-${tone}" data-jump-trade-review="${esc(row.symbol || '')}">

@@ -3129,3 +3129,221 @@ body.page-investments .portfolioRiskInlineSources span {
 .page-investments .incrementalResultRow.is-warn {
   border-left-color: #fbbf24 !important;
 }
+
+
+/* ===== Minimalist Editorial Hairline + Chart Refinement (No Inner Boxes) ===== */
+.page-investments .portfolioRiskDashboard,
+.page-investments .portfolioExposurePanel,
+.page-investments .portfolioRuleList,
+.page-investments .portfolioRebalanceList,
+.page-investments .portfolioRiskCategoryList,
+.page-investments .incrementalCalcCard,
+.page-investments .performanceBenchmarkPanel {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 4px 0 12px !important;
+}
+.page-investments .portfolioConfigBlock,
+.page-investments .portfolioRiskBlock {
+  padding-top: 14px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+.page-investments .portfolioConfigBlock:first-child,
+.page-investments .portfolioRiskDashboardBlock {
+  padding-top: 0 !important;
+  border-top: 0 !important;
+}
+.page-investments .riskScopeSwitch {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  gap: 16px;
+}
+.page-investments .riskScopeSwitch button {
+  padding: 4px 0 6px !important;
+  border-radius: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  background: transparent !important;
+  color: rgba(148, 163, 184, 0.8) !important;
+}
+.page-investments .riskScopeSwitch button.active {
+  color: #f8fafc !important;
+  border-bottom-color: #38bdf8 !important;
+  background: transparent !important;
+}
+.page-investments .riskDiagnosisGrid {
+  gap: 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.page-investments .riskDiagnosisTile {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 12px 10px 12px 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.page-investments .riskDiagnosisTile strong {
+  font-size: 21px !important;
+  letter-spacing: -0.02em;
+}
+.riskLiqChart {
+  padding: 10px 0 6px;
+}
+.riskLiqHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.82);
+  margin-bottom: 6px;
+}
+.riskLiqHead span { color: rgba(226, 232, 240, 0.9); font-weight: 600; }
+.riskLiqBar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.riskLiqBar i { display: block; height: 100%; }
+.page-investments .riskStressStrip {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 6px 0 0 !important;
+  gap: 10px !important;
+}
+.riskStressItem {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.riskStressTrack {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.riskStressTrack i { display: block; height: 100%; border-radius: 2px; }
+.riskStressTrack i.is-risk { background: #f87171; }
+.riskStressTrack i.is-warn { background: #fbbf24; }
+
+/* Performance benchmark comparison bars + flat leaderboard */
+.page-investments .perfBenchGrid {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  padding: 8px 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.perfBenchBarRow {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.perfBenchBarTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.perfBenchBarTop span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+.perfBenchBarTop span em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(148, 163, 184, 0.78);
+  margin-left: 6px;
+}
+.perfBenchBarTop strong {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #f8fafc;
+}
+.perfBenchBarTop strong.good { color: #4ade80; }
+.perfBenchBarTop strong.bad { color: #f87171; }
+.perfBenchTrack {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.perfBenchTrack i { display: block; height: 100%; border-radius: 3px; background: #64748b; }
+.perfBenchTrack i.good { background: #4ade80; }
+.perfBenchTrack i.bad { background: #f87171; }
+.page-investments .perfLeaderRow {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 10px 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.page-investments .perfLeaderRow:last-child { border-bottom: 0 !important; }
+
+/* Incremental rebalance flat hairline + split bar */
+.page-investments .incrementalPresetBtn {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  padding: 4px 2px 6px !important;
+  color: rgba(148, 163, 184, 0.82) !important;
+}
+.page-investments .incrementalPresetBtn.active {
+  color: #f8fafc !important;
+  border-bottom-color: #38bdf8 !important;
+}
+.page-investments .incrementalInputWrap {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 0 !important;
+  padding: 3px 4px !important;
+}
+.incrementalSplitBar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 4px 0 2px;
+}
+.incrementalSplitBar i { display: block; height: 100%; }
+.page-investments .incrementalResultRow {
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  padding: 10px 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.page-investments .incrementalResultRow:last-child { border-bottom: 0 !important; }
+.incrementalResultLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.incrementalDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.page-investments .portfolioRuleRow,
+.page-investments .portfolioRebalanceRow {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
