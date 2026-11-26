@@ -295,6 +295,17 @@ export function incrementalRebalanceHtml(meta, ui = {}) {
   }
 
   const presets = [10000, 20000, 50000];
+  const allocTotal = allocations.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const allocPalette = ['#fbbf24', '#38bdf8', '#818cf8', '#34d399', '#a78bfa'];
+  const splitBar = allocTotal > 0 ? `
+    <div class="incrementalSplitBar" aria-hidden="true">
+      ${allocations.map((row, idx) => {
+        const w = Math.max(3, (Number(row.amount || 0) / allocTotal) * 100);
+        const color = row.tone === 'warn' ? '#fbbf24' : allocPalette[(idx + 1) % allocPalette.length];
+        return `<i style="width:${w.toFixed(1)}%;background:${color}"></i>`;
+      }).join('')}
+    </div>
+  ` : '';
   return `
     <div class="incrementalCalcCard">
       <div class="incrementalCalcControls">
@@ -314,16 +325,23 @@ export function incrementalRebalanceHtml(meta, ui = {}) {
           </label>
         ` : ''}
       </div>
+      ${splitBar}
       <div class="incrementalResultList">
-        ${allocations.length ? allocations.map((row) => `
-          <div class="incrementalResultRow is-${esc(row.tone)}">
-            <div>
-              <strong>${esc(row.name)}</strong>
-              <small>${esc(row.note)}</small>
+        ${allocations.length ? allocations.map((row, idx) => {
+          const color = row.tone === 'warn' ? '#fbbf24' : allocPalette[(idx + 1) % allocPalette.length];
+          return `
+            <div class="incrementalResultRow is-${esc(row.tone)}">
+              <div class="incrementalResultLeft">
+                <i class="incrementalDot" style="background:${color}" aria-hidden="true"></i>
+                <div>
+                  <strong>${esc(row.name)}</strong>
+                  <small>${esc(row.note)}</small>
+                </div>
+              </div>
+              <b>${esc(fmtMoneyInt(row.amount))}</b>
             </div>
-            <b>${esc(fmtMoneyInt(row.amount))}</b>
-          </div>
-        `).join('') : '<div class="lookthroughEmpty compact">输入新增资金金额后自动试算投向</div>'}
+          `;
+        }).join('') : '<div class="lookthroughEmpty compact">输入新增资金金额后自动试算投向</div>'}
       </div>
     </div>
   `;
