@@ -3,6 +3,7 @@ import { createView } from './view.js';
 import { createActions } from './actions.js';
 import { createAccountSyncLoader } from './account_sync_controller.js';
 import { mountAccountHistory } from './account_history.js';
+import { mountNetworthDebtsPanel } from './networth_debts_panel.js';
 import { ACCOUNT_TASKS, accountCenterHref, returnRoute } from '../../app/routes.js';
 
 const mounted = new WeakMap();
@@ -23,6 +24,7 @@ export function mount(root, context) {
   const state = {config: null, accountOverview: null, collapsedAccountGroups: new Set(restore?.collapsedGroups || [])};
   if (restore) root.dataset.accountFilter = restore.accountFilter || '';
   const view = createView(root, state);
+  mountNetworthDebtsPanel(root, get);
   const generations = new Map();
   const pendingActions = new Set();
   const disabledButtons = new Map();

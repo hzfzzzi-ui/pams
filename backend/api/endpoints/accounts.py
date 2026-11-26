@@ -24,6 +24,16 @@ class AccountReviewRequest(BaseModel):
     note: str | None = None
 
 
+@router.get("/accounts/networth-and-debts")
+def accounts_networth_and_debts():
+    """Return monthly Net Worth attribution summary and multi-currency debt / credit-card due dates."""
+    from domain.accounts.views.debt_and_attribution import build_networth_and_debts_payload
+    with closing(get_conn()) as conn:
+        conn.set_session(readonly=True)
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            return account_overview._norm(build_networth_and_debts_payload(cur))
+
+
 @router.get("/accounts/overview")
 def accounts_overview():
     """Return account master data and current reconciliation inputs."""
