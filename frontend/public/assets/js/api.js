@@ -21,6 +21,7 @@ function pageRefreshToken() {
 
 function apiCacheTtl(path) {
   const raw = String(path || "");
+  if (raw.includes("/api/assets/monthly-overview")) return 300_000;
   if (raw.includes("/api/analysis/lookthrough")) return 180_000;
   if (raw.includes("/api/analysis/return-attribution")) return 180_000;
   if (raw.includes("/investment/return-series")) return 90_000;
@@ -36,6 +37,7 @@ function apiCacheTtl(path) {
 
 function apiRequestTimeoutMs(path) {
   const raw = String(path || "");
+  if (raw.includes("/api/assets/monthly-overview")) return 120_000;
   if (raw.includes("/api/portfolio/risk-disclosure")) return 120_000;
   if (raw.includes("/api/portfolio/config")) return 90_000;
   if (raw.includes("/api/analysis/lookthrough")) return 180_000;

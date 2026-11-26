@@ -6,6 +6,7 @@ PAMS API V2 - 基于重构后的数据库结构
 """
 import os
 from pathlib import Path
+import tempfile
 from typing import Any
 from datetime import date as Date, datetime
 from decimal import Decimal
@@ -144,7 +145,8 @@ def _is_allowed_write_origin(value: str | None) -> bool:
     return host in LOCAL_WRITE_HOSTS or origin in ALLOWED_WEB_ORIGINS
 
 
-_READ_RESPONSE_CACHE = ReadResponseCache(max_entries=64)
+_READ_CACHE_DIR = os.environ.get("PAMS_READ_CACHE_DIR") or str(Path(tempfile.gettempdir()) / "pams_read_cache")
+_READ_RESPONSE_CACHE = ReadResponseCache(max_entries=64, cache_dir=_READ_CACHE_DIR)
 
 
 @app.middleware("http")
