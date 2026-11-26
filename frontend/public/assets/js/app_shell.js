@@ -219,16 +219,38 @@ const reminderBody = document.getElementById('pamsRemindersBody');
 const reminderClose = document.querySelector('[data-reminders-close]');
 
 if (reminderBtn && reminderBackdrop && reminderBody) {
-  let reminderState = { pendingReviews: 0, staleItems: [], thsAdjustments: [], refreshing: false, note: '' };
+  let reminderState = {
+    pendingReviews: 0,
+    ledgerTodo: null,
+    ledgerTodoPeriod: 'ytd',
+    staleItems: [],
+    thsAdjustments: [],
+    refreshing: false,
+    note: '',
+  };
   const escHtml = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const fmtQty = v => {
     const n = Number(v);
     if (!Number.isFinite(n)) return '--';
     return Math.abs(n - Math.round(n)) < 1e-4 ? Math.round(n).toLocaleString('zh-CN') : n.toFixed(2);
   };
+  const buildLedgerTodo = (period, periodLabel = '本年至今') => {
+    if (!period || typeof period !== 'object') return null;
+    const unclassified = Number(period.unclassified_count) || 0;
+    const subcategoryPending = Number(period.subcategory_pending_count) || 0;
+    const otherPending = Math.max(0, (Number(period.pending_count) || 0) - unclassified - subcategoryPending);
+    const parts = [];
+    if (unclassified > 0) parts.push(`${unclassified} 笔待分类`);
+    if (otherPending > 0) parts.push(`${otherPending} 笔待核对`);
+    if (subcategoryPending > 0 && !unclassified) parts.push(`${subcategoryPending} 笔子类待补`);
+    if (!parts.length) return null;
+    return { periodLabel, unclassified, otherPending, subcategoryPending, summary: parts.join(' · ') };
+  };
 
   function renderReminders() {
-    const alertCount = (reminderState.pendingReviews > 0 ? 1 : 0) + reminderState.staleItems.length;
+    const alertCount = (reminderState.pendingReviews > 0 ? 1 : 0)
+      + (reminderState.ledgerTodo ? 1 : 0)
+      + reminderState.staleItems.length;
     if (reminderBadge) {
       if (alertCount > 0) {
         reminderBadge.textContent = alertCount > 9 ? '9+' : String(alertCount);
@@ -247,6 +269,20 @@ if (reminderBtn && reminderBackdrop && reminderBody) {
           <div class="pams-reminder-copy">
             <strong>待复盘交易 · ${reminderState.pendingReviews} 笔</strong>
             <small>趁记忆清晰补一句买入/卖出核心逻辑，沉淀交易复盘</small>
+          </div>
+          <span class="pams-reminder-arrow" aria-hidden="true">›</span>
+        </button>
+      `);
+    }
+    if (reminderState.ledgerTodo) {
+      const todo = reminderState.ledgerTodo;
+      const urgent = todo.unclassified > 0 || todo.otherPending > 0;
+      cards.push(`
+        <button type="button" class="pams-reminder-item ${urgent ? 'is-alert' : 'is-info'}" data-reminder-action="ledger-todo">
+          <span class="pams-reminder-dot ${urgent ? 'is-red' : 'is-blue'}" aria-hidden="true"></span>
+          <div class="pams-reminder-copy">
+            <strong>收支待处理 · ${escHtml(todo.summary)}</strong>
+            <small>${escHtml(todo.periodLabel || '本年至今')}流水，点击前往收支流水核对补录</small>
           </div>
           <span class="pams-reminder-arrow" aria-hidden="true">›</span>
         </button>
@@ -288,16 +324,37 @@ if (reminderBtn && reminderBackdrop && reminderBody) {
       : '<div class="pams-reminders-empty">当前没有待处理的提醒</div>';
   }
 
+  window.addEventListener('message', event => {
+    if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
+    if (event.data?.type !== 'pams-ledger-todo') return;
+    reminderState.ledgerTodoPeriod = event.data.period === 'month' ? 'month' : 'ytd';
+    const summary = String(event.data.summary || '').trim();
+    reminderState.ledgerTodo = summary ? {
+      periodLabel: String(event.data.periodLabel || (reminderState.ledgerTodoPeriod === 'month' ? '本月至今' : '本年至今')),
+      unclassified: Number(event.data.unclassified) || 0,
+      otherPending: Number(event.data.otherPending) || 0,
+      subcategoryPending: Number(event.data.subcategoryPending) || 0,
+      summary,
+    } : null;
+    renderReminders();
+  });
+
   async function loadReminders() {
     try {
-      const [queueRes, freshRes] = await Promise.all([
+      const [queueRes, freshRes, ledgerRes] = await Promise.all([
         fetch('/api/investment-transactions/auto-review/queue?kind=needs_human_review&limit=1').then(r => r.ok ? r.json() : null).catch(() => null),
         fetch('/api/prices/freshness').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/ledger/workbench?view=overview').then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       const counts = queueRes?.counts || {};
       reminderState.pendingReviews = Number(counts.needs_human_review ?? counts.needs_review ?? (queueRes?.items?.length || 0));
       reminderState.staleItems = Array.isArray(freshRes?.stale_items) ? freshRes.stale_items : [];
       reminderState.thsAdjustments = Array.isArray(freshRes?.ths_projected_adjustments) ? freshRes.ths_projected_adjustments : [];
+      if (ledgerRes?.periods) {
+        const key = reminderState.ledgerTodoPeriod === 'month' && ledgerRes.periods.month ? 'month' : 'ytd';
+        const periodData = ledgerRes.periods[key] || ledgerRes.periods.ytd || ledgerRes.periods.month;
+        reminderState.ledgerTodo = buildLedgerTodo(periodData, key === 'month' ? '本月至今' : '本年至今');
+      }
       renderReminders();
     } catch { /* non-blocking */ }
   }
@@ -332,6 +389,22 @@ if (reminderBtn && reminderBackdrop && reminderBody) {
           window.setTimeout(() => childDoc?.querySelector('[data-trade-view-mode="campaigns"]')?.click(), 160);
         } catch { /* ignore */ }
       }, 280);
+      return;
+    }
+    if (action === 'ledger-todo') {
+      closeReminders();
+      let currentPage = '';
+      try { currentPage = frame.contentWindow.location.pathname.split('/').pop(); } catch { /* ignore */ }
+      if (currentPage === 'ledger.html') {
+        try {
+          const childDoc = frame.contentDocument;
+          const todoBtn = childDoc?.getElementById('ledgerTodoPill');
+          if (todoBtn) todoBtn.click();
+          else childDoc?.querySelector('[data-ledger-tab="recent"]')?.click();
+        } catch { /* ignore */ }
+      } else {
+        navigate(new URL('ledger.html#recent-flow-section', location.href));
+      }
       return;
     }
     if (action === 'refresh-prices' && !reminderState.refreshing) {

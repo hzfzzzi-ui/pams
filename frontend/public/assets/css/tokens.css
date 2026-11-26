@@ -22,23 +22,23 @@
   --pams-action-muted: var(--pams-bg-raised);
   --pams-action-strong: var(--pams-text-secondary);
   --pams-chart-series-1: #47b5ff;
-  --pams-chart-series-2: #d0d0d4;
-  --pams-chart-series-3: #aaaab0;
-  --pams-chart-series-4: #85858b;
-  --pams-chart-series-5: #e4e4e8;
-  --pams-chart-series-6: #b8b8bd;
-  --pams-chart-series-7: #98989e;
-  --pams-chart-series-8: #747479;
+  --pams-chart-series-2: #b8c0cc;
+  --pams-chart-series-3: #788292;
+  --pams-chart-series-4: #5a6270;
+  --pams-chart-series-5: #8cd1ff;
+  --pams-chart-series-6: #98a2b2;
+  --pams-chart-series-7: #6e7785;
+  --pams-chart-series-8: #4c525c;
   --pams-chart-grid: rgba(255,255,255,.055);
   --pams-glow-profit: transparent;
   --pams-glow-loss: transparent;
   --pams-glow-action: transparent;
-  /* Liquid Glass & Obsidian-Blue tactile tokens. */
+  /* Minimal Obsidian & Focused Blue Data Accent + Crystal Liquid Glass tokens. */
   --pams-accent-blue: #47b5ff;
-  --pams-accent-blue-light: #7cc9ff;
-  --pams-accent-blue-soft: rgba(71, 181, 255, 0.16);
-  --pams-accent-blue-border: rgba(71, 181, 255, 0.38);
-  --pams-accent-blue-glow: rgba(71, 181, 255, 0.32);
+  --pams-accent-blue-light: #62c2ff;
+  --pams-accent-blue-soft: rgba(71, 181, 255, 0.14);
+  --pams-accent-blue-border: rgba(71, 181, 255, 0.34);
+  --pams-accent-blue-glow: rgba(71, 181, 255, 0.28);
   --pams-glass-surface: linear-gradient(155deg, rgba(255, 255, 255, 0.085) 0%, rgba(28, 28, 32, 0.78) 38%, rgba(16, 16, 19, 0.90) 100%);
   --pams-glass-surface-flat: rgba(26, 26, 30, 0.76);
   --pams-glass-surface-elevated: linear-gradient(165deg, rgba(255, 255, 255, 0.09) 0%, rgba(30, 30, 35, 0.86) 35%, rgba(18, 18, 22, 0.94) 100%);

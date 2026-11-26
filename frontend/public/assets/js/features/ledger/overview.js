@@ -156,13 +156,28 @@ function renderLedgerMobileHero(data) {
   }
 
   const todoPill = $('ledgerTodoPill');
-  if (todoPill) {
-    const parts = [];
-    if (unclassified > 0) parts.push(`${unclassified} 笔待分类`);
-    if (otherPending > 0) parts.push(`${otherPending} 笔待核对`);
-    if (subcategoryPending > 0 && !unclassified) parts.push(`${subcategoryPending} 笔子类待补`);
-    if (parts.length) {
-      todoPill.innerHTML = `<span class="pamsTodoDot" aria-hidden="true"></span><span>待处理 · <strong>${escapeHtml(parts.join(' · '))}</strong></span><span class="pamsTodoArrow" aria-hidden="true">›</span>`;
+  const todoParts = [];
+  if (unclassified > 0) todoParts.push(`${unclassified} 笔待分类`);
+  if (otherPending > 0) todoParts.push(`${otherPending} 笔待核对`);
+  if (subcategoryPending > 0 && !unclassified) todoParts.push(`${subcategoryPending} 笔子类待补`);
+  const inAppShell = Boolean(host.parent && host.parent !== host);
+  if (inAppShell) {
+    // Pending ledger alerts are surfaced in the top-right header reminder bell.
+    if (todoPill) todoPill.hidden = true;
+    try {
+      host.parent.postMessage({
+        type: 'pams-ledger-todo',
+        period: overviewPeriodKey(),
+        periodLabel: overviewPeriodLabel(),
+        unclassified,
+        otherPending,
+        subcategoryPending,
+        summary: todoParts.join(' · '),
+      }, host.location.origin);
+    } catch { /* ignore cross-origin or detached frame */ }
+  } else if (todoPill) {
+    if (todoParts.length) {
+      todoPill.innerHTML = `<span class="pamsTodoDot" aria-hidden="true"></span><span>待处理 · <strong>${escapeHtml(todoParts.join(' · '))}</strong></span><span class="pamsTodoArrow" aria-hidden="true">›</span>`;
       todoPill.hidden = false;
     } else {
       todoPill.hidden = true;

@@ -236,16 +236,15 @@ function renderPerformanceSummary() {
       </div>
       <div class="perfLeaderVal">
         <b class="${tone}">${esc(fmtSignedYuan(row.pnl_cny))}</b>
-        <em>${esc(fmtSignedPct(row.pnl_pct))} · 复盘 ›</em>
+        <em>${esc(fmtSignedPct(row.pnl_pct))} ›</em>
       </div>
     </button>
   `;
 
   el.innerHTML = `
     <div class="perfBenchHead">
-      <div>
-        <h3>二级市场基准对比与盈亏榜</h3>
-        <small>${esc(p.method_note || '')}</small>
+      <div title="${esc(p.method_note || '')}">
+        <h3>基准对比</h3>
       </div>
     </div>
     <div class="perfBenchGrid">${benchCards}</div>
