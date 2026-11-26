@@ -214,7 +214,7 @@ function renderPerformanceSummary() {
       return `<div class="perfBenchTile">
         <span>${esc(b.name)}</span>
         <strong class="${tone}">${esc(ytd != null ? fmtSignedPct(ytd) : (m1 != null ? fmtSignedPct(m1) : '--'))}</strong>
-        <small>${ytd != null ? `年初至今 · 近1月 ${esc(fmtSignedPct(m1))}` : (m1 != null ? `近1月 · ${esc(b.as_of || '')}` : '行情待补')}</small>
+        <small>${ytd != null ? `YTD · 1M ${esc(fmtSignedPct(m1))}` : (m1 != null ? `1M · ${esc(b.as_of || '')}` : '行情待补')}</small>
       </div>`;
     }),
   ].join('');

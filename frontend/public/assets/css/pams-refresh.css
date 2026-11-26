@@ -2527,15 +2527,22 @@ body.page-investments .portfolioRiskInlineSources span {
 
 
 /* ===== Phase 2.1: Risk Diagnosis v2, Quality Drawer & Incremental Rebalance ===== */
+.page-investments .portfolioRiskDashboard,
 .portfolioRiskDashboard {
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: none !important;
   gap: 14px;
 }
 .portfolioRiskDashboardMain {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
+  width: 100%;
+}
+.portfolioRiskDashboardMain .portfolioRiskDashboardBody {
+  flex: 1;
+  min-width: 0;
 }
 .riskDiagnosisWrap {
   display: flex;
@@ -2543,6 +2550,7 @@ body.page-investments .portfolioRiskInlineSources span {
   gap: 10px;
   padding-top: 12px;
   border-top: 1px solid rgba(148, 163, 184, 0.14);
+  width: 100%;
 }
 .riskScopeRow {
   display: flex;
@@ -2556,6 +2564,7 @@ body.page-investments .portfolioRiskInlineSources span {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 999px;
   padding: 2px;
+  flex-shrink: 0;
 }
 .riskScopeSwitch button {
   border: 0;
@@ -2566,6 +2575,7 @@ body.page-investments .portfolioRiskInlineSources span {
   padding: 5px 12px;
   border-radius: 999px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .riskScopeSwitch button.active {
   background: rgba(56, 189, 248, 0.22);
@@ -2654,6 +2664,13 @@ body.page-investments .portfolioRiskInlineSources span {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.lookthroughQualityDrawer .lookthroughIssueRow,
+.lookthroughQualityDrawer .lookthroughIssueHead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 .lookthroughQualityDrawerHead {
   display: flex;

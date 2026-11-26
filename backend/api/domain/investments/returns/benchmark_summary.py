@@ -86,10 +86,10 @@ def summarize_open_holdings_leaderboard(holdings: list[dict[str, Any]]) -> dict[
         mv = _f(row.get("market_value_cny") if row.get("market_value_cny") is not None else row.get("market_value"))
         if mv is None or mv <= 1.0:
             continue
-        cat = str(row.get("minor_category") or row.get("major_category") or row.get("asset_type") or "")
+        cat = f"{row.get('major_category') or ''} {row.get('minor_category') or ''} {row.get('asset_type') or ''}"
         sym = str(row.get("symbol") or "").strip()
         name = str(row.get("name") or row.get("asset_name") or sym or "未命名")
-        if any(tok in cat for tok in ("现金", "负债", "货币", "银行")) or sym.upper().startswith("CASH"):
+        if any(tok in cat for tok in ("现金", "负债", "借款", "货币", "银行")) or sym.upper().startswith("CASH") or "LOAN" in sym.upper():
             continue
         pnl = _f(row.get("holding_pnl_cny") if row.get("holding_pnl_cny") is not None else row.get("pnl_cny"))
         if pnl is None:
@@ -146,7 +146,9 @@ def build_performance_summary_payload(cur, *, today: date | None = None) -> dict
     try:
         projected = read_page(cur, "holdings", business_date=ref_day, member="holdings")
         data = (projected or {}).get("data")
-        if isinstance(data, list):
+        if isinstance(data, dict) and isinstance(data.get("rows"), list):
+            holdings = data["rows"]
+        elif isinstance(data, list):
             holdings = data
     except Exception:
         holdings = []
