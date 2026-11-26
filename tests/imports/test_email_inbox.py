@@ -29,9 +29,11 @@ def test_parse_guangfa_html_ebill_splits_7443_and_9711():
     parsed = parse_guangfa_html_ebill(SAMPLE_GUANGFA_HTML)
     assert set(parsed.keys()) == {"gf_7443", "gf_9711"}
     csv_9711 = parsed["gf_9711"].decode("utf-8")
-    assert "2026-10-31,2026-11-02,(消费)DLO*SERV UBER EATS CA,552.13,墨西哥比索,29.41,美元" in csv_9711
+    assert "business_date,action,currency,net_cash,note" in csv_9711
+    assert "2026-10-31,expense,USD,-29.41,(消费)DLO*SERV UBER EATS CA [552.13 墨西哥比索]" in csv_9711
+    assert "2026-10-30,transfer,USD,1.00,(还款)MC rebate USD1" in csv_9711
     csv_7443 = parsed["gf_7443"].decode("utf-8")
-    assert "2026-10-25,2026-10-26,(消费)美团外卖,45.50,人民币,45.50,人民币" in csv_7443
+    assert "2026-10-25,expense,CNY,-45.50,(消费)美团外卖" in csv_7443
 
 
 def test_extract_bill_artifacts_handles_guangfa_html_and_santander_pdf():

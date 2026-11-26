@@ -33,6 +33,16 @@ SAFE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 DATE_RE = re.compile(r"^\d{4}/\d{2}/\d{2}$")
 CARD_HEADER_RE = re.compile(r"卡号[：:]\s*[0-9*]+(\d{4})")
 GUANGFA_CARD_ACCOUNT = {"7443": "gf_7443", "9711": "gf_9711"}
+CURRENCY_ZH_MAP = {
+    "人民币": "CNY",
+    "美元": "USD",
+    "港元": "HKD",
+    "港币": "HKD",
+    "墨西哥比索": "MXN",
+    "欧元": "EUR",
+    "日元": "JPY",
+    "英镑": "GBP",
+}
 
 
 class _TextLineExtractor(HTMLParser):
@@ -104,14 +114,31 @@ def parse_guangfa_html_ebill(html_text: str) -> dict[str, bytes]:
             and DATE_RE.match(lines[idx + 1])
         ):
             tx_date = lines[idx].replace("/", "-")
-            post_date = lines[idx + 1].replace("/", "-")
             summary = lines[idx + 2]
             tx_amount = lines[idx + 3].replace(",", "")
             tx_currency = lines[idx + 4]
-            post_amount = lines[idx + 5].replace(",", "")
-            post_currency = lines[idx + 6]
+            post_amount_raw = lines[idx + 5].replace(",", "")
+            post_currency_raw = lines[idx + 6]
+            try:
+                post_val = float(post_amount_raw)
+            except ValueError:
+                idx += 7
+                continue
+            # Credit card bill: positive posted amount = spending (expense, negative net_cash);
+            # negative posted amount = repayment / rebate (positive net_cash).
+            net_cash = -post_val
+            if post_val > 0:
+                action = "expense"
+            elif "还款" in summary:
+                action = "transfer"
+            else:
+                action = "income"
+            currency = CURRENCY_ZH_MAP.get(post_currency_raw, post_currency_raw.upper())
+            note = summary
+            if tx_currency and tx_currency != post_currency_raw:
+                note = f"{summary} [{tx_amount} {tx_currency}]"
             rows_by_account.setdefault(current_account, []).append(
-                [tx_date, post_date, summary, tx_amount, tx_currency, post_amount, post_currency]
+                [tx_date, action, currency, f"{net_cash:.2f}", note]
             )
             idx += 7
             continue
@@ -124,7 +151,7 @@ def parse_guangfa_html_ebill(html_text: str) -> dict[str, bytes]:
             continue
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["交易日期", "入账日期", "交易摘要", "交易金额", "交易货币", "入账金额", "入账货币"])
+        writer.writerow(["business_date", "action", "currency", "net_cash", "note"])
         writer.writerows(tx_rows)
         csv_by_account[account_code] = buf.getvalue().encode("utf-8")
     return csv_by_account
