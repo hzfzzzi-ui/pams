@@ -118,6 +118,7 @@ def inbox_summary():
 def _stage_bytes_for_decision(cur, *, content: bytes, filename: str, decision) -> list[dict[str, Any]]:
     from domain.imports.sources.document_stage_v2 import stage_document
 
+    is_screenshot = Path(filename).suffix.lower() in {".png", ".jpg", ".jpeg"}
     staged: list[dict[str, Any]] = []
     for account_code in decision.accounts:
         result = stage_document(
@@ -126,7 +127,7 @@ def _stage_bytes_for_decision(cur, *, content: bytes, filename: str, decision) -
             source_name=decision.source_name,
             filename=filename,
             content=content,
-            document_type=decision.document_type,
+            document_type=(decision.document_type if is_screenshot else None),
         )
         staged.append({
             "account_code": account_code,
