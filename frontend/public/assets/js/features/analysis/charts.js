@@ -19,11 +19,11 @@ function arcPath(cx, cy, radius, startAngle, endAngle) {
 }
 
 function donutSvg(segments) {
-  const radius = 44;
+  const radius = 47;
   let startAngle = 0;
   return segments.map((seg, segmentIndex) => {
-    const sweep = Math.max(seg.weight * 360, 0.6);
-    const gap = Math.min(1.2, sweep * 0.22);
+    const sweep = Math.max(seg.weight * 360, 0.8);
+    const gap = Math.min(2.2, sweep * 0.22);
     const pathStart = startAngle + gap / 2;
     const pathEnd = startAngle + Math.max(sweep - gap / 2, 0.5);
     startAngle += sweep;
@@ -36,8 +36,8 @@ function donutSvg(segments) {
         d="${arcPath(60, 60, radius, pathStart, pathEnd)}"
         fill="none"
         stroke="${seg.color}"
-        stroke-width="18"
-        stroke-linecap="butt">
+        stroke-width="11"
+        stroke-linecap="round">
         <title>${esc(seg.label)} ${esc(fmtPct(seg.weight))} ${esc(fmtMoney(seg.value))}</title>
       </path>
     `;
@@ -71,7 +71,7 @@ function renderChartBlock(rows) {
     <div class="lookthroughChartBlock">
       <div class="lookthroughDonut" data-lookthrough-chart>
         <svg class="lookthroughDonutSvg" viewBox="0 0 120 120" role="img" aria-label="风险暴露分布">
-          <circle class="lookthroughDonutBase" cx="60" cy="60" r="44" fill="none" stroke-width="18"></circle>
+          <circle class="lookthroughDonutBase" cx="60" cy="60" r="47" fill="none" stroke-width="11"></circle>
           ${donutSvg(segments)}
         </svg>
         <div class="lookthroughDonutCenter">

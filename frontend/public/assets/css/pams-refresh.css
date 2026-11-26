@@ -2112,3 +2112,264 @@ body.page-investments #lookthrough-exposure .lookthroughIssueAction {
   font-size: 11px;
   color: #62c2ff;
 }
+
+
+/* ==========================================================================
+   PR #520: Refined Exposure Donut + Clean Checklist Detail Rows (Zero Badge Soup)
+   ========================================================================== */
+body.page-investments #lookthrough-exposure .lookthroughChartBlock {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 14px !important;
+  padding: 6px 0 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughDonut {
+  position: relative;
+  width: 152px !important;
+  height: 152px !important;
+  margin: 0 auto !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughDonutSvg {
+  width: 152px !important;
+  height: 152px !important;
+  display: block;
+}
+body.page-investments #lookthrough-exposure .lookthroughDonutBase {
+  stroke: rgba(255, 255, 255, 0.06) !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughDonutCenter {
+  position: absolute;
+  inset: 18px !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 2px;
+  pointer-events: none;
+}
+body.page-investments #lookthrough-exposure .lookthroughDonutCenter strong {
+  font-size: 20px !important;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #f5f5f7;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments #lookthrough-exposure .lookthroughDonutCenter span {
+  font-size: 11px !important;
+  color: #a1a1a6;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.page-investments #lookthrough-exposure .lookthroughDonutCenter em {
+  font-style: normal;
+  font-size: 10.5px !important;
+  color: #62c2ff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartList {
+  display: grid !important;
+  gap: 2px !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartRow {
+  display: grid !important;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  width: 100%;
+  padding: 8px 8px !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045) !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  text-align: left;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartRow:last-child {
+  border-bottom: 0 !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartRow.is-active,
+body.page-investments #lookthrough-exposure .lookthroughChartRow:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartRow i {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50%;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartRow strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px !important;
+  font-weight: 500;
+  color: #e5e5ea;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartRow em {
+  display: inline !important;
+  font-style: normal;
+  font-size: 11.5px !important;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+body.page-investments #lookthrough-exposure .lookthroughChartRow span {
+  font-size: 13px !important;
+  font-weight: 650;
+  color: #f5f5f7;
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: right;
+}
+
+/* Risk Checklist Expanded Panel — Clean Typographic Hierarchy, Zero Badge Soup */
+body.page-investments .portfolioRiskInlinePanel {
+  padding: 4px 13px 12px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+  background: rgba(0, 0, 0, 0.22) !important;
+  display: grid !important;
+  gap: 0 !important;
+}
+body.page-investments .portfolioRiskInlineItem {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 6px !important;
+  padding: 11px 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+body.page-investments .portfolioRiskInlineItem:last-child {
+  border-bottom: 0 !important;
+  padding-bottom: 2px !important;
+}
+body.page-investments .portfolioRiskInlineTop {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+}
+body.page-investments .portfolioRiskInlineName {
+  display: grid !important;
+  gap: 2px !important;
+  min-width: 0;
+}
+body.page-investments .portfolioRiskInlineName strong {
+  font-size: 13.5px !important;
+  font-weight: 600;
+  color: #f5f5f7;
+  line-height: 1.3;
+}
+body.page-investments .portfolioRiskInlineName small {
+  font-size: 11px !important;
+  color: #8e8e93 !important;
+  line-height: 1.35;
+}
+body.page-investments .portfolioRiskInlineVal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+body.page-investments .portfolioRiskInlineVal > span {
+  font-size: 14px !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #f5f5f7;
+}
+body.page-investments .portfolioRiskInlineBadge {
+  font-style: normal;
+  font-size: 10.5px !important;
+  font-weight: 600;
+  padding: 2px 7px !important;
+  border-radius: 999px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #c7c7cc !important;
+  white-space: nowrap;
+}
+body.page-investments .portfolioRiskInlineBadge.risk {
+  color: #ff7b7e !important;
+  border-color: rgba(255, 100, 103, 0.32) !important;
+  background: rgba(255, 100, 103, 0.1) !important;
+}
+body.page-investments .portfolioRiskInlineBadge.warn {
+  color: #f5b942 !important;
+  border-color: rgba(245, 185, 66, 0.3) !important;
+  background: rgba(245, 185, 66, 0.1) !important;
+}
+body.page-investments .portfolioRiskInlineBadge.ok {
+  color: #3fd47f !important;
+  border-color: rgba(35, 194, 107, 0.3) !important;
+  background: rgba(35, 194, 107, 0.1) !important;
+}
+body.page-investments .portfolioRiskCompactRule {
+  display: grid !important;
+  gap: 4px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+body.page-investments .portfolioRiskThresholdLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 11px;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments .portfolioRiskThresholdLine i {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.2);
+}
+body.page-investments .portfolioRiskThresholdLine b { font-weight: 500; color: #c7c7cc; }
+body.page-investments .portfolioRiskThresholdLine .is-ok b { color: #3fd47f; }
+body.page-investments .portfolioRiskThresholdLine .is-warn b { color: #f5b942; }
+body.page-investments .portfolioRiskThresholdLine .is-risk b { color: #ff7b7e; }
+body.page-investments .portfolioRiskRuleMeta {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: space-between !important;
+  gap: 4px 10px !important;
+  font-size: 11.5px !important;
+  color: #8e8e93;
+}
+body.page-investments .portfolioRiskRuleMeta span {
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+body.page-investments .portfolioRiskRuleMeta b {
+  font-weight: 500;
+  color: #d8d9de;
+  margin-left: 3px;
+}
+body.page-investments .portfolioRiskRuleMeta .fail b { color: #ff7b7e; }
+body.page-investments .portfolioRiskRuleMeta .watch b { color: #f5b942; }
+body.page-investments .portfolioRiskRuleMeta .pass b { color: #3fd47f; }
+body.page-investments .portfolioRiskInlineSources {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 5px !important;
+  margin-top: 2px !important;
+}
+body.page-investments .portfolioRiskInlineSources span {
+  padding: 2px 7px !important;
+  border-radius: 6px !important;
+  border: 0 !important;
+  background: rgba(255, 255, 255, 0.045) !important;
+  color: #a1a1a6 !important;
+  font-size: 10.5px !important;
+  font-variant-numeric: tabular-nums;
+}
