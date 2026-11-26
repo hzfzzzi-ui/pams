@@ -87,17 +87,32 @@ export function mountImportInbox(container, { get, win }) {
       statusEl.textContent = parts.join(' · ');
 
       const drafts = data?.pending_drafts || [];
+      const readyCount = drafts.filter(d => d.auto_publishable).length;
       draftsFold.hidden = drafts.length === 0;
       draftCountEl.textContent = `${drafts.length} 份`;
-      draftListEl.innerHTML = drafts.map(d => `
-        <a class="importInboxRow" href="${esc(subaccountImportHref(d.account_code))}">
-          <div>
-            <strong>${esc(d.account_label || d.account_code)}</strong>
-            <small>${esc(d.filename || d.source_name || '')}</small>
+      const batchBar = readyCount > 0
+        ? `<div class="importInboxBatchBar"><button type="button" class="importInboxBtn is-primary" data-inbox-confirm-ready>一键入账无异常草稿（${readyCount} 份）</button></div>`
+        : '';
+      draftListEl.innerHTML = batchBar + drafts.map(d => {
+        const metaParts = [d.filename || d.source_name || ''];
+        if (Number(d.item_count || 0) > 0) metaParts.push(`${d.item_count} 笔`);
+        const dupTag = d.duplicate_period_hint
+          ? '<span class="importInboxWarnTag">本期已有已入账账单</span>' : '';
+        const confirmBtn = d.auto_publishable
+          ? `<button type="button" class="importInboxMiniBtn is-confirm" data-confirm-draft="${esc(d.source_id)}">入账</button>` : '';
+        return `
+        <div class="importInboxRow">
+          <div class="importInboxRowMain">
+            <strong>${esc(d.account_label || d.account_code)} ${dupTag}</strong>
+            <small>${esc(metaParts.filter(Boolean).join(' · '))}</small>
           </div>
-          <span>去核对 ›</span>
-        </a>
-      `).join('');
+          <div class="importInboxRowOps">
+            ${confirmBtn}
+            <a class="importInboxMiniLink" href="${esc(subaccountImportHref(d.account_code))}">核对 ›</a>
+            <button type="button" class="importInboxMiniBtn is-discard" data-discard-draft="${esc(d.source_id)}" title="忽略此重复或过期草稿">忽略</button>
+          </div>
+        </div>`;
+      }).join('');
     } catch {
       if (alive) statusEl.textContent = '支持直接丢账单 PDF / XLS / CSV / 截图自动识别账户';
     }
@@ -203,9 +218,69 @@ export function mountImportInbox(container, { get, win }) {
     }
   }
 
+  async function onDraftListClick(event) {
+    if (busy) return;
+    const fetchFn = win?.fetch?.bind(win) || fetch;
+    const batchBtn = event.target.closest('[data-inbox-confirm-ready]');
+    if (batchBtn) {
+      busy = true;
+      batchBtn.disabled = true;
+      showFeedback('正在批量确认入账无异常草稿…');
+      try {
+        const resp = await fetchFn('/api/import-inbox/confirm-ready', { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data?.detail?.message || `HTTP ${resp.status}`);
+        showFeedback(`批量入账完成：已入账 ${data.confirmed_count || 0} 份${data.skipped?.length ? `，跳过需人工核对 ${data.skipped.length} 份` : ''}。`);
+        await refresh();
+      } catch (err) {
+        showFeedback(`批量入账失败：${err?.message || String(err)}`, true);
+      } finally {
+        busy = false;
+      }
+      return;
+    }
+    const confirmBtn = event.target.closest('[data-confirm-draft]');
+    if (confirmBtn) {
+      const id = confirmBtn.dataset.confirmDraft;
+      busy = true;
+      confirmBtn.disabled = true;
+      showFeedback('正在核验并确认入账…');
+      try {
+        const resp = await fetchFn(`/api/import-inbox/drafts/${encodeURIComponent(id)}/confirm`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data?.detail?.message || `HTTP ${resp.status}`);
+        showFeedback(`已确认入账：${data.filename || data.account_code}`);
+        await refresh();
+      } catch (err) {
+        showFeedback(`入账失败：${err?.message || String(err)}`, true);
+      } finally {
+        busy = false;
+      }
+      return;
+    }
+    const discardBtn = event.target.closest('[data-discard-draft]');
+    if (discardBtn) {
+      const id = discardBtn.dataset.discardDraft;
+      busy = true;
+      discardBtn.disabled = true;
+      try {
+        const resp = await fetchFn(`/api/import-inbox/drafts/${encodeURIComponent(id)}/discard`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data?.detail?.message || `HTTP ${resp.status}`);
+        showFeedback(`已忽略草稿：${data.filename || id}（后续自动拉取将跳过此文件）`);
+        await refresh();
+      } catch (err) {
+        showFeedback(`忽略失败：${err?.message || String(err)}`, true);
+      } finally {
+        busy = false;
+      }
+    }
+  }
+
   fileInput?.addEventListener('change', onFilesSelected);
   emailBtn?.addEventListener('click', onPullEmail);
   scanBtn?.addEventListener('click', onScanLocal);
+  draftListEl?.addEventListener('click', onDraftListClick);
   yieldForm?.addEventListener('submit', onYieldSubmit);
   void refresh();
 
@@ -216,6 +291,7 @@ export function mountImportInbox(container, { get, win }) {
       fileInput?.removeEventListener('change', onFilesSelected);
       emailBtn?.removeEventListener('click', onPullEmail);
       scanBtn?.removeEventListener('click', onScanLocal);
+      draftListEl?.removeEventListener('click', onDraftListClick);
       yieldForm?.removeEventListener('submit', onYieldSubmit);
     },
   };
