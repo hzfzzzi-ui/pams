@@ -196,28 +196,21 @@ function compactAdjustment(text, tone) {
   return '降低暴露';
 }
 
-function ruleBlock(item, category, isPassed) {
+function ruleBlock(item, category) {
   const rule = item.rule || {};
   const tone = item.tone || 'info';
   const linked = rule.linked_config_rule || category?.name || '风险披露';
   const chips = thresholdChipData(item);
   const action = compactAdjustment(rule.adjustment_direction, tone);
-  const actionLabel = tone === 'ok' ? '状态' : tone === 'risk' ? '动作' : '提示';
+  const actionLabel = tone === 'ok' ? '状态' : tone === 'risk' ? '建议' : '提示';
   return `
     <div class="portfolioRiskCompactRule">
-      <div class="portfolioRiskRuleStrip">
-        <span class="portfolioRiskRuleChip current ${esc(tone)}">
-          <em>当前</em><b>${esc(item.weight_label || '--')}</b><i>${esc(toneLabel(tone))}</i>
-        </span>
-        ${chips.map((chip) => `
-          <span class="portfolioRiskRuleChip ${esc(chip.tone)}">
-            <em>${esc(chip.label)}</em><b>${esc(chip.value)}</b>
-          </span>
-        `).join('')}
+      <div class="portfolioRiskThresholdLine">
+        ${chips.map((chip) => `<span class="is-${esc(chip.tone)}">${esc(chip.label)} <b>${esc(chip.value)}</b></span>`).join('<i aria-hidden="true">·</i>')}
       </div>
       <div class="portfolioRiskRuleMeta">
-        <span><em>配置</em><b>${esc(linked)}</b></span>
-        <span class="${esc(itemState(tone))}"><em>${esc(actionLabel)}</em><b>${esc(action)}</b></span>
+        <span>配置 <b>${esc(linked)}</b></span>
+        <span class="${esc(itemState(tone))}">${esc(actionLabel)} <b>${esc(action)}</b></span>
       </div>
     </div>
   `;
@@ -225,23 +218,22 @@ function ruleBlock(item, category, isPassed) {
 
 function inlineChecklistItem(item, category) {
   const tone = item.tone || 'info';
-  const isPassed = tone === 'ok';
   const state = itemState(tone);
   const formula = ruleFormula(item);
   return `
     <section class="portfolioRiskInlineItem ${state}">
-      <div class="portfolioRiskInlineBadge">${esc(itemStatusLabel(tone))}</div>
-      <div class="portfolioRiskInlineMain">
-        <div class="portfolioRiskInlineTop">
-          <div class="portfolioRiskInlineName">
-            <strong>${esc(item.name || '--')}</strong>
-            <small title="${esc(formula)}">${esc(formula)}</small>
-          </div>
-          <span>${esc(item.weight_label || '--')}</span>
+      <div class="portfolioRiskInlineTop">
+        <div class="portfolioRiskInlineName">
+          <strong>${esc(item.name || '--')}</strong>
+          <small title="${esc(formula)}">${esc(formula)}</small>
         </div>
-        ${ruleBlock(item, category, isPassed)}
-        ${sourceChips(item.sources || [])}
+        <div class="portfolioRiskInlineVal">
+          <span>${esc(item.weight_label || '--')}</span>
+          <em class="portfolioRiskInlineBadge ${esc(tone)}">${esc(itemStatusLabel(tone))}</em>
+        </div>
       </div>
+      ${ruleBlock(item, category)}
+      ${sourceChips(item.sources || [])}
     </section>
   `;
 }
