@@ -165,6 +165,33 @@ function bindEvents() {
     if (event.target?.closest?.('#btnReload')) {loadLedger().catch(showError); return;}
     if (event.target?.closest?.('#btnReset')) {setDefaultFilters(); loadLedger().catch(showError); return;}
     if (event.target?.closest?.('#btnCreateTrade')) {createTrade(); return;}
+    const copyPrior = event.target?.closest?.('[data-copy-prior-note]');
+    if (copyPrior) {
+      const noteEl = $('reviewNote');
+      if (noteEl) {
+        noteEl.value = copyPrior.dataset.copyPriorNote || '';
+        noteEl.focus();
+      }
+      return;
+    }
+    const modeBtn = event.target?.closest?.('[data-trade-view-mode]');
+    if (modeBtn) {
+      const nextMode = modeBtn.dataset.tradeViewMode === 'campaigns' ? 'campaigns' : 'list';
+      if (state.viewMode !== nextMode) {
+        state.viewMode = nextMode;
+        renderTransactionSummary(state.summary, state.rows);
+        if (nextMode === 'campaigns' && !state.campaignList) {
+          reads.get('campaign-list', '/api/investment-transactions/campaigns?limit=40', { cache: false })
+            .then(data => {
+              if (!scope.alive) return;
+              state.campaignList = data;
+              if (state.viewMode === 'campaigns') renderTransactionSummary(state.summary, state.rows);
+            })
+            .catch(showError);
+        }
+      }
+      return;
+    }
     const autoTagButton = event.target?.closest?.('[data-auto-tag]');
     if (autoTagButton) {
       event.preventDefault();

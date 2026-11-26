@@ -166,6 +166,68 @@ function renderSummary(summary) {
   if ($('ledgerMeta')) $('ledgerMeta').textContent = (summary?.sources || []).map(sourceLabel).join(' / ') || '--';
 }
 
+function renderCampaignTimelineView() {
+  const payload = state.campaignList;
+  if (!payload) return '<div class="emptyState">正在整理标的战役时间线…</div>';
+  const revisit = payload.revisit_due || [];
+  const campaigns = payload.campaigns || [];
+  const revisitHtml = revisit.length
+    ? `<div class="tradeRevisitStrip">
+        <div class="tradeRevisitHead"><strong>到期回看 / 待补逻辑</strong><span>${revisit.length} 项</span></div>
+        <div class="tradeRevisitChips">
+          ${revisit.slice(0, 8).map(item => `
+            <button type="button" class="tradeRevisitChip" data-trade-review="${escapeHtml(String(item.latest_trade_id || ''))}" ${item.latest_trade_id ? '' : 'disabled'}>
+              <strong>${escapeHtml(item.name || item.symbol || '--')}</strong>
+              <em>${escapeHtml(item.milestone || '待复盘')}</em>
+            </button>
+          `).join('')}
+        </div>
+      </div>`
+    : '';
+  const cardsHtml = campaigns.length
+    ? campaigns.map(c => {
+        const events = c.events || c.trades || [];
+        const statusText = c.status === 'closed' ? '已清仓' : '持仓中';
+        const pnl = c.realized_pnl_cny;
+        const pnlHtml = pnl != null
+          ? `<span class="tradeCampaignPnl ${Number(pnl) >= 0 ? 'up' : 'down'}">已实现 ${escapeHtml(formatCurrency(pnl))}</span>`
+          : '';
+        const dateSpan = [c.opened_date || c.start_date, c.closed_date || c.end_date || '至今'].filter(Boolean).join(' → ');
+        const nodes = events.map(ev => {
+          const isBuy = String(ev.side || ev.trade_type || '').toLowerCase() === 'buy';
+          const badge = isBuy ? '买' : String(ev.side || ev.trade_type || '').toLowerCase() === 'sell' ? '卖' : '息';
+          const note = ev.review_note || ev.buy_reason || ev.sell_reason || '';
+          return `
+            <button type="button" class="tradeCampaignNode" data-trade-review="${escapeHtml(String(ev.trade_id || ''))}">
+              <i class="tradeCampaignDot ${isBuy ? 'is-buy' : 'is-sell'}">${badge}</i>
+              <div class="tradeCampaignNodeMain">
+                <div class="tradeCampaignNodeTop">
+                  <span>${escapeHtml(ev.trade_date || '')}</span>
+                  <strong>${escapeHtml(ev.gross_amount == null ? '—' : money(ev.gross_amount, ev.currency || 'CNY'))}</strong>
+                </div>
+                <small class="${note ? '' : 'is-missing'}">${escapeHtml(note || '点击补一句当时理由 ›')}</small>
+              </div>
+            </button>`;
+        }).join('');
+        return `
+          <details class="tradeCampaignCard" ${c.status !== 'closed' ? '' : ''}>
+            <summary class="tradeCampaignHead">
+              <div class="tradeCampaignTitle">
+                <strong>${escapeHtml(c.name || c.symbol || '--')}</strong>
+                <small>${escapeHtml([c.symbol, accountLabel(c.account_code), `${events.length} 笔`, dateSpan].filter(Boolean).join(' · '))}</small>
+              </div>
+              <div class="tradeCampaignRight">
+                <span class="tradeCampaignStatus ${c.status === 'closed' ? 'is-closed' : 'is-open'}">${statusText}</span>
+                ${pnlHtml}
+              </div>
+            </summary>
+            <div class="tradeCampaignTimeline">${nodes || '<div class="emptyState">暂无成交节点</div>'}</div>
+          </details>`;
+      }).join('')
+    : '<div class="emptyState">当前条件下暂无投资战役。</div>';
+  return revisitHtml + `<div class="tradeCampaignList">${cardsHtml}</div>`;
+}
+
 function TransactionSummaryPanel(summary, rows) {
   const amountText = (key, includeCoverage = true, includeKnown = true) => {
     const partial = summary?.amount_coverage?.[key];
@@ -224,7 +286,10 @@ function TransactionSummaryPanel(summary, rows) {
     </div>
     <div class="recentTradePanel">
       <div class="sectionTitle">
-        <h3>交易明细</h3>
+        <div class="tradeViewSwitch" role="tablist" aria-label="交易视图切换">
+          <button type="button" role="tab" class="${state.viewMode !== 'campaigns' ? 'active' : ''}" data-trade-view-mode="list">交易明细</button>
+          <button type="button" role="tab" class="${state.viewMode === 'campaigns' ? 'active' : ''}" data-trade-view-mode="campaigns">战役复盘</button>
+        </div>
         <div class="tradeListActions">
           <button id="btnOpenTradeForm" class="btn primary" type="button">手动录入</button>
           <button id="btnToggleTradeFilters" class="btn iconBtn tradeFilterToggle${filterActive ? ' active' : ''}" type="button" aria-label="筛选" aria-controls="tradeFilterPanel" aria-expanded="false" title="筛选">
@@ -234,6 +299,7 @@ function TransactionSummaryPanel(summary, rows) {
           </button>
         </div>
       </div>
+      ${state.viewMode === 'campaigns' ? renderCampaignTimelineView() : `
       <div class="muted">数据来源：${escapeHtml(sourceText)}</div>
       <div class="recentTradeList">
         ${visibleRows.length ? renderLedgerDays(visibleRows, r => r.trade_date || '', (r, index) => {
@@ -259,6 +325,7 @@ function TransactionSummaryPanel(summary, rows) {
           ${state.showAll ? '收起' : `展开更多（剩余 ${hiddenCount} 单）`}
         </button>
       ` : ''}
+      `}
     </div>
   `;
 }
