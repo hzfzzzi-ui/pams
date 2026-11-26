@@ -28,12 +28,17 @@ def _original_rows(content, file_format):
         # Compare complete source rows when proving a duplicate across exports.
         reference = (stable_reference(raw.get('定位串')) or stable_reference(raw.get('成交编号')))
         try:
-            balance = Decimal(raw['本次金额'])
             amount = Decimal(raw['发生金额'])
         except (KeyError, InvalidOperation):
-            balance = amount = None
-        if balance is not None and (not balance.is_finite() or not amount.is_finite()):
-            balance = amount = None
+            amount = None
+        try:
+            balance = Decimal(raw['本次金额'])
+        except (KeyError, InvalidOperation):
+            balance = None
+        if amount is not None and not amount.is_finite():
+            amount = None
+        if balance is not None and (not balance.is_finite() or amount is None):
+            balance = None
         yield number, (day, amount, balance, reference, raw)
 
 
@@ -165,10 +170,36 @@ def _reconciled_day_cash(activity, opening_cash):
     return closing_cash if any(event['broker_cash'] == closing_cash for event in activity) else None
 
 
+def _roll_forward_verified_cash(cur, *, account_code, after_day, through_day, opening_cash):
+    """Roll forward broker cash across verified CNY trade facts when a broker export omits 本次金额."""
+    facts = load_trade_rows(cur, account_code=account_code, start=after_day + timedelta(days=1), end=through_day)
+    if not facts:
+        return None
+    cash = opening_cash
+    last_day = after_day
+    for fact in facts:
+        if (fact.get('source_evidence_status') != 'verified'
+                or fact.get('currency') != 'CNY'
+                or fact.get('trade_type') not in SECURITY_ACTIONS | CASH_ACTIONS
+                or fact.get('net_cash') is None):
+            return None
+        cash += fact['net_cash']
+        if fact['trade_date'] > last_day:
+            last_day = fact['trade_date']
+    if cash < 0:
+        return None
+    return (last_day, cash)
+
+
 def read_reconciled_cash(cur, *, as_of, account_code='tonghuashun'):
-    """Return the last original-backed cash balance on or before the valuation day."""
+    """Return the last original-backed cash balance on or before the valuation day.
+
+    When newer verified CNY trade facts (e.g. from Tonghuashun 历史成交 without a 本次金额 column)
+    occur after the last balance-backed anchor, roll forward net_cash from that anchor as long as
+    every subsequent trade fact is verified and resulting cash stays non-negative.
+    """
     events, gap = _read_event_prefix(cur, account_code)
-    if not events or (gap is not None and gap <= as_of):
+    if not events:
         return None
     cash = events[0]['broker_cash'] - events[0]['net_cash']
     observed = None
@@ -182,7 +213,17 @@ def read_reconciled_cash(cur, *, as_of, account_code='tonghuashun'):
         if cash is None:
             return None
         observed = day
-    return (observed, cash) if observed is not None else None
+    if observed is None:
+        return None
+    if gap is not None and gap <= as_of:
+        return _roll_forward_verified_cash(
+            cur,
+            account_code=account_code,
+            after_day=observed,
+            through_day=as_of,
+            opening_cash=cash,
+        )
+    return (observed, cash)
 
 
 def daily_estimates(events, prices, dates, symbols, *, require_new_mark_after_ledger=False):
