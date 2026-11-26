@@ -1985,3 +1985,130 @@ body.page-investments .portfolioRebalanceRow {
   background: rgba(255, 255, 255, 0.025) !important;
   padding: 11px 13px !important;
 }
+
+
+/* ==========================================================================
+   PR #519: Eliminate double card nesting & fix expanded residual row overlaps
+   ========================================================================== */
+body.page-investments .portfolioRiskPanel {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+body.page-investments .portfolioRiskBlock {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+body.page-investments .portfolioRiskBlock + .portfolioRiskBlock {
+  margin-top: 12px !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughQualityDetails {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughQualityDetails > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 4px 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  font-size: 12px;
+}
+body.page-investments #lookthrough-exposure .lookthroughQualityDetails > summary span {
+  color: #a1a1a6;
+}
+body.page-investments #lookthrough-exposure .lookthroughQualityDetails > summary b {
+  color: #3fd47f;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments #lookthrough-exposure .lookthroughQualityDetails > summary em {
+  font-style: normal;
+  color: #f5b942;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssues > summary {
+  padding: 4px 2px !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #e5e5ea;
+}
+body.page-investments #lookthrough-exposure .lookthroughNarrative {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 0 10px !important;
+  margin: 0 0 10px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughNarrative strong {
+  display: inline;
+  font-size: 12px;
+  color: #d8d9de;
+  margin-right: 6px;
+}
+body.page-investments #lookthrough-exposure .lookthroughNarrative span {
+  font-size: 11.5px;
+  color: #8e8e93;
+  line-height: 1.45;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssueRow {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 4px !important;
+  padding: 10px 2px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-bottom: 0 !important;
+  background: transparent !important;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssueHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssueHead strong {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssueAmt {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssueAmt.warn { color: #f5b942; }
+body.page-investments #lookthrough-exposure .lookthroughIssueAmt.ok { color: #3fd47f; }
+body.page-investments #lookthrough-exposure .lookthroughIssueSub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssueSub small {
+  font-size: 11px;
+  color: #8e8e93;
+  font-variant-numeric: tabular-nums;
+}
+body.page-investments #lookthrough-exposure .lookthroughIssueAction {
+  font-size: 11px;
+  color: #62c2ff;
+}

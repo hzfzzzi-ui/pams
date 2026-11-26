@@ -170,19 +170,24 @@ function renderLowConfidenceAssets(items = []) {
     const uncoveredValue = n(item.uncovered_value_cny ?? Math.max(marketValue - coveredValue, 0));
     const uncoveredWeight = n(item.uncovered_weight ?? (state.lookthroughData?.total_market_value_cny ? uncoveredValue / n(state.lookthroughData.total_market_value_cny) : 0));
     const hasResidual = uncoveredValue > 0.005;
+    const rawName = String(item.asset_name || '--').trim();
+    const shortName = rawName.includes(' - ') ? rawName.split(' - ')[0].trim() + ' · ' + rawName.split(' - ').slice(1).join(' - ').trim() : rawName;
+    const qualityTag = QUALITY_LABELS[item.quality_status] || item.quality_status || '待核准';
+    const metaText = hasResidual
+      ? `覆盖 ${fmtPct(coverage)} · 拖累 ${fmtPct(uncoveredWeight)} · 总值 ${fmtMoney(marketValue)}`
+      : `覆盖 ${fmtPct(coverage)} · 总值 ${fmtMoney(marketValue)}`;
+    const hintText = item.suggested_action || '补充穿透数据';
     return `
       <div class="lookthroughIssueRow">
-        <div>
-          <strong>${esc(item.asset_name)}</strong>
-          <small>${esc(item.current_mapping || '待核准')} · ${esc(item.reason || '数据待核准')}</small>
-          <em>${esc(item.suggested_action || '补充数据')}</em>
+        <div class="lookthroughIssueHead">
+          <strong title="${esc(rawName)}">${esc(shortName)}</strong>
+          <span class="lookthroughIssueAmt ${hasResidual ? 'warn' : 'ok'}">${hasResidual ? '未穿透' : '已覆盖'} ${fmtMoney(hasResidual ? uncoveredValue : coveredValue)}</span>
         </div>
-        <div class="lookthroughIssueSide">
-          <span class="${hasResidual ? 'warn' : 'ok'}">${hasResidual ? '未穿透' : '已覆盖'} ${fmtMoney(hasResidual ? uncoveredValue : coveredValue)}</span>
-          <b>${hasResidual ? `覆盖 ${fmtPct(coverage)} · 拖累 ${fmtPct(uncoveredWeight)}` : `覆盖 ${fmtPct(coverage)} · 来源需核准`}</b>
-          <small>${hasResidual ? `已覆盖 ${fmtMoney(coveredValue)} / 总值 ${fmtMoney(marketValue)}` : `未穿透 ${fmtMoney(0)} / 总值 ${fmtMoney(marketValue)}`}</small>
-          <i class="miniBadge ${qualityClass(item.quality_status)}">${esc(QUALITY_LABELS[item.quality_status] || item.quality_status)}</i>
+        <div class="lookthroughIssueSub">
+          <small>${esc(metaText)}</small>
+          <i class="miniBadge ${qualityClass(item.quality_status)}">${esc(qualityTag)}</i>
         </div>
+        <div class="lookthroughIssueAction">${esc(hintText)}</div>
       </div>
     `;
   }).join('');
