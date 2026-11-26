@@ -442,7 +442,7 @@ export function createLedgerTransfers({ state, model, dom, events, reads, curren
         }
       } else if (button.hasAttribute('data-retry-transfers')) {
         load();
-      if (button.hasAttribute('data-confirm-high-conf')) {
+      } else if (button.hasAttribute('data-confirm-high-conf')) {
         if (submitting || !candidates) return;
         const batch = visibleRows(candidates).filter(isHighConfidenceCandidate);
         if (!batch.length) return;
