@@ -86,35 +86,7 @@ def build_networth_and_debts_payload(cur, *, today: date | None = None) -> dict[
     ref_day = today or date.today()
     month_start = date(ref_day.year, ref_day.month, 1)
 
-    # 1. Monthly operating cashflow savings (income - expense)
-    monthly_income = 0.0
-    monthly_expense = 0.0
-    cashflow_count = 0
-    try:
-        cur.execute(
-            """
-            SELECT cashflow_type,
-                   COALESCE(SUM(ABS(COALESCE(amount_cny, amount))), 0) AS total_amt,
-                   COUNT(*) AS cnt
-            FROM pams_cashflow_fact
-            WHERE event_date >= %s AND event_date <= %s
-              AND cashflow_type IN ('operating_income', 'operating_expense')
-            GROUP BY cashflow_type
-            """,
-            (month_start, ref_day),
-        )
-        for row in cur.fetchall():
-            ctype = row["cashflow_type"]
-            amt = float(row["total_amt"] or 0.0)
-            cashflow_count += int(row["cnt"] or 0)
-            if ctype == "operating_income":
-                monthly_income += amt
-            elif ctype == "operating_expense":
-                monthly_expense += amt
-    except Exception:
-        pass
-
-    # 2. Investment net value & financing debts from page projection
+    # 1. Investment net value & financing debts from page projection
     ibkr_debt_cny = 0.0
     esop_debt_cny = 0.0
     inv_net_cny = None
@@ -136,7 +108,7 @@ def build_networth_and_debts_payload(cur, *, today: date | None = None) -> dict[
     except Exception:
         pass
 
-    # Check ESOP loan + credit card liabilities from latest snapshots
+    # 2. Check ESOP loan + credit card liabilities from latest snapshots
     credit_cards: list[dict[str, Any]] = []
     try:
         cur.execute(
@@ -161,6 +133,26 @@ def build_networth_and_debts_payload(cur, *, today: date | None = None) -> dict[
                     "currency": row.get("currency") or "CNY",
                     "balance_cny": val,
                 })
+    except Exception:
+        pass
+
+    # 3. Monthly operating cashflow savings via canonical v2 reader
+    monthly_income = 0.0
+    monthly_expense = 0.0
+    cashflow_count = 0
+    try:
+        from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
+        rows = load_cash_rows(cur, start=month_start, end=ref_day, base_currency="CNY")
+        for row in rows or []:
+            ctype = str(row.get("cashflow_type") or "")
+            if ctype not in {"operating_income", "operating_expense"}:
+                continue
+            amt = abs(float(row.get("amount_cny") if row.get("amount_cny") is not None else (row.get("amount") or 0.0)))
+            cashflow_count += 1
+            if ctype == "operating_income":
+                monthly_income += amt
+            elif ctype == "operating_expense":
+                monthly_expense += amt
     except Exception:
         pass
 

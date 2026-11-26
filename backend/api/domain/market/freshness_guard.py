@@ -141,11 +141,11 @@ def build_holdings_freshness_and_projection(cur, *, today: date | None = None) -
         max_snap_date = max(r["as_of"] for r in snap_rows if r.get("as_of"))
         cur.execute(
             """
-            SELECT symbol, asset_name, side, quantity, trade_date
+            SELECT symbol, name, side, quantity, trade_date
             FROM pams_investment_trade_fact
             WHERE account_code = 'tonghuashun'
               AND trade_date > %s
-              AND lower(side) IN ('buy', 'sell')
+              AND lower(COALESCE(side, trade_type, '')) IN ('buy', 'sell')
               AND quantity IS NOT NULL
             ORDER BY trade_date ASC
             """,
