@@ -148,6 +148,9 @@ function renderInstitutionPicker(panel, groups, renderEntry, targetAccount, pref
 }
 
 function freshnessInfo(data = {}) {
+  const tier = data.maintenance_tier || 'monthly';
+  if (tier === 'none') return null;
+  if (tier === 'event') return { label: '按变动更新', tone: 'fresh' };
   const candidates = [
     data.valuation_updated_at,
     data.last_synced_at,
@@ -165,9 +168,11 @@ function freshnessInfo(data = {}) {
   }
   if (latestMs === null) return { label: '未同步', tone: 'stale' };
   const days = Math.max(0, Math.floor((Date.now() - latestMs) / 86400000));
+  const freshLimit = tier === 'quarterly' ? 90 : 7;
+  const warnLimit = tier === 'quarterly' ? 180 : 30;
   if (days === 0) return { label: '今日', tone: 'fresh' };
-  if (days <= 7) return { label: `${days}天前`, tone: 'fresh' };
-  if (days <= 30) return { label: `${days}天前`, tone: 'warn' };
+  if (days <= freshLimit) return { label: `${days}天前`, tone: 'fresh' };
+  if (days <= warnLimit) return { label: `${days}天前`, tone: 'warn' };
   return { label: `${days}天前`, tone: 'stale' };
 }
 
@@ -184,12 +189,16 @@ function recentSixMonths() {
 }
 
 function buildCoverageMatrix(doc, groups) {
-  const activeRows = groups.flatMap(g => g.rows).filter(r => r.active !== false);
+  const activeRows = groups.flatMap(g => g.rows).filter(r => {
+    if (r.active === false) return false;
+    const tier = r.maintenance_tier || r.summary?.maintenance_tier || 'monthly';
+    return tier === 'monthly' || tier === 'auto';
+  });
   if (!activeRows.length) return null;
   const months = recentSixMonths();
   const details = element(doc, 'details');
   details.className = 'accountCoverageMatrix';
-  const summary = element(doc, 'summary', '近 6 个月数据覆盖');
+  const summary = element(doc, 'summary', '近 6 个月核心账户覆盖');
   const gapCount = activeRows.reduce((acc, row) => {
     const set = new Set(row.summary?.covered_months || []);
     return acc + months.filter(m => !set.has(m.key)).length;
@@ -264,9 +273,11 @@ export function renderAccountSync(panel, groups, loadAnomalies, { compact = fals
     name.append(title, badge);
     if (status !== 'inactive') {
       const fresh = freshnessInfo(data);
-      const freshBadge = make('span', fresh.label);
-      freshBadge.className = `accountFreshnessBadge is-${fresh.tone}`;
-      name.append(freshBadge);
+      if (fresh) {
+        const freshBadge = make('span', fresh.label);
+        freshBadge.className = `accountFreshnessBadge is-${fresh.tone}`;
+        name.append(freshBadge);
+      }
     }
     const amount = data.balance_amount;
     const balance = make('span', amount == null ? '—' :

@@ -17,6 +17,7 @@ from domain.accounts.balances.position_reference import historical_position_refe
 from domain.accounts.balances.recorded_positions import recorded_components
 from domain.imports.account_import.account_import_statement import profiles as statement_profiles
 from domain.imports.account_import.account_import_store import supported_import_modes
+from domain.imports.account_import.inbox_router import account_maintenance_tier
 from domain.imports.sources.source_original_read import SourceOriginals
 from domain.investments.holdings.account_snapshot_evidence import _complete_member_proven
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
@@ -288,9 +289,11 @@ def read_account_sync(cur, config):
     for code, cfg in accounts.items():
         parent, group_label, label = account_display(config, code, code)
         group = groups.setdefault(parent, {'code': parent, 'label': group_label or parent, 'rows': []})
+        tier = account_maintenance_tier(code, cfg)
         row = {
             'account_code': code, 'label': label, 'account_type': cfg.get('account_type'),
             'currency': cfg.get('base_currency', 'CNY'), 'active': code in active,
+            'maintenance_tier': tier,
             'can_import': bool(code in active and registered.get(code) and supported_import_modes(code, import_statement_accounts)),
             'show_investment': cfg.get('account_type') in {'brokerage', 'fund_platform', 'cash_management'} or bool(trades.get(code)),
             'cashflow': _activity(flows[code], 'transaction_date'),
@@ -300,6 +303,7 @@ def read_account_sync(cur, config):
         }
         row['summary'] = _compact_summary(row, published_at.get(code), liability=cfg.get('account_type') == 'liability',
                                           now=now, source_balance=source_balances.get(code))
+        row['summary']['maintenance_tier'] = tier
         if row['active'] and row['summary']['balance_amount'] is None:
             balance = _position_balance_summary(cur, config, code, cfg, now.date())
             if balance is None:
