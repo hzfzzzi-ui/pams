@@ -92,7 +92,89 @@ function dashboardSeverity(dashboard) {
   };
 }
 
-function dashboardView(payload) {
+function fmtWan(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  const sign = num < 0 ? '-' : '';
+  const abs = Math.abs(num);
+  if (abs >= 10000) return `${sign}¥${(abs / 10000).toFixed(1)}万`;
+  return `${sign}¥${Math.round(abs).toLocaleString('zh-CN')}`;
+}
+
+function fmtPct1(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  return `${(num * 100).toFixed(1)}%`;
+}
+
+function diagnosisSectionHtml(diagnosis, scope = 'all') {
+  if (!diagnosis) return '';
+  const activeScope = scope === 'ex_esop' && diagnosis.has_esop ? 'ex_esop' : 'all';
+  const d = diagnosis[activeScope] || diagnosis.all;
+  if (!d) return '';
+  const liq = d.liquidity || {};
+  const stress = d.stress || {};
+  const eq20 = stress.equity_drop_20 || {};
+  const fx5 = stress.fx_drop_5 || {};
+  const levText = d.leverage_ratio > 0 ? `${Number(d.leverage_ratio).toFixed(2)}x` : '1.00x';
+  const levSub = activeScope === 'all' && d.ibkr_leverage
+    ? `盈透 ${Number(d.ibkr_leverage).toFixed(2)}x`
+    : `净资产 ${fmtWan(d.net_value_cny)}`;
+  const debtSub = d.total_debt_cny > 0
+    ? `约 ${fmtWan(d.estimated_monthly_interest_cny)}/月 · 负债 ${fmtWan(d.total_debt_cny)}`
+    : '当前无显著融资负债';
+  const liqSub = activeScope === 'all'
+    ? `T+1 ${fmtPct1(liq.mid_pct)} · 锁定 ${fmtPct1(liq.locked_pct)}`
+    : `T+1/基金 ${fmtPct1(liq.mid_pct)} · 无锁定`;
+  return `
+    <div class="riskDiagnosisWrap">
+      ${diagnosis.has_esop ? `
+        <div class="riskScopeRow">
+          <div class="riskScopeSwitch" role="tablist" aria-label="风控统计口径">
+            <button type="button" role="tab" class="${activeScope === 'all' ? 'active' : ''}" aria-selected="${activeScope === 'all'}" data-risk-scope="all">全口径</button>
+            <button type="button" role="tab" class="${activeScope === 'ex_esop' ? 'active' : ''}" aria-selected="${activeScope === 'ex_esop'}" data-risk-scope="ex_esop">剔除 ESOP</button>
+          </div>
+          <span class="riskScopeMeta">${activeScope === 'ex_esop' ? `可交易净值 ${fmtWan(d.net_value_cny)}` : `ESOP ${fmtWan(diagnosis.esop_value_cny)}`}</span>
+        </div>
+      ` : ''}
+      <div class="riskDiagnosisGrid">
+        <div class="riskDiagnosisTile">
+          <span>${activeScope === 'ex_esop' ? '二级市场杠杆' : '组合总杠杆'}</span>
+          <strong class="${d.leverage_ratio >= 1.5 ? 'is-warn' : ''}">${esc(levText)}</strong>
+          <small>${esc(levSub)}</small>
+        </div>
+        <div class="riskDiagnosisTile">
+          <span>融资年息（估）</span>
+          <strong class="${d.estimated_annual_interest_cny >= 10000 ? 'is-warn' : ''}">${esc(fmtWan(d.estimated_annual_interest_cny))}</strong>
+          <small>${esc(debtSub)}</small>
+        </div>
+        <div class="riskDiagnosisTile">
+          <span>高流动性占比</span>
+          <strong>${esc(fmtPct1(liq.high_pct))}</strong>
+          <small>${esc(liqSub)}</small>
+        </div>
+        <div class="riskDiagnosisTile">
+          <span>最大单一标的</span>
+          <strong class="${d.top1_pct >= 0.3 ? 'is-risk' : d.top1_pct >= 0.15 ? 'is-warn' : ''}">${esc(fmtPct1(d.top1_pct))}</strong>
+          <small title="${esc(d.top1_name || '')}">${esc(cleanAssetName(d.top1_name))}</small>
+        </div>
+      </div>
+      <div class="riskStressStrip">
+        <div class="riskStressRow">
+          <span>${esc(eq20.label || '权益/科技 -20%')}</span>
+          <strong class="is-risk">${esc(fmtWan(eq20.impact_cny))} <em>(${esc(fmtPct1(eq20.impact_nav_pct))} 净值)</em></strong>
+        </div>
+        <div class="riskStressRow">
+          <span>${esc(fx5.label || '外币汇率 -5%')}</span>
+          <strong class="is-warn">${esc(fmtWan(fx5.impact_cny))} <em>(${esc(fmtPct1(fx5.impact_nav_pct))} 净值)</em></strong>
+        </div>
+      </div>
+      <div class="riskDiagnosisNote">${esc(d.interest_note || '')}</div>
+    </div>
+  `;
+}
+
+function dashboardView(payload, scope = 'all') {
   const dashboard = payload?.dashboard || {};
   const tone = dashboard.status_tone || 'info';
   const severity = dashboardSeverity(dashboard);
@@ -104,38 +186,41 @@ function dashboardView(payload) {
 
   return `
     <section class="portfolioRiskDashboard ${esc(tone)}">
-      <div class="portfolioRiskRingWrap" aria-label="风险评分 ${esc(severity.scoreLabel)}${esc(severity.maxScoreLabel)}">
-        <svg class="portfolioRiskRing" viewBox="0 0 92 92" aria-hidden="true">
-          <circle class="portfolioRiskRingTrack" cx="46" cy="46" r="${radius}" />
-          <circle
-            class="portfolioRiskRingArc ${esc(tone)}"
-            cx="46"
-            cy="46"
-            r="${radius}"
-            stroke-dasharray="${circumference.toFixed(2)}"
-            stroke-dashoffset="${dashOffset}"
-          />
-        </svg>
-        <div class="portfolioRiskRingCenter">
-          <strong>${esc(severity.scoreLabel)}</strong>
-          <span>${esc(severity.maxScoreLabel)}</span>
-        </div>
-      </div>
-      <div class="portfolioRiskDashboardBody">
-        <div class="portfolioRiskDashboardTop">
-          <div class="portfolioRiskStatusLine">
-            <span class="portfolioRiskStatusDot ${esc(tone)}" aria-hidden="true"></span>
-            <strong>${esc(dashboard.status_label || toneLabel(tone))}</strong>
-            <small>综合风险评分</small>
+      <div class="portfolioRiskDashboardMain">
+        <div class="portfolioRiskRingWrap" aria-label="风险评分 ${esc(severity.scoreLabel)}${esc(severity.maxScoreLabel)}">
+          <svg class="portfolioRiskRing" viewBox="0 0 92 92" aria-hidden="true">
+            <circle class="portfolioRiskRingTrack" cx="46" cy="46" r="${radius}" />
+            <circle
+              class="portfolioRiskRingArc ${esc(tone)}"
+              cx="46"
+              cy="46"
+              r="${radius}"
+              stroke-dasharray="${circumference.toFixed(2)}"
+              stroke-dashoffset="${dashOffset}"
+            />
+          </svg>
+          <div class="portfolioRiskRingCenter">
+            <strong>${esc(severity.scoreLabel)}</strong>
+            <span>${esc(severity.maxScoreLabel)}</span>
           </div>
         </div>
-        <div class="portfolioRiskDashboardStats">
-          <span class="risk"><em>高风险</em><b>${esc(counts.risk)}</b></span>
-          <span class="warn"><em>偏高</em><b>${esc(counts.warn)}</b></span>
-          <span class="info"><em>观察</em><b>${esc(counts.info)}</b></span>
-          <span class="ok"><em>正常</em><b>${esc(counts.ok)}</b></span>
+        <div class="portfolioRiskDashboardBody">
+          <div class="portfolioRiskDashboardTop">
+            <div class="portfolioRiskStatusLine">
+              <span class="portfolioRiskStatusDot ${esc(tone)}" aria-hidden="true"></span>
+              <strong>${esc(dashboard.status_label || toneLabel(tone))}</strong>
+              <small>综合风险评分</small>
+            </div>
+          </div>
+          <div class="portfolioRiskDashboardStats">
+            <span class="risk"><em>高风险</em><b>${esc(counts.risk)}</b></span>
+            <span class="warn"><em>偏高</em><b>${esc(counts.warn)}</b></span>
+            <span class="info"><em>观察</em><b>${esc(counts.info)}</b></span>
+            <span class="ok"><em>正常</em><b>${esc(counts.ok)}</b></span>
+          </div>
         </div>
       </div>
+      ${diagnosisSectionHtml(payload?.diagnosis, scope)}
     </section>
   `;
 }

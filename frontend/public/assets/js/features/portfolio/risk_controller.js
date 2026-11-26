@@ -9,10 +9,16 @@ export function mount(root, context = {}) {
   if (mounted.has(root)) return mounted.get(root);
   const win = root.ownerDocument.defaultView;
   const state = {
+    payload: null,
+    scope: context.state?.scope || 'all',
     currentCategories: [],
     expandedRiskCategoryId: context.state?.expandedRiskCategoryId ?? null,
   };
   const byId = id => root.querySelector(`[id="${id}"]`);
+  const renderDashboard = () => {
+    const dashboard = byId('portfolioRiskDashboard');
+    if (dashboard && state.payload) dashboard.innerHTML = dashboardView(state.payload, state.scope);
+  };
   const renderCategories = () => {
     const node = byId('portfolioRiskCategories');
     if (node) node.innerHTML = riskCategoriesHtml(state.currentCategories, state.expandedRiskCategoryId);
@@ -21,12 +27,12 @@ export function mount(root, context = {}) {
     win, tab: 'risk', afterStartup: context.afterStartup || (task => task()),
     read: signal => loadRiskDisclosure(context.get, signal, context.loadPanels),
     apply(payload) {
+      state.payload = payload;
       state.currentCategories = payload?.categories || [];
       if (!state.currentCategories.some(row => row.id === state.expandedRiskCategoryId)) state.expandedRiskCategoryId = null;
       const asOf = byId('portfolioRiskAsOf');
-      const dashboard = byId('portfolioRiskDashboard');
       if (asOf) asOf.textContent = payload?.as_of || '--';
-      if (dashboard) dashboard.innerHTML = dashboardView(payload);
+      renderDashboard();
       renderCategories();
     },
     onError(error) {
@@ -51,6 +57,16 @@ export function mount(root, context = {}) {
   const heading = root.querySelector('[data-risk-checklist-title]');
   if (heading) heading.textContent = '风险检查清单';
   root.addEventListener('click', event => {
+    const scopeBtn = event.target?.closest?.('[data-risk-scope]');
+    if (scopeBtn && root.contains(scopeBtn)) {
+      const nextScope = scopeBtn.dataset.riskScope === 'ex_esop' ? 'ex_esop' : 'all';
+      if (state.scope !== nextScope) {
+        state.scope = nextScope;
+        renderDashboard();
+        win.dispatchEvent(new win.CustomEvent('pams:risk-scope-change', { detail: { scope: nextScope } }));
+      }
+      return;
+    }
     const button = event.target?.closest?.('[data-risk-category]');
     if (!button || !root.contains(button)) return;
     const categoryId = button.dataset.riskCategory;

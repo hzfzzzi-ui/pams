@@ -26,6 +26,7 @@ export function snapshotAnalysisViewState(state) {
 export function createAnalysisState(host, viewState) {
   const state = {
     activeDimension: safeStorageGet(host, 'pams.lookthrough.dimension') || 'asset_type',
+    riskScope: 'all',
     activeThemeFamily: '全部', underlyingSort: 'value', lookthroughData: null,
     activeReturnAttributionDimension: safeStorageGet(host, 'pams.returnAttribution.dimension') || 'holding',
     returnAttributionShowAll: false, returnAttributionData: null,

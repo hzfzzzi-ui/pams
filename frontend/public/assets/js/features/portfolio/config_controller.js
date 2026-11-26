@@ -1,4 +1,4 @@
-import {configModelFromPayload, renderRuleGroups, rebalanceHtml, rebalanceDetailHtml, configErrorHtml} from './config_view.js';
+import {configModelFromPayload, renderRuleGroups, incrementalRebalanceHtml, rebalanceHtml, rebalanceDetailHtml, configErrorHtml} from './config_view.js';
 import {loadPortfolioConfig} from './requests.js';
 import {createReadSession} from './read_session.js';
 
@@ -15,14 +15,21 @@ export function mount(root, context = {}) {
     ...configModelFromPayload(null),
     expandedRuleIds: new Set(context.state?.expandedRuleIds || []),
     expandedSubRuleIds: new Set(context.state?.expandedSubRuleIds || []),
+    incAmount: null,
+    incPayDebtFirst: undefined,
   };
   const byId = id => root.querySelector(`[id="${id}"]`);
+  const renderIncremental = () => {
+    const calc = byId('portfolioIncrementalRebalance');
+    if (calc) calc.innerHTML = incrementalRebalanceHtml(state.incrementalMeta, { amount: state.incAmount, payDebtFirst: state.incPayDebtFirst });
+  };
   const render = () => {
     const asOf = byId('portfolioConfigAsOf');
     const rules = byId('portfolioConfigRules');
     const queue = byId('portfolioRebalanceQueue');
     if (asOf) asOf.textContent = state.currentAsOf;
     if (rules) rules.innerHTML = renderRuleGroups(state.currentRules, state);
+    renderIncremental();
     if (queue) queue.innerHTML = rebalanceHtml(state.currentRebalance);
   };
   const session = createReadSession({
@@ -47,6 +54,12 @@ export function mount(root, context = {}) {
   };
   mounted.set(root, controller);
   root.addEventListener('click', event => {
+    const presetBtn = event.target?.closest?.('[data-inc-preset]');
+    if (presetBtn && root.contains(presetBtn)) {
+      state.incAmount = Number(presetBtn.dataset.incPreset || 20000);
+      renderIncremental();
+      return;
+    }
     const subRule = event.target?.closest?.('[data-portfolio-subrule]');
     if (subRule && root.contains(subRule)) {
       const id = subRule.dataset.portfolioSubrule;
@@ -75,6 +88,19 @@ export function mount(root, context = {}) {
           releaseDetails = () => {};
         };
       }
+    }
+  }, {signal: session.signal});
+  root.addEventListener('change', event => {
+    const debtToggle = event.target?.closest?.('[data-inc-debt-first]');
+    if (debtToggle && root.contains(debtToggle)) {
+      state.incPayDebtFirst = Boolean(debtToggle.checked);
+      renderIncremental();
+      return;
+    }
+    const amountInput = event.target?.closest?.('[data-inc-amount]');
+    if (amountInput && root.contains(amountInput)) {
+      state.incAmount = Math.max(0, Number(amountInput.value || 0));
+      renderIncremental();
     }
   }, {signal: session.signal});
   win.addEventListener('pagehide', controller.dispose, {once: true, signal: session.signal});

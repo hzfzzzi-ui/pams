@@ -28,10 +28,27 @@ function renderTabs() {
   `).join('');
 }
 
+function scopedRows(rows) {
+  if (state.riskScope !== 'ex_esop' || !Array.isArray(rows) || !rows.length) return rows;
+  if (state.activeDimension === 'asset_type') {
+    const filtered = rows.filter(r => String(r?.name || '') !== '非上市股权');
+    const sum = filtered.reduce((acc, r) => acc + Math.max(n(r?.value_cny), 0), 0);
+    if (sum <= 0) return filtered;
+    return filtered.map(r => ({ ...r, weight: Math.max(n(r?.value_cny), 0) / sum }));
+  }
+  if (state.activeDimension === 'underlying_exposure') {
+    const filtered = rows.filter(r => String(r?.asset_type || '') !== '非上市股权' && !/esop|内部股份/i.test(String(r?.name || '')));
+    const sum = filtered.reduce((acc, r) => acc + Math.max(n(r?.value_cny), 0), 0);
+    if (sum <= 0) return filtered;
+    return filtered.map(r => ({ ...r, weight: Math.max(n(r?.value_cny), 0) / sum }));
+  }
+  return rows;
+}
+
 function renderExposureRows() {
   const el = getElementById('lookthroughList');
   if (!el) return;
-  const rows = state.lookthroughData?.exposures?.[state.activeDimension] || [];
+  const rows = scopedRows(state.lookthroughData?.exposures?.[state.activeDimension] || []);
   if (!rows.length) {
     el.innerHTML = `${renderDimensionIntro(rows)}<div class="lookthroughEmpty">穿透数据待补充</div>`;
     return;
@@ -48,17 +65,10 @@ function renderExposureRows() {
   el.innerHTML = `${intro}${CHART_DIMENSIONS.has(state.activeDimension) ? renderChartBlock(rows) : renderBarRows(rows)}`;
 }
 
-function renderQuality() {
-  const el = getElementById('lookthroughQuality');
-  const badge = getElementById('lookthroughCoverageBadge');
-  if (!el || !state.lookthroughData) return;
+function qualityDrawerHtml() {
+  if (!state.lookthroughData) return '<div class="lookthroughEmpty">穿透数据加载中</div>';
   const q = state.lookthroughData.quality || {};
   const total = n(state.lookthroughData.total_market_value_cny);
-  const coverage = n(q.coverage_ratio);
-  if (badge) {
-    badge.textContent = `覆盖 ${fmtPct(coverage)}`;
-    badge.className = `miniBadge ${coverage >= 0.7 ? 'data' : 'warn'}`;
-  }
   const segments = q.segments?.length ? q.segments : [
     { label: '已穿透/直接持仓', value_cny: q.full_coverage_value_cny, quality_status: 'FULL' },
     { label: '指数/Top10 代理', value_cny: q.top10_only_value_cny, quality_status: 'INDEX_PROXY' },
@@ -67,27 +77,39 @@ function renderQuality() {
     { label: '过期穿透数据', value_cny: q.stale_value_cny, quality_status: 'STALE' },
   ];
   const issueGroups = splitQualityIssues(q.low_confidence_assets || []);
-  el.innerHTML = `
-    <details class="lookthroughQualityDetails">
-      <summary>
-        <span>穿透质量</span>
-        <b>${fmtMoney(q.covered_value_cny)} 已覆盖</b>
-        <em>${fmtMoney(q.uncovered_value_cny)} 未覆盖</em>
-      </summary>
+  return `
+    <div class="lookthroughQualityDrawer">
+      <div class="lookthroughQualityDrawerHead">
+        <span><b>${fmtMoney(q.covered_value_cny)}</b> 已覆盖</span>
+        <em><b>${fmtMoney(q.uncovered_value_cny)}</b> 未覆盖</em>
+      </div>
       <div class="lookthroughQualitySummary">
         ${segments.map(seg => qualityBucket(seg.label, seg.value_cny, total, seg.quality_status)).join('')}
       </div>
       <div class="lookthroughRuleText">高：直接持仓/完整持仓；中：指数代理或高覆盖 Top10；低：产品标签、覆盖不足、缺失或过期。</div>
-    </details>
-    <details class="lookthroughIssues">
-      <summary>未穿透残差 ${issueGroups.residual.length}</summary>
-      ${renderLowConfidenceAssets(issueGroups.residual)}
-    </details>
-    <details class="lookthroughIssues">
-      <summary>已覆盖但需核准 ${issueGroups.review.length}</summary>
-      ${renderLowConfidenceAssets(issueGroups.review)}
-    </details>
+      <details class="lookthroughIssues" open>
+        <summary>未穿透残差 ${issueGroups.residual.length}</summary>
+        ${renderLowConfidenceAssets(issueGroups.residual)}
+      </details>
+      <details class="lookthroughIssues">
+        <summary>已覆盖但需核准 ${issueGroups.review.length}</summary>
+        ${renderLowConfidenceAssets(issueGroups.review)}
+      </details>
+    </div>
   `;
+}
+
+function renderQuality() {
+  const el = getElementById('lookthroughQuality');
+  const badge = getElementById('lookthroughCoverageBadge');
+  if (!state.lookthroughData) return;
+  const q = state.lookthroughData.quality || {};
+  const coverage = n(q.coverage_ratio);
+  if (badge) {
+    badge.textContent = `覆盖 ${fmtPct(coverage)} ›`;
+    badge.className = `miniBadge ${coverage >= 0.7 ? 'data' : 'warn'} lookthroughQualityBtn`;
+  }
+  if (el) el.innerHTML = '';
 }
 
 function renderReturnAttributionTabs() {
@@ -258,5 +280,5 @@ function renderAssetMaster() {
   `;
 }
 
-  return { renderAnalysisPanelSwitch, renderTabs, renderExposureRows, renderQuality, renderReturnAttributionTabs, renderReturnAttributionSummary, renderReturnAttributionList, renderReturnAttribution, renderLookthrough, renderAssetMaster };
+  return { renderAnalysisPanelSwitch, renderTabs, renderExposureRows, renderQuality, qualityDrawerHtml, renderReturnAttributionTabs, renderReturnAttributionSummary, renderReturnAttributionList, renderReturnAttribution, renderLookthrough, renderAssetMaster };
 }
