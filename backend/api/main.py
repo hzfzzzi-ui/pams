@@ -153,7 +153,7 @@ async def read_response_cache_middleware(request: Request, call_next):
     if method in MUTATING_METHODS:
         response = await call_next(request)
         if response.status_code < 400:
-            _READ_RESPONSE_CACHE.clear()
+            _READ_RESPONSE_CACHE.invalidate_for_mutation(request.url.path, request.url.query)
         return response
     if method == "GET":
         path = request.url.path

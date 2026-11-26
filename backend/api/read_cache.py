@@ -1,18 +1,19 @@
 """Thread-safe short-TTL response cache for heavy read-only GET endpoints.
 
-Any mutating HTTP request (POST/PUT/PATCH/DELETE) clears the cache immediately
-so reads never observe stale data after user edits, imports, or price refreshes.
+Scoped invalidation ensures user writes (imports, ledger edits, transfers,
+reviews, trades) clear all relevant caches immediately, while high-frequency
+scheduler polling (page-projection/refresh and scheduled price ticks) does not
+repeatedly evict closed-month historical reports like /api/assets/monthly-overview.
 """
 from __future__ import annotations
 
 from collections import OrderedDict
 from threading import Lock
 import time
-from typing import Any
 
 
 CACHEABLE_PREFIX_TTLS: tuple[tuple[str, float], ...] = (
-    ("/api/assets/monthly-overview", 300.0),
+    ("/api/assets/monthly-overview", 1800.0),
     ("/api/analysis/performance-summary", 300.0),
     ("/api/analysis/return-attribution", 180.0),
     ("/api/analysis/lookthrough", 180.0),
@@ -26,12 +27,35 @@ CACHEABLE_PREFIX_TTLS: tuple[tuple[str, float], ...] = (
     ("/api/prices/freshness", 60.0),
 )
 
+_MARKET_ONLY_WRITE_PREFIXES: tuple[str, ...] = (
+    "/api/investment/page-projection/refresh",
+    "/api/prices/refresh",
+    "/api/fx-rates/refresh",
+)
+
+_MARKET_DEPENDENT_CACHE_PREFIXES: tuple[str, ...] = (
+    "/api/analysis/",
+    "/api/portfolio/",
+    "/api/prices/freshness",
+    "/api/accounts/networth-and-debts",
+)
+
 
 def ttl_for_path(path: str) -> float | None:
     for prefix, ttl in CACHEABLE_PREFIX_TTLS:
         if path == prefix or path.startswith(prefix + "/"):
             return ttl
     return None
+
+
+def invalidation_scope_for_mutation(path: str, query_string: str = "") -> str:
+    """Return 'none', 'market', or 'all' for a mutating request."""
+    qs = (query_string or "").lower()
+    if path == "/api/investment/page-projection/refresh":
+        return "none"
+    if any(path == p or path.startswith(p + "/") for p in _MARKET_ONLY_WRITE_PREFIXES):
+        return "none" if "scheduled=true" in qs else "market"
+    return "all"
 
 
 class ReadResponseCache:
@@ -74,11 +98,24 @@ class ReadResponseCache:
             while len(self._store) > self._max_entries:
                 self._store.popitem(last=False)
 
-    def clear(self) -> int:
+    def clear(self, *, prefixes: tuple[str, ...] | None = None) -> int:
         with self._lock:
-            count = len(self._store)
-            self._store.clear()
-            return count
+            if not prefixes:
+                count = len(self._store)
+                self._store.clear()
+                return count
+            keys = [k for k in self._store if any(k.startswith(p) for p in prefixes)]
+            for k in keys:
+                self._store.pop(k, None)
+            return len(keys)
+
+    def invalidate_for_mutation(self, path: str, query_string: str = "") -> int:
+        scope = invalidation_scope_for_mutation(path, query_string)
+        if scope == "none":
+            return 0
+        if scope == "market":
+            return self.clear(prefixes=_MARKET_DEPENDENT_CACHE_PREFIXES)
+        return self.clear()
 
     def size(self) -> int:
         with self._lock:
