@@ -297,50 +297,77 @@ def _combine_capital_series(
     # Stop at the earliest terminal date among STILL-OPEN components so an active
     # component ending 1-2 days earlier never causes an artificial PnL cliff, while
     # a permanently closed component (e.g. redeemed wealth product with mv == 0)
-    # carries its realized PnL forward without truncating the portfolio curve.
+    # carries its realized PnL forward as a flat line through the year-end.
     open_ends = [
         max(c.keys()) for c in active
         if (c[max(c.keys())].get("market_value") or ZERO) != ZERO
     ]
-    common_end = min(open_ends) if open_ends else max(max(c.keys()) for c in active)
-    all_days = sorted({d for c in active for d in c.keys() if start <= d <= common_end})
+    common_end = min(open_ends) if open_ends else end
+    all_days = series_dates(start, common_end, "daily")
+
+    # Pre-track each component's ordered days and last positive capital (for flat post-exit return).
+    comp_meta = []
+    for comp in active:
+        ordered = sorted(comp.keys())
+        comp_meta.append({
+            "comp": comp,
+            "first": ordered[0],
+            "last": ordered[-1],
+            "last_seen": None,
+            "last_pos_cap": ZERO,
+        })
 
     rows: list[dict[str, Any]] = []
     prev_mv: Decimal | None = None
     prev_cap: Decimal | None = None
     prev_pnl: Decimal | None = None
+    last_pos_total_cap = ZERO
     twr = ZERO
 
     for day in all_days:
-        # Require every open component that has already started on or before `day` to have a value
-        missing = False
         mv_sum = ZERO
         cap_sum = ZERO
         pnl_sum = ZERO
-        for comp in active:
-            first_d = min(comp.keys())
-            if day < first_d:
+        for meta in comp_meta:
+            comp = meta["comp"]
+            if day < meta["first"]:
+                # Not yet invested: contributes 0 (flat 0% line before first buy)
                 continue
-            last_d = max(comp.keys())
-            if day > last_d:
-                last_item = comp[last_d]
-                if (last_item.get("market_value") or ZERO) == ZERO:
-                    # Closed component: realized PnL remains in cumulative total PnL
-                    pnl_sum += last_item.get("total_pnl") or ZERO
+            if day in comp:
+                item = comp[day]
+                meta["last_seen"] = item
+                item_cap = item.get("cumulative_capital") or ZERO
+                if item_cap > ZERO:
+                    meta["last_pos_cap"] = item_cap
+            else:
+                item = meta["last_seen"]
+                if item is None:
                     continue
-                missing = True
-                break
-            item = comp.get(day)
-            if item is None:
-                missing = True
-                break
-            mv_sum += item["market_value"] or ZERO
-            cap_sum += item["cumulative_capital"] or ZERO
-            pnl_sum += item["total_pnl"] or ZERO
-        if missing:
-            continue
+            item_mv = item.get("market_value") or ZERO
+            item_cap = item.get("cumulative_capital") or ZERO
+            item_pnl = item.get("total_pnl") or ZERO
+            if day > meta["last"] and item_mv == ZERO:
+                # Permanently closed component: carry realized PnL forward flat
+                pnl_sum += item_pnl
+            else:
+                mv_sum += item_mv
+                if item_mv == ZERO and item_cap <= ZERO:
+                    # Closed on or before this day: don't subtract negative cap from other components
+                    pass
+                else:
+                    cap_sum += item_cap
+                pnl_sum += item_pnl
 
-        cap_ret = (pnl_sum / cap_sum) if cap_sum > ZERO else (ZERO if mv_sum == ZERO and pnl_sum == ZERO else None)
+        if cap_sum > ZERO:
+            last_pos_total_cap = cap_sum
+            cap_ret: Decimal | None = pnl_sum / cap_sum
+        elif pnl_sum != ZERO and last_pos_total_cap > ZERO:
+            # Fully liquidated section: hold flat at final realized return rate
+            cap_ret = pnl_sum / last_pos_total_cap
+        else:
+            # Not yet invested: flat 0% line
+            cap_ret = ZERO
+
         daily_twr: Decimal | None = None
         if prev_mv is not None and prev_pnl is not None and prev_cap is not None:
             net_added = max(ZERO, cap_sum - prev_cap)
@@ -349,15 +376,18 @@ def _combine_capital_series(
                 daily_twr = (pnl_sum - prev_pnl) / denom
                 if daily_twr > Decimal("-1"):
                     twr = (ONE + twr) * (ONE + daily_twr) - ONE
-        elif not rows and cap_ret is not None:
+            else:
+                daily_twr = ZERO
+        elif not rows:
             daily_twr = ZERO
             twr = ZERO
 
+        display_cap = cap_sum if cap_sum > ZERO else last_pos_total_cap
         rows.append(
             {
                 "date": day.isoformat(),
                 "market_value": norm(mv_sum),
-                "cumulative_capital": norm(cap_sum),
+                "cumulative_capital": norm(display_cap),
                 "total_pnl": norm(pnl_sum),
                 "return_rate": norm(cap_ret),
                 "display_return_rate": norm(cap_ret),

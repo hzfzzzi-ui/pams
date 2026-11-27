@@ -109,9 +109,17 @@ def test_combine_capital_series_does_not_truncate_on_closed_component():
         [open_stocks, closed_wealth], start=d1, end=d3, section="total", base_currency="CNY", coverage_notes=[]
     )
     assert payload["end"] == "2026-11-24"
-    assert len(payload["rows"]) == 3
+    assert len(payload["rows"]) == (d3 - d1).days + 1
     last = payload["rows"][-1]
     assert Decimal(last["market_value"]) == Decimal("800")
     assert Decimal(last["cumulative_capital"]) == Decimal("1000")
     assert Decimal(last["total_pnl"]) == Decimal("-175")  # -200 + 25 realized wealth gain
     assert abs(Decimal(last["capital_return_rate"]) - Decimal("-0.175")) < Decimal("0.0001")
+
+    # Closed single section stays flat at its realized return rate through end
+    wealth_only = crs._combine_capital_series(
+        [closed_wealth], start=d1, end=d3, section="wealth", base_currency="CNY", coverage_notes=[]
+    )
+    assert wealth_only["end"] == "2026-11-24"
+    assert len(wealth_only["rows"]) == (d3 - d1).days + 1
+    assert abs(Decimal(wealth_only["rows"][-1]["capital_return_rate"]) - Decimal("0.05")) < Decimal("0.0001")

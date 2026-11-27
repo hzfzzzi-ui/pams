@@ -7,7 +7,7 @@ from psycopg2.extras import Json, RealDictCursor
 
 PAGE_START = "2026-01-01"
 _RECHECK_MINUTES = 5
-PROJECTION_SCHEMA_VERSION = "4"
+PROJECTION_SCHEMA_VERSION = "5"
 
 
 def schema_available(cur):
