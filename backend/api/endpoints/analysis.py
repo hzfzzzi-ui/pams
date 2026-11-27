@@ -65,7 +65,7 @@ def return_attribution_summary(baseCurrency: str = Query("CNY")) -> dict[str, An
 def performance_benchmark_summary() -> dict[str, Any]:
     """Return secondary-market benchmark comparison (HS300/QQQ) and Top 3 winners/losers."""
     with get_conn() as conn:
-        conn.set_session(readonly=True)
+        conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             return build_performance_summary_payload(cur)
 
