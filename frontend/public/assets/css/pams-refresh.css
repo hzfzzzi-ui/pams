@@ -671,15 +671,9 @@ body.page-investments #holdingReturnHero {
 
 body.page-investments #holdingReturnHero > small {
   color: #8e8e93;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
 }
 
 body.page-investments #holdingReturnHero > strong {
-  font-size: clamp(28px, 7.6vw, 34px);
-  letter-spacing: -0.02em;
-  line-height: 1.15;
   color: #ffffff;
   margin: 6px 0 18px;
 }
@@ -706,13 +700,10 @@ body.page-investments #holdingReturnHero .returnStats > :nth-child(even) {
 
 body.page-investments #holdingReturnHero .returnStats small {
   color: #8e8e93;
-  font-size: 11.5px;
-  font-weight: 450;
 }
 
 body.page-investments #holdingReturnHero .returnStats strong,
 body.page-investments #holdingReturnHero .returnStats b {
-  font-size: 15px;
   color: #e5e5ea;
   margin-top: 5px;
 }
@@ -3816,9 +3807,6 @@ body.page-investments #mobilePortfolioHero .mobileHeroPrimaryMetric.main {
 }
 body.page-investments #mobilePortfolioHero .mobileHeroPrimaryMetric.main strong {
   margin-top: 6px;
-  font-size: clamp(28px, 7.6vw, 34px) !important;
-  line-height: 1.15;
-  letter-spacing: -.02em;
 }
 body.page-investments #mobilePortfolioHero .mobileHeroPrimaryMetric:not(.main),
 body.page-investments #mobilePortfolioHero .mobileHeroMiniMetric {
@@ -3831,11 +3819,6 @@ body.page-investments #mobilePortfolioHero .mobileHeroMiniMetric:nth-child(even)
 }
 body.page-investments #mobilePortfolioHero :is(.mobileHeroPrimaryMetric, .mobileHeroMiniMetric) > span {
   color: var(--pams-text-muted);
-  font-weight: 450;
-}
-body.page-investments #mobilePortfolioHero .mobileHeroMiniMetric strong {
-  font-size: 15px;
-  line-height: 1.3;
 }
 body.page-investments #mobilePortfolioHero .mobileAccountHeroTop {
   border: 0;
@@ -4435,6 +4418,91 @@ body.page-investments #return-trend .perfLeaderName small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Summary typography follows the five roles in the unfiltered holdings view. */
+body :is(
+  #holdingReturnHero > small,
+  #mobilePortfolioHero .mobileHeroPrimaryMetric.main > span,
+  .returnDetail > small,
+  .hmHero > div:first-child > small,
+  .monthlyHero [data-period],
+  .ledgerMobileLabel,
+  .transactionOverviewHead span,
+  .accountMobileLabel
+) {
+  font: 500 12px/1.5 var(--pams-font-ui) !important;
+  letter-spacing: .02em;
+}
+
+body :is(
+  #holdingReturnHero > strong,
+  #mobilePortfolioHero .mobileHeroPrimaryMetric.main > strong,
+  .returnDetail > strong,
+  .hmHero > div:first-child > strong,
+  .monthlyHero [data-nav],
+  .ledgerMobileValue,
+  .transactionOverviewHead strong,
+  .accountMobileValue
+) {
+  font: 700 clamp(28px, 7.6vw, 34px)/1.15 var(--pams-font-number) !important;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums !important;
+}
+
+body :is(
+  #holdingReturnHero .returnStats small,
+  #mobilePortfolioHero .mobileHeroPrimaryMetric:not(.main) > span,
+  #mobilePortfolioHero .mobileHeroMiniMetric > span,
+  .returnDetail .returnStats small,
+  .hmHero > div + div > small,
+  .hmBreakdown small,
+  .ledgerMobileStat > span,
+  .ledgerTransferSummary span,
+  .transactionOverviewMetrics span,
+  .accountMobileStat > span,
+  .page-accounts .metricPanel > .label,
+  .import-counts dt,
+  .portfolioRiskDashboardStats em
+) {
+  font: 450 11.5px/1.5 var(--pams-font-ui) !important;
+  letter-spacing: normal;
+}
+
+body :is(
+  #holdingReturnHero .returnStats :is(strong, b),
+  #mobilePortfolioHero .mobileHeroPrimaryMetric:not(.main) > strong,
+  #mobilePortfolioHero .mobileHeroMiniMetric > strong,
+  .returnDetail .returnStats :is(strong, b),
+  .hmHero b,
+  .hmBreakdown b,
+  .ledgerMobileStat > strong,
+  .ledgerTransferSummary strong,
+  .transactionOverviewMetrics strong,
+  .accountMobileStat > strong,
+  .page-accounts .metricPanel > .value,
+  .import-counts dd,
+  .portfolioRiskDashboardStats b,
+  .portfolioRulePct
+) {
+  font: 700 15px/1.5 var(--pams-font-number) !important;
+  letter-spacing: normal;
+  font-variant-numeric: tabular-nums !important;
+}
+
+body :is(
+  #holdingReturnHero .returnStatSub,
+  #mobilePortfolioHero .mobileHeroPrimaryMetric > em,
+  #mobilePortfolioHero .mobileAccountWeight,
+  .returnDetail .returnStatSub,
+  .monthlyHero [data-change],
+  .transactionOverviewHead small,
+  .transactionOverviewMetrics small,
+  .ledgerTransferSummary small
+) {
+  font: 400 11px/1.5 var(--pams-font-number) !important;
+  letter-spacing: normal;
+  font-variant-numeric: tabular-nums !important;
 }
 
 /* Clearer Bottom Sheet Glass */
