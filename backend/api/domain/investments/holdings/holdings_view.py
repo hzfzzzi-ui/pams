@@ -15,7 +15,7 @@ from domain.market.quote_valuation import quote_price_as_of, quote_valuation_cte
 from domain.investments.trades.trade_snapshot_display import enrich_trade_snapshot_costs
 from domain.investments.holdings.ths_trade_rollforward import apply_ths_post_snapshot_trades
 from domain.brokers.ibkr.ibkr_holding_pnl import enrich_ibkr_holding_pnl
-from domain.market.overseas_return_calendar import MARKET_CURRENCIES, latest_completed_session
+from domain.market.overseas_return_calendar import MARKET_CURRENCIES, latest_completed_session, market_bucket, market_calendar
 from domain.investments.holdings.snapshot_coverage import annotate_snapshot_coverage, point_in_time_visible_sql
 
 from domain.investments.returns.daily_return_state import (
@@ -182,6 +182,49 @@ def _previous_domestic_price_join(price_as_of, *, canonical):
     """
 
 
+OVERSEAS_EQUITY_CATEGORIES = ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
+
+
+def _previous_price_basis_join(price_as_of):
+    """Pair the previous price with its evidence date, also used for FX."""
+    return f"""
+        LEFT JOIN LATERAL (
+            SELECT hs.current_price, hs.as_of
+            FROM pams_holdings_snapshot hs
+            WHERE hs.account_code = h.account_code
+              AND hs.as_of < CASE WHEN h.major_category IN {OVERSEAS_EQUITY_CATEGORIES}
+                                  THEN {price_as_of} ELSE h.as_of END
+              AND hs.current_price IS NOT NULL
+              AND (h.major_category NOT IN {OVERSEAS_EQUITY_CATEGORIES}
+                   OR (hs.currency = h.currency AND hs.current_price > 0 AND hs.current_price::text NOT IN ('NaN','Infinity','-Infinity')))
+              AND (h.major_category IN {OVERSEAS_EQUITY_CATEGORIES} OR h.account_code <> 'ibkr'
+                   OR hs.current_price IS DISTINCT FROM h.current_price
+                   OR hs.quantity IS DISTINCT FROM h.quantity OR hs.market_value IS DISTINCT FROM h.market_value)
+              AND ((COALESCE(h.symbol, '') <> '' AND hs.symbol = h.symbol)
+                   OR (COALESCE(h.symbol, '') = '' AND hs.name = h.name))
+            ORDER BY hs.as_of DESC LIMIT 1
+        ) prior_snapshot ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT o.close, o.trade_date
+            FROM pams_ohlcv_daily o
+            WHERE h.major_category IN {OVERSEAS_EQUITY_CATEGORIES}
+              AND o.market = 'YF' AND o.symbol = h.symbol AND o.trade_date < {price_as_of}
+              AND o.close > 0 AND o.close::text NOT IN ('NaN','Infinity','-Infinity')
+            ORDER BY o.trade_date DESC LIMIT 1
+        ) overseas_close ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT candidate.price AS previous_price, candidate.day AS previous_as_of
+            FROM (VALUES
+                (prev_px.close, NULL::date, 0),
+                (overseas_close.close, overseas_close.trade_date, 1),
+                (prior_snapshot.current_price, prior_snapshot.as_of, 2)
+            ) candidate(price, day, priority)
+            WHERE candidate.price IS NOT NULL
+            ORDER BY candidate.day DESC NULLS FIRST, candidate.priority LIMIT 1
+        ) prev_basis ON TRUE
+    """
+
+
 MARKET_DAILY_STATUS_JOIN = """
             LEFT JOIN LATERAL (
                 SELECT
@@ -261,23 +304,32 @@ def _table_exists(cur, table_name: str) -> bool:
     return _bool_field(cur.fetchone(), "exists")
 
 
-def _ibkr_price_history_relation() -> str:
-    """Missing prior-price evidence remains unknown, not a zero-valued history."""
-    return """(SELECT NULL::text AS account_code, NULL::text AS symbol, NULL::text AS name,
-        NULL::numeric AS current_price, NULL::numeric AS quantity, NULL::numeric AS market_value,
-        NULL::date AS as_of WHERE FALSE)"""
-
-
-def _mark_missing_ibkr_daily_basis(rows: list[dict[str, Any]], *, history_available: bool) -> list[dict[str, Any]]:
-    """Do not turn an unavailable previous price into a confirmed zero return."""
-    if history_available:
-        return rows
+def _mark_missing_prior_price(rows):
+    """A missing prior session is a gap, including when an older close exists."""
     for row in rows:
-        if (str(row.get("account") or row.get("account_code") or "") != "ibkr"
-                or row.get("is_closed") or row.get("previous_price") is not None):
+        prior_day = row.pop("_previous_price_date", None)
+        if row.get("is_closed"):
             continue
+        bucket = market_bucket(row) if row.get("major_category") in OVERSEAS_EQUITY_CATEGORIES else None
+        if row.get("previous_price") is None:
+            if not bucket and (row.get("account") or row.get("account_code")) != "ibkr":
+                continue
+        elif not bucket:
+            continue
+        else:
+            mark = row.get("snapshot_as_of") or row.get("as_of")
+            if mark and prior_day:
+                try:
+                    expected = market_calendar(bucket).date_to_session(
+                        (mark - timedelta(days=1)).isoformat(), direction="previous").date()
+                    if prior_day == expected:
+                        continue
+                except (ValueError, OverflowError):
+                    pass
+        for key in ("previous_price", "price_change_pct", "price_change_amount"):
+            row[key] = None
         for name in ("daily_pnl", "daily_price_pnl", "daily_fx_pnl", "daily_total_pnl"):
-            for key in (name, name + "_cny", name + "_gross_cny"):
+            for key in (name, name + "_native", name + "_cny", name + "_gross_cny"):
                 if key in row:
                     row[key] = None
         row["daily_return_status"] = RETURN_STATUS_PENDING
@@ -792,8 +844,6 @@ def build_holdings_by_category_payload(
     price_as_of = quote_price_as_of(bool(row.get("quote_available")))
     fund_status_join = FUND_NAV_STATUS_JOIN.replace('e.as_of = h.as_of', f'e.as_of = {price_as_of}')
     previous_domestic = _previous_domestic_price_join(price_as_of, canonical=bool(row and row.get("source_schema")))
-    ibkr_history_available = False
-    ibkr_price_history = _ibkr_price_history_relation()
     if category == "其他":
         cur.execute(
             f"""
@@ -989,6 +1039,7 @@ def build_holdings_by_category_payload(
                    {price_as_of} AS snapshot_as_of,
                    h.quantity, h.buy_price, eff.current_price AS current_price,
                    eff.previous_price AS previous_price,
+                   prev_basis.previous_as_of AS _previous_price_date,
                    CASE
                        WHEN eff.current_price IS NOT NULL
                         AND eff.previous_price IS NOT NULL
@@ -1009,93 +1060,8 @@ def build_holdings_by_category_payload(
                 ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
             {fund_status_join}
             {MARKET_DAILY_STATUS_JOIN}
-            LEFT JOIN LATERAL (
-                SELECT hs.current_price, hs.as_of
-                FROM pams_holdings_snapshot hs
-                WHERE hs.account_code = h.account_code
-                  AND hs.as_of < h.as_of
-                  AND hs.current_price IS NOT NULL
-                  AND (
-                      h.account_code <> 'ibkr'
-                      OR hs.current_price IS DISTINCT FROM h.current_price
-                      OR hs.quantity IS DISTINCT FROM h.quantity
-                      OR hs.market_value IS DISTINCT FROM h.market_value
-                  )
-                  AND (
-                      (COALESCE(h.symbol, '') <> '' AND hs.symbol = h.symbol)
-                      OR (COALESCE(h.symbol, '') = '' AND hs.name = h.name)
-                  )
-                ORDER BY hs.as_of DESC
-                LIMIT 1
-            ) prev_snap ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT ph.current_price, ph.as_of
-                FROM {ibkr_price_history} ph
-                WHERE h.account_code = 'ibkr'
-                  AND ph.account_code = h.account_code
-                  AND ph.as_of < h.as_of
-                  AND ph.current_price IS NOT NULL
-                  AND (
-                      ph.current_price IS DISTINCT FROM h.current_price
-                      OR ph.quantity IS DISTINCT FROM h.quantity
-                      OR ph.market_value IS DISTINCT FROM h.market_value
-                  )
-                  AND (
-                      (COALESCE(h.symbol, '') <> '' AND ph.symbol = h.symbol)
-                      OR (COALESCE(h.symbol, '') = '' AND ph.name = h.name)
-                  )
-                ORDER BY ph.as_of DESC
-                LIMIT 1
-            ) prev_ibkr_snap ON TRUE
             {previous_domestic}
-            LEFT JOIN LATERAL (
-                SELECT o.trade_date, o.close
-                FROM pams_ohlcv_daily o
-                WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-                  AND o.market = 'YF'
-                  AND o.symbol = h.symbol
-                  AND o.trade_date <= {price_as_of}
-                ORDER BY o.trade_date DESC
-                LIMIT 1
-            ) curr_overseas_px ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT trade_date, close
-                FROM pams_ohlcv_daily o
-                WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-                  AND o.market = 'YF'
-                  AND o.symbol = h.symbol
-                  AND o.trade_date < curr_overseas_px.trade_date
-                ORDER BY o.trade_date DESC
-                LIMIT 1
-            ) prev_overseas_px ON TRUE
-            LEFT JOIN LATERAL (
-                SELECT
-                    CASE
-                        WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-                         AND h.current_price IS NOT NULL
-                         AND curr_overseas_px.close IS NOT NULL
-                         AND h.current_price IS DISTINCT FROM curr_overseas_px.close
-                        THEN curr_overseas_px.close
-                        ELSE COALESCE(
-                            prev_px.close,
-                            prev_overseas_px.close,
-                            prev_ibkr_snap.current_price,
-                            prev_snap.current_price
-                        )
-                    END AS previous_price,
-                    CASE
-                        WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-                         AND h.current_price IS NOT NULL
-                         AND curr_overseas_px.close IS NOT NULL
-                         AND h.current_price IS DISTINCT FROM curr_overseas_px.close
-                        THEN curr_overseas_px.trade_date
-                        ELSE COALESCE(
-                            prev_overseas_px.trade_date,
-                            prev_ibkr_snap.as_of,
-                            prev_snap.as_of
-                        )
-                    END AS previous_as_of
-            ) prev_basis ON TRUE
+            {_previous_price_basis_join(price_as_of)}
             LEFT JOIN LATERAL (
                 SELECT rate
                 FROM pams_fx_rates_daily prev_fx
@@ -1177,7 +1143,7 @@ def build_holdings_by_category_payload(
 
     rows = _suppress_stale_daily_pnl(rows, view_as_of, daily_pnl_start_as_of)
     rows = _apply_daily_return_status(cur, rows, view_as_of)
-    rows = _mark_missing_ibkr_daily_basis(rows, history_available=ibkr_history_available)
+    rows = _mark_missing_prior_price(rows)
     rows = _mark_missing_a_stock_daily_basis(rows)
     rows = _preserve_missing_cost(rows)
     rows = annotate_snapshot_coverage(cur, rows)
@@ -1567,8 +1533,6 @@ def build_holdings_latest_payload(
     max_snapshot_as_of = row["as_of"] if row else None
     if max_snapshot_as_of is None:
         return {"as_of": None, "rows": []}
-    ibkr_history_available = False
-    ibkr_price_history = _ibkr_price_history_relation()
 
     cur.execute(
         f"""
@@ -1654,6 +1618,7 @@ def build_holdings_latest_payload(
             {price_as_of} AS snapshot_as_of,
             h.quantity, h.buy_price, eff.current_price AS current_price,
             eff.previous_price AS previous_price,
+            prev_basis.previous_as_of AS _previous_price_date,
             CASE
                 WHEN eff.current_price IS NOT NULL
                  AND eff.previous_price IS NOT NULL
@@ -1674,93 +1639,8 @@ def build_holdings_latest_payload(
                 ORDER BY available.as_of DESC LIMIT 1) fx ON TRUE
         {fund_status_join}
         {MARKET_DAILY_STATUS_JOIN}
-        LEFT JOIN LATERAL (
-            SELECT hs.current_price, hs.as_of
-            FROM pams_holdings_snapshot hs
-            WHERE hs.account_code = h.account_code
-              AND hs.as_of < h.as_of
-              AND hs.current_price IS NOT NULL
-              AND (
-                  h.account_code <> 'ibkr'
-                  OR hs.current_price IS DISTINCT FROM h.current_price
-                  OR hs.quantity IS DISTINCT FROM h.quantity
-                  OR hs.market_value IS DISTINCT FROM h.market_value
-              )
-              AND (
-                  (COALESCE(h.symbol, '') <> '' AND hs.symbol = h.symbol)
-                  OR (COALESCE(h.symbol, '') = '' AND hs.name = h.name)
-              )
-            ORDER BY hs.as_of DESC
-            LIMIT 1
-        ) prev_snap ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT ph.current_price, ph.as_of
-            FROM {ibkr_price_history} ph
-            WHERE h.account_code = 'ibkr'
-              AND ph.account_code = h.account_code
-              AND ph.as_of < h.as_of
-              AND ph.current_price IS NOT NULL
-              AND (
-                  ph.current_price IS DISTINCT FROM h.current_price
-                  OR ph.quantity IS DISTINCT FROM h.quantity
-                  OR ph.market_value IS DISTINCT FROM h.market_value
-              )
-              AND (
-                  (COALESCE(h.symbol, '') <> '' AND ph.symbol = h.symbol)
-                  OR (COALESCE(h.symbol, '') = '' AND ph.name = h.name)
-              )
-            ORDER BY ph.as_of DESC
-            LIMIT 1
-        ) prev_ibkr_snap ON TRUE
         {previous_domestic}
-        LEFT JOIN LATERAL (
-            SELECT o.trade_date, o.close
-            FROM pams_ohlcv_daily o
-            WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-              AND o.market = 'YF'
-              AND o.symbol = h.symbol
-              AND o.trade_date <= {price_as_of}
-            ORDER BY o.trade_date DESC
-            LIMIT 1
-        ) curr_overseas_px ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT trade_date, close
-            FROM pams_ohlcv_daily o
-            WHERE h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-              AND o.market = 'YF'
-              AND o.symbol = h.symbol
-              AND o.trade_date < curr_overseas_px.trade_date
-            ORDER BY o.trade_date DESC
-            LIMIT 1
-        ) prev_overseas_px ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT
-                CASE
-                    WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-                     AND h.current_price IS NOT NULL
-                     AND curr_overseas_px.close IS NOT NULL
-                     AND h.current_price IS DISTINCT FROM curr_overseas_px.close
-                    THEN curr_overseas_px.close
-                    ELSE COALESCE(
-                        prev_px.close,
-                        prev_overseas_px.close,
-                        prev_ibkr_snap.current_price,
-                        prev_snap.current_price
-                    )
-                END AS previous_price,
-                CASE
-                    WHEN h.major_category IN ('美股', '港股', '韩股', '瑞典', '欧股', '瑞士', '海外股票')
-                     AND h.current_price IS NOT NULL
-                     AND curr_overseas_px.close IS NOT NULL
-                     AND h.current_price IS DISTINCT FROM curr_overseas_px.close
-                    THEN curr_overseas_px.trade_date
-                    ELSE COALESCE(
-                        prev_overseas_px.trade_date,
-                        prev_ibkr_snap.as_of,
-                        prev_snap.as_of
-                    )
-                END AS previous_as_of
-        ) prev_basis ON TRUE
+        {_previous_price_basis_join(price_as_of)}
         LEFT JOIN LATERAL (
             SELECT rate
             FROM pams_fx_rates_daily prev_fx
@@ -1837,7 +1717,7 @@ def build_holdings_latest_payload(
 
     rows = _suppress_stale_daily_pnl(rows, view_as_of, daily_pnl_start_as_of)
     rows = _apply_daily_return_status(cur, rows, view_as_of)
-    rows = _mark_missing_ibkr_daily_basis(rows, history_available=ibkr_history_available)
+    rows = _mark_missing_prior_price(rows)
     rows = _mark_missing_a_stock_daily_basis(rows)
     rows = _preserve_missing_cost(rows)
     rows = annotate_snapshot_coverage(cur, rows)
