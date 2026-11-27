@@ -186,79 +186,382 @@ function fmtSignedYuan(val) {
   return `${sign}¥${Math.round(abs).toLocaleString('zh-CN')}`;
 }
 
+const BENCH_LINE_META = {
+  total: { color: '#38bdf8', width: 2.4, primary: true },
+  ssec: { color: '#f97316', width: 1.7, primary: false },
+  kospi: { color: '#a78bfa', width: 1.7, primary: false },
+  sp500: { color: '#34d399', width: 1.7, primary: false },
+};
+
+function compactTileName(raw, maxLen = 7) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/[\u3400-\u9fff]/.test(s)) {
+    const clean = s
+      .replace(/ETF联接[ABC]?$/i, '')
+      .replace(/发起式联接[ABC]?$/i, '')
+      .replace(/灵活配置混合[ABC]?$/i, '')
+      .replace(/混合[ABC]?$/i, '')
+      .trim();
+    return (clean || s).slice(0, maxLen);
+  }
+  const clean = s
+    .replace(/\b(INC|CORP|CO|LTD|PLC|CMN|CLASS|TRUST|SERIES|ELECTRONICS)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return (clean || s).slice(0, maxLen + 2);
+}
+
+function treemapPartition(items, rect) {
+  if (!items.length) return [];
+  if (items.length === 1) return [{ ...items[0], rect }];
+  const total = items.reduce((sum, it) => sum + it.weight, 0);
+  const half = total / 2;
+  let splitIdx = 1;
+  let bestDiff = Infinity;
+  let acc = 0;
+  for (let i = 0; i < items.length - 1; i += 1) {
+    acc += items[i].weight;
+    const diff = Math.abs(half - acc);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      splitIdx = i + 1;
+    }
+  }
+  const first = items.slice(0, splitIdx);
+  const second = items.slice(splitIdx);
+  const firstW = first.reduce((sum, it) => sum + it.weight, 0);
+  const ratio = total > 0 ? firstW / total : 0.5;
+  if (rect.w >= rect.h) {
+    const w1 = rect.w * ratio;
+    return [
+      ...treemapPartition(first, { x: rect.x, y: rect.y, w: w1, h: rect.h }),
+      ...treemapPartition(second, { x: rect.x + w1, y: rect.y, w: rect.w - w1, h: rect.h }),
+    ];
+  }
+  const h1 = rect.h * ratio;
+  return [
+    ...treemapPartition(first, { x: rect.x, y: rect.y, w: rect.w, h: h1 }),
+    ...treemapPartition(second, { x: rect.x, y: rect.y + h1, w: rect.w, h: rect.h - h1 }),
+  ];
+}
+
+function buildPnlTreemapHtml(items, portfolio) {
+  const valid = (items || [])
+    .filter((r) => r && Number.isFinite(Number(r.pnl_cny)) && Math.abs(Number(r.pnl_cny)) >= 0.01)
+    .sort((a, b) => Math.abs(Number(b.pnl_cny)) - Math.abs(Number(a.pnl_cny)))
+    .slice(0, 20);
+  const gainCount = valid.filter((r) => Number(r.pnl_cny) > 0).length;
+  const lossCount = valid.filter((r) => Number(r.pnl_cny) < 0).length;
+  const myPct = portfolio?.ex_esop_return_pct;
+  const myTone = myPct == null ? '' : Number(myPct) >= 0 ? 'good' : 'bad';
+
+  if (!valid.length) {
+    return `
+      <div class="perfBlockCard perfTreemapCard">
+        <div class="perfBlockHead">
+          <h3>盈亏热力图</h3>
+          <span class="perfBlockSub">含已清仓</span>
+        </div>
+        <div class="lookthroughEmpty compact">暂无盈亏分布数据</div>
+      </div>
+    `;
+  }
+
+  const weighted = valid.map((row) => ({
+    row,
+    weight: Math.max(Math.pow(Math.abs(Number(row.pnl_cny)), 0.78), 1),
+  }));
+  const layout = treemapPartition(weighted, { x: 0, y: 0, w: 100, h: 100 });
+
+  const tilesHtml = layout.map(({ row, rect }) => {
+    const pnl = Number(row.pnl_cny);
+    const pct = row.pnl_pct != null && Number.isFinite(Number(row.pnl_pct)) ? Number(row.pnl_pct) : null;
+    const isGain = pnl >= 0;
+    const intensity = Math.max(0.28, Math.min(0.88, 0.34 + Math.min(Math.abs(pct ?? 20), 60) / 60 * 0.54));
+    const bg = isGain
+      ? `rgba(22, 163, 74, ${intensity.toFixed(2)})`
+      : `rgba(220, 38, 38, ${intensity.toFixed(2)})`;
+    const border = isGain ? 'rgba(74, 222, 128, 0.42)' : 'rgba(248, 113, 113, 0.42)';
+    const area = rect.w * rect.h;
+    const shortSide = Math.min(rect.w, rect.h);
+    const sizeCls = area >= 480 && shortSide >= 18
+      ? 'is-lg'
+      : area >= 180 && shortSide >= 11
+        ? 'is-md'
+        : area >= 75 && shortSide >= 7
+          ? 'is-sm'
+          : 'is-xs';
+    const displayName = compactTileName(row.name || row.symbol, sizeCls === 'is-lg' ? 10 : sizeCls === 'is-md' ? 7 : 5);
+    const title = `${row.name || row.symbol} (${row.symbol || ''}${row.is_closed ? ' · 已清仓' : ''}) ${fmtSignedYuan(pnl)} (${fmtSignedPct(pct)})`;
+    return `
+      <button type="button"
+        class="perfTreemapTile ${isGain ? 'is-gain' : 'is-loss'} ${sizeCls}"
+        style="left:${rect.x.toFixed(3)}%;top:${rect.y.toFixed(3)}%;width:${rect.w.toFixed(3)}%;height:${rect.h.toFixed(3)}%;background:${bg};border-color:${border};"
+        title="${esc(title)}"
+        data-jump-trade-review="${esc(row.symbol || '')}">
+        <span class="perfTreemapName">${esc(displayName)}${row.is_closed && sizeCls === 'is-lg' ? ' <i>清仓</i>' : ''}</span>
+        ${sizeCls !== 'is-xs' ? `<strong class="perfTreemapPnl">${esc(fmtSignedYuan(pnl))}</strong>` : ''}
+        ${sizeCls === 'is-lg' && pct != null ? `<em class="perfTreemapPct">${esc(fmtSignedPct(pct))}</em>` : ''}
+      </button>
+    `;
+  }).join('');
+
+  return `
+    <div class="perfBlockCard perfTreemapCard">
+      <div class="perfBlockHead">
+        <div>
+          <h3>盈亏分布图</h3>
+          <span class="perfBlockSub">含已清仓 · 面积按盈亏金额</span>
+        </div>
+        <div class="perfTreemapMeta">
+          <strong class="${myTone}">${esc(fmtSignedYuan(portfolio?.ex_esop_pnl_cny))} <em>${esc(fmtSignedPct(myPct))}</em></strong>
+          <div class="perfTreemapLegend">
+            <span class="good">盈 ${gainCount}</span>
+            <span class="bad">亏 ${lossCount}</span>
+          </div>
+        </div>
+      </div>
+      <div class="perfTreemapCanvas" role="group" aria-label="红绿方块盈亏图">
+        ${tilesHtml}
+      </div>
+    </div>
+  `;
+}
+
+function buildBenchmarkChartModel(comparison) {
+  const portfolio = comparison?.portfolio || {};
+  const benchmarks = comparison?.benchmarks || [];
+  const rawSeries = [
+    {
+      key: 'total',
+      name: portfolio.name || '我的总收益率',
+      ytd: portfolio.ytd_return_pct,
+      asOf: portfolio.as_of,
+      points: Array.isArray(portfolio.series) ? portfolio.series : [],
+    },
+    ...benchmarks.map((b) => ({
+      key: b.key,
+      name: b.name,
+      ytd: b.ytd_return_pct,
+      asOf: b.as_of,
+      points: Array.isArray(b.series) ? b.series : [],
+    })),
+  ].filter((s) => s.points.length >= 2);
+
+  const dateSet = new Set();
+  rawSeries.forEach((s) => s.points.forEach((pt) => { if (pt?.date) dateSet.add(String(pt.date)); }));
+  const dates = [...dateSet].sort();
+  const series = rawSeries.map((s) => {
+    const map = new Map(s.points.map((pt) => [String(pt.date), Number(pt.return_pct)]));
+    let lastVal = null;
+    const values = dates.map((d) => {
+      if (map.has(d)) lastVal = map.get(d);
+      return lastVal;
+    });
+    const meta = BENCH_LINE_META[s.key] || { color: '#94a3b8', width: 1.6, primary: false };
+    return { ...s, ...meta, values };
+  });
+  return { dates, series };
+}
+
+function renderBenchmarkLineChart(container, comparison) {
+  if (!container) return;
+  const { dates, series } = buildBenchmarkChartModel(comparison);
+  if (!dates.length || !series.length) {
+    container.innerHTML = '<div class="lookthroughEmpty compact">基准走势数据待加载</div>';
+    return;
+  }
+
+  if (!state.hiddenBenchKeys) state.hiddenBenchKeys = new Set();
+  const activeSeries = series.filter((s) => !state.hiddenBenchKeys.has(s.key));
+  const drawn = activeSeries.length ? activeSeries : [series[0]];
+
+  const allVals = [0];
+  drawn.forEach((s) => s.values.forEach((v) => { if (v != null && Number.isFinite(v)) allVals.push(v); }));
+  let minVal = Math.min(...allVals);
+  let maxVal = Math.max(...allVals);
+  const span = Math.max(maxVal - minVal, 8);
+  minVal = Math.floor((minVal - span * 0.1) / 5) * 5;
+  maxVal = Math.ceil((maxVal + span * 0.1) / 5) * 5;
+
+  const W = 360;
+  const H = 186;
+  const padL = 40;
+  const padR = 10;
+  const padT = 10;
+  const padB = 22;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const xAt = (idx) => padL + (dates.length <= 1 ? 0 : (idx / (dates.length - 1)) * plotW);
+  const yAt = (val) => padT + ((maxVal - val) / (maxVal - minVal || 1)) * plotH;
+
+  const tickCount = 4;
+  const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => minVal + ((maxVal - minVal) * i) / tickCount);
+  const yGridHtml = yTicks.map((v) => {
+    const y = yAt(v).toFixed(1);
+    const isZero = Math.abs(v) < 0.05;
+    return `
+      <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"
+        stroke="${isZero ? 'rgba(148,163,184,0.34)' : 'rgba(148,163,184,0.11)'}"
+        stroke-dasharray="${isZero ? '3 3' : ''}" stroke-width="1" />
+      <text x="${padL - 5}" y="${(Number(y) + 3).toFixed(1)}" text-anchor="end"
+        fill="rgba(148,163,184,0.75)" font-size="9">${v >= 0 ? '+' : ''}${Math.round(v)}%</text>
+    `;
+  }).join('');
+
+  const xLabelIndices = [0, Math.floor((dates.length - 1) * 0.33), Math.floor((dates.length - 1) * 0.66), dates.length - 1];
+  const xTicksHtml = [...new Set(xLabelIndices)].map((idx) => {
+    const x = xAt(idx).toFixed(1);
+    const label = dates[idx] ? dates[idx].slice(5) : '';
+    return `<text x="${x}" y="${H - 5}" text-anchor="${idx === 0 ? 'start' : idx === dates.length - 1 ? 'end' : 'middle'}" fill="rgba(148,163,184,0.72)" font-size="9">${esc(label)}</text>`;
+  }).join('');
+
+  // Render benchmarks first, primary portfolio line on top.
+  const ordered = [...drawn].sort((a, b) => Number(a.primary) - Number(b.primary));
+  const pathsHtml = ordered.map((s) => {
+    const coords = [];
+    s.values.forEach((v, idx) => {
+      if (v != null && Number.isFinite(v)) coords.push([xAt(idx), yAt(v)]);
+    });
+    if (coords.length < 2) return '';
+    const d = coords.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+    const last = coords[coords.length - 1];
+    let area = '';
+    if (s.primary) {
+      const zeroY = Math.min(padT + plotH, Math.max(padT, yAt(0)));
+      area = `<path d="${d} L${last[0].toFixed(1)},${zeroY.toFixed(1)} L${coords[0][0].toFixed(1)},${zeroY.toFixed(1)} Z" fill="rgba(56,189,248,0.09)" />`;
+    }
+    return `
+      ${area}
+      <path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width}" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="${s.primary ? 3.2 : 2.4}" fill="${s.color}" />
+    `;
+  }).join('');
+
+  const legendHtml = series.map((s) => {
+    const hidden = state.hiddenBenchKeys.has(s.key);
+    const tone = s.ytd == null ? '' : Number(s.ytd) >= 0 ? 'good' : 'bad';
+    return `
+      <button type="button" class="perfBenchPill ${hidden ? 'is-off' : ''} ${s.primary ? 'is-primary' : ''}" data-bench-toggle="${esc(s.key)}">
+        <i style="background:${s.color}"></i>
+        <span>${esc(s.name)}</span>
+        <strong class="${tone}">${esc(fmtSignedPct(s.ytd))}</strong>
+      </button>
+    `;
+  }).join('');
+
+  const formatReadout = (idx) => {
+    const d = dates[idx] || '';
+    const items = drawn.map((s) => {
+      const v = s.values[idx];
+      return `<span><i style="background:${s.color}"></i>${esc(s.name.replace('我的总收益率', '我的'))} <b>${esc(fmtSignedPct(v))}</b></span>`;
+    }).join('');
+    return `<em>${esc(d)}</em>${items}`;
+  };
+
+  container.innerHTML = `
+    <div class="perfBlockCard perfBenchChartCard">
+      <div class="perfBlockHead">
+        <div>
+          <h3>基准对比</h3>
+          <span class="perfBlockSub">今年以来累计收益率 (%)</span>
+        </div>
+      </div>
+      <div class="perfBenchPills">${legendHtml}</div>
+      <div class="perfBenchReadout" data-bench-readout>${formatReadout(dates.length - 1)}</div>
+      <div class="perfBenchSvgWrap">
+        <svg class="perfBenchSvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="我的总收益率与主要指数对比折线图">
+          ${yGridHtml}
+          ${xTicksHtml}
+          ${pathsHtml}
+          <line class="perfBenchCrosshair" data-bench-crosshair x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" hidden />
+          <g data-bench-dots></g>
+          <rect class="perfBenchHit" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent" />
+        </svg>
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll('[data-bench-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.benchToggle;
+      if (!key) return;
+      if (state.hiddenBenchKeys.has(key)) state.hiddenBenchKeys.delete(key);
+      else if (series.length - state.hiddenBenchKeys.size > 1) state.hiddenBenchKeys.add(key);
+      renderBenchmarkLineChart(container, comparison);
+    });
+  });
+
+  const svg = container.querySelector('.perfBenchSvg');
+  const hit = container.querySelector('.perfBenchHit');
+  const crosshair = container.querySelector('[data-bench-crosshair]');
+  const dotsGroup = container.querySelector('[data-bench-dots]');
+  const readout = container.querySelector('[data-bench-readout]');
+
+  const showIndex = (idx) => {
+    const clamped = Math.max(0, Math.min(dates.length - 1, idx));
+    const cx = xAt(clamped);
+    if (crosshair) {
+      crosshair.setAttribute('x1', cx.toFixed(1));
+      crosshair.setAttribute('x2', cx.toFixed(1));
+      crosshair.removeAttribute('hidden');
+    }
+    if (dotsGroup) {
+      dotsGroup.innerHTML = drawn.map((s) => {
+        const v = s.values[clamped];
+        if (v == null || !Number.isFinite(v)) return '';
+        return `<circle cx="${cx.toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="${s.primary ? 3.8 : 3}" fill="${s.color}" stroke="#0b1120" stroke-width="1.2" />`;
+      }).join('');
+    }
+    if (readout) readout.innerHTML = formatReadout(clamped);
+  };
+
+  const resetPointer = () => {
+    if (crosshair) crosshair.setAttribute('hidden', '');
+    if (dotsGroup) dotsGroup.innerHTML = '';
+    if (readout) readout.innerHTML = formatReadout(dates.length - 1);
+  };
+
+  if (svg && hit) {
+    const handlePoint = (clientX) => {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width) return;
+      const relX = ((clientX - rect.left) / rect.width) * W;
+      const ratio = Math.max(0, Math.min(1, (relX - padL) / plotW));
+      showIndex(Math.round(ratio * (dates.length - 1)));
+    };
+    hit.addEventListener('pointermove', (e) => handlePoint(e.clientX));
+    hit.addEventListener('pointerdown', (e) => handlePoint(e.clientX));
+    hit.addEventListener('pointerleave', resetPointer);
+  }
+}
+
 function renderPerformanceSummary() {
   const el = getElementById('performanceBenchmarkPanel');
   if (!el) return;
   const data = state.performanceSummaryData;
   if (!data) {
-    el.innerHTML = '<div class="muted">正在加载基准对比与盈亏榜...</div>';
+    el.innerHTML = '<div class="muted">正在加载基准对比与盈亏图...</div>';
     return;
   }
   const p = data.portfolio || {};
-  const benchmarks = data.benchmarks || [];
-  const winners = data.leaderboard?.winners || [];
-  const losers = data.leaderboard?.losers || [];
-  const myPct = p.ex_esop_return_pct;
-  const myTone = myPct == null ? '' : myPct >= 0 ? 'good' : 'bad';
-
-  const benchSeries = [
-    { name: '我的二级市场', val: myPct, sub: `盈亏 ${fmtSignedYuan(p.ex_esop_pnl_cny)}`, primary: true },
-    ...benchmarks.map((b) => ({
-      name: b.name,
-      val: b.ytd_return_pct ?? b.m1_return_pct,
-      sub: b.ytd_return_pct != null ? `YTD · 1M ${fmtSignedPct(b.m1_return_pct)}` : (b.m1_return_pct != null ? `1M · ${b.as_of || ''}` : '行情待补'),
-      primary: false,
-    })),
+  const heatmapItems = data.heatmap_items || [
+    ...(data.leaderboard?.winners || []),
+    ...(data.leaderboard?.losers || []),
   ];
-  const maxAbsBench = Math.max(10, ...benchSeries.map(s => Math.abs(Number(s.val || 0))));
-  const benchCards = benchSeries.map((s) => {
-    const num = s.val == null ? null : Number(s.val);
-    const tone = num == null ? '' : num >= 0 ? 'good' : 'bad';
-    const widthPct = num == null ? 0 : Math.max(3, (Math.abs(num) / maxAbsBench) * 100);
-    return `
-      <div class="perfBenchBarRow ${s.primary ? 'is-primary' : ''}">
-        <div class="perfBenchBarTop">
-          <span>${esc(s.name)} <em>${esc(s.sub)}</em></span>
-          <strong class="${tone}">${esc(fmtSignedPct(num))}</strong>
-        </div>
-        <div class="perfBenchTrack" aria-hidden="true">
-          <i class="${tone}" style="width:${widthPct.toFixed(1)}%"></i>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  const leaderRow = (row, tone) => `
-    <button type="button" class="perfLeaderRow is-${tone}" data-jump-trade-review="${esc(row.symbol || '')}">
-      <div class="perfLeaderName">
-        <strong>${esc(row.name || row.symbol)}</strong>
-        <small>${esc(row.symbol || '')} · ${esc(row.account || '')}${row.is_closed ? ' · 已清仓' : ''}</small>
-      </div>
-      <div class="perfLeaderVal">
-        <b class="${tone}">${esc(fmtSignedYuan(row.pnl_cny))}</b>
-        <em>${esc(fmtSignedPct(row.pnl_pct))} ›</em>
-      </div>
-    </button>
-  `;
+  const comparison = data.benchmark_comparison || {
+    portfolio: { key: 'total', name: '我的总收益率', ytd_return_pct: p.ex_esop_return_pct, series: [] },
+    benchmarks: data.benchmarks || [],
+  };
 
   el.innerHTML = `
-    <div class="perfBenchHead">
-      <div title="${esc(p.method_note || '')}">
-        <h3>基准对比</h3>
-      </div>
-    </div>
-    <div class="perfBenchGrid">${benchCards}</div>
-    <div class="perfLeaderGrid">
-      <div class="perfLeaderCol">
-        <div class="perfLeaderTitle good">盈利 Top 3</div>
-        ${winners.length ? winners.map((r) => leaderRow(r, 'good')).join('') : '<div class="lookthroughEmpty compact">暂无盈利标的</div>'}
-      </div>
-      <div class="perfLeaderCol">
-        <div class="perfLeaderTitle bad">亏损 Top 3</div>
-        ${losers.length ? losers.map((r) => leaderRow(r, 'bad')).join('') : '<div class="lookthroughEmpty compact">暂无亏损标的</div>'}
-      </div>
+    <div class="perfSplitStack">
+      ${buildPnlTreemapHtml(heatmapItems, p)}
+      <div data-perf-benchmark-chart></div>
     </div>
   `;
+  renderBenchmarkLineChart(el.querySelector('[data-perf-benchmark-chart]'), comparison);
 }
 
 function renderReturnAttribution() {

@@ -4,7 +4,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend" / "api"))
 
-from domain.investments.returns.benchmark_summary import summarize_open_holdings_leaderboard
+from domain.investments.returns.benchmark_summary import (
+    _normalize_return_series,
+    summarize_open_holdings_leaderboard,
+)
 
 
 def test_open_holdings_leaderboard_excludes_esop_and_ranks_top3():
@@ -24,3 +27,19 @@ def test_open_holdings_leaderboard_excludes_esop_and_ranks_top3():
     assert p["ex_esop_return_pct"] == round(23000.0 / 260000.0 * 100, 2)
     assert [w["symbol"] for w in res["leaderboard"]["winners"]] == ["601899", "QQQ"]
     assert [l["symbol"] for l in res["leaderboard"]["losers"]] == ["MU", "CBRS"]
+    assert [h["symbol"] for h in res["heatmap_items"]] == ["601899", "QQQ", "MU", "CBRS"]
+
+
+def test_normalize_return_series_rebases_to_zero():
+    rows = [
+        {"date": "2025-12-31", "close": "3900"},
+        {"date": "2026-01-05", "close": "4000"},
+        {"date": "2026-01-06", "close": "4200"},
+        {"date": "2026-01-07", "close": "3800"},
+    ]
+    series = _normalize_return_series(rows, "2026-01-01")
+    assert series == [
+        {"date": "2026-01-05", "return_pct": 0.0},
+        {"date": "2026-01-06", "return_pct": 5.0},
+        {"date": "2026-01-07", "return_pct": -5.0},
+    ]

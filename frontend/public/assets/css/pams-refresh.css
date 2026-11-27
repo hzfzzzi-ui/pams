@@ -3302,6 +3302,213 @@ body.page-investments .portfolioRiskInlineSources span {
 }
 .page-investments .perfLeaderRow:last-child { border-bottom: 0 !important; }
 
+/* PnL Treemap + Standalone Benchmark Comparison Line Chart */
+.perfSplitStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.perfBlockCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.perfBenchChartCard {
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.perfBlockHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.perfBlockHead h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+.perfBlockSub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.78);
+}
+.perfTreemapMeta {
+  text-align: right;
+  white-space: nowrap;
+}
+.perfTreemapMeta strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.perfTreemapMeta strong.good { color: #4ade80; }
+.perfTreemapMeta strong.bad { color: #f87171; }
+.perfTreemapMeta strong em {
+  font-style: normal;
+  font-size: 11px;
+  opacity: 0.9;
+}
+.perfTreemapLegend {
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.perfTreemapLegend .good { color: #4ade80; }
+.perfTreemapLegend .bad { color: #f87171; }
+.perfTreemapCanvas {
+  position: relative;
+  width: 100%;
+  height: 248px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.65);
+}
+.perfTreemapTile {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  padding: 4px 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 2px;
+  overflow: hidden;
+  cursor: pointer;
+  color: #f8fafc;
+  transition: filter 0.15s ease, transform 0.12s ease;
+}
+.perfTreemapTile:hover,
+.perfTreemapTile:focus-visible {
+  filter: brightness(1.14);
+  z-index: 2;
+}
+.perfTreemapName {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.15;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.perfTreemapName i {
+  font-style: normal;
+  font-size: 9px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(15, 23, 42, 0.45);
+  vertical-align: middle;
+}
+.perfTreemapPnl {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+.perfTreemapPct {
+  font-style: normal;
+  font-size: 10px;
+  opacity: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+.perfTreemapTile.is-lg .perfTreemapName { font-size: 13px; }
+.perfTreemapTile.is-lg .perfTreemapPnl { font-size: 13px; }
+.perfTreemapTile.is-sm .perfTreemapName { font-size: 10px; }
+.perfTreemapTile.is-sm .perfTreemapPnl { font-size: 9.5px; }
+.perfTreemapTile.is-xs { padding: 2px; }
+.perfTreemapTile.is-xs .perfTreemapName { font-size: 9px; }
+
+.perfBenchPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.perfBenchPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.52);
+  color: #e2e8f0;
+  font-size: 11px;
+  cursor: pointer;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.perfBenchPill.is-primary {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.12);
+}
+.perfBenchPill.is-off {
+  opacity: 0.36;
+}
+.perfBenchPill i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.perfBenchPill strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.perfBenchPill strong.good { color: #4ade80; }
+.perfBenchPill strong.bad { color: #f87171; }
+.perfBenchReadout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: rgba(203, 213, 225, 0.88);
+  font-variant-numeric: tabular-nums;
+}
+.perfBenchReadout em {
+  font-style: normal;
+  color: rgba(148, 163, 184, 0.85);
+}
+.perfBenchReadout span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.perfBenchReadout span i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.perfBenchReadout span b {
+  font-weight: 700;
+  color: #f8fafc;
+}
+.perfBenchSvgWrap {
+  width: 100%;
+  height: 196px;
+}
+.perfBenchSvg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: pan-y;
+}
+.perfBenchCrosshair {
+  stroke: rgba(226, 232, 240, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
 /* Incremental rebalance flat hairline + split bar */
 .page-investments .incrementalPresetBtn {
   background: transparent !important;
