@@ -105,9 +105,12 @@ def position_pnl(members):
     def sum_known(values):
         return float(sum(Decimal(str(value)) for value in values)) if None not in values else None
 
-    return {"scope": "account" if account_scope else "personal",
-            "cumulative_cny": sum_known(cumulative), "realized_cny": sum_known(realized),
-            "floating_cny": sum_known(floating)}
+    result = {"scope": "account" if account_scope else "personal",
+              "cumulative_cny": sum_known(cumulative), "realized_cny": sum_known(realized),
+              "floating_cny": sum_known(floating)}
+    if all(r.get("realized_trade_pnl_source") == "verified_fund_trade_replay" for r in members):
+        result["net_distributions_cny"] = sum_known([amount(r, "net_distributions") for r in members])
+    return result
 
 
 def attach_combined_positions(rows):

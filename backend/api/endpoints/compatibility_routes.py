@@ -17,6 +17,7 @@ from domain.investments.holdings.holdings_account_cards import (
     merge_account_center_balances,
 )
 from domain.investments.holdings.holding_market_history import holding_history, holding_price_comparison
+from domain.investments.returns.fund_return_history import enrich_open_fund_cards
 from domain.investments.holdings.personal_holdings import personal_holdings
 from domain.investments.holdings.ths_trade_rollforward import merge_cash_management_holding_rows
 from domain.investments.valuation import page_projection
@@ -170,6 +171,7 @@ def create_compatibility_router(
             cur, account_config=account_config, as_of=context[0],
             excluded_accounts=context[2]["excluded_accounts"], owner_ratio=_account_owner_ratio,
         )
+        enrich_open_fund_cards(cur, holdings["rows"], as_of=context[0])
         holdings = personal_holdings(holdings, accounts=account_config.get("accounts", {}), active_date=context[1])
         holdings["cash_view_version"] = 2
         holdings["rows"] = holdings["rows"][:limit]

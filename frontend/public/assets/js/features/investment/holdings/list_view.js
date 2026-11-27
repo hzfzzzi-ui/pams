@@ -17,10 +17,15 @@ export function createListView({ document, host: window, showDetails: openBottom
   const releaseAssetIcons = installAssetIconFallback(window.document);
   function clearRows() { for (const remove of rowListeners) remove(); rowListeners.clear(); }
   function bindRow(node, type, callback) { rowListeners.add(scope.listen(node, type, callback)); }
+function hasVerifiedFundTrades(row) {
+  return (row.__accountRows || [row]).every(item => item.realized_trade_pnl_source === 'verified_fund_trade_replay');
+}
+
 function dataBadge(row) {
   if (row.reference_as_of) return `<span class="miniBadge pending">历史参考 · ${esc(row.reference_as_of)}</span>`;
   const category = row.major_category || row.type || '';
   if (category === 'ESOP') return '<span class="miniBadge pending">待核准</span>';
+  if (hasVerifiedFundTrades(row)) return '<span class="muted">申赎已核对</span>';
   if (category === '贵金属' || String(row.minor_category || '').includes('基金')) return '<span class="miniBadge warn">需核准</span>';
   if (!row.current_price && !row.buy_price && !row.quantity) return '<span class="miniBadge pending">净值型</span>';
   return '<span class="muted">—</span>';
@@ -123,8 +128,9 @@ function openHoldingDetail(row, summary, fields) {
     iconMarkup: assetIconMarkup(row, title),
     subtitle: [row.symbol, holdingGroupLabel(row), accounts.join(' / ')].filter(Boolean).join(' · '),
     value: metrics.value == null ? '—' : formatCompactCurrency(metrics.value),
-    cumulative: metric('累计盈亏', pnl.cumulative_cny),
-    breakdown: [metric('已实现盈亏', pnl.realized_cny), metric('浮动盈亏', pnl.floating_cny)],
+    cumulative: metric(hasVerifiedFundTrades(row) ? '累计盈亏（已核流水）' : '累计盈亏', pnl.cumulative_cny),
+    breakdown: [metric('已实现盈亏', pnl.realized_cny), metric('浮动盈亏', pnl.floating_cny),
+      ...(Number(pnl.net_distributions_cny) ? [metric('税后分红', pnl.net_distributions_cny)] : [])],
     fields,
   }));
   const sheet = body?.querySelector('.holdingMarketDetail');
@@ -439,7 +445,7 @@ function openPosition(raw, summary) {
       <div><strong>账户</strong><span>${esc(holdingAccountName(row) || '缺数据')}</span></div>
       <div><strong>币种</strong><span>${esc(row.currency || 'CNY')}</span></div>
       <div><strong>${valueLabel}</strong><span class="mono">${value == null ? '—' : formatCompactCurrency(value)}</span></div>
-      <div><strong>剩余成本</strong><span class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</span></div>
+      <div><strong>${hasVerifiedFundTrades(row) ? '剩余成本（成交加权平均）' : '剩余成本'}</strong><span class="mono">${costValue == null ? '—' : formatCompactCurrency(costValue)}</span></div>
       <div><strong>浮动盈亏率</strong><span class="mono">${row.floating_pnl_ratio == null ? '—' : signedPercentText(row.floating_pnl_ratio * 100)}</span></div>
       ${shared && !row.__isAggregated ? `<div><strong>当前个人归属</strong><span>${formatNumber(Number(row.owner_ratio) * 100)}%</span></div>` : ''}
       ${row.position_dividend_return ? `<div><strong>年内分红</strong><span>${pnlText(row.position_dividend_return.amount_cny)}</span></div>

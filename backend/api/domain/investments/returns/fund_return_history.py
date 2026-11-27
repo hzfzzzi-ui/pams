@@ -8,7 +8,7 @@ import re
 import exchange_calendars
 
 from domain.imports.sources.source_original_read import SourceOriginals
-from domain.investments.holdings.holdings_positions import _trade_order_ambiguous
+from domain.investments.holdings.holdings_positions import _trade_order_ambiguous, _replay_weighted_average_trade_pnl
 from domain.investments.returns.investment_return_math import cash_flow_adjusted_return_rows, norm, return_chart_gap_dates
 from domain.investments.trades.trade_read_v2 import load_trade_rows
 
@@ -40,18 +40,20 @@ def _trade_day(row):
     return _business_day(row.get("fund_pricing_date")) or row["trade_date"]
 
 
-def load_fund_history_inputs(cur, *, end, excluded_accounts=(), include_trades=True):
+def load_fund_history_inputs(cur, *, end, excluded_accounts=(), include_trades=True, accounts=None,
+                             include_all_events=False):
     """Use the instrument's asset master, holdings classification and explicit fund events."""
-    cur.execute("""SELECT DISTINCT account_code FROM (
-          SELECT h.account_code FROM pams_holdings_snapshot h
-          WHERE h.minor_category='A股基金' AND h.asset_liability='资产' AND h.as_of<=%s
-          UNION
-          SELECT t.account_code FROM pams_investment_trade_fact t
-          WHERE t.trade_date<=%s AND (t.trade_type IN ('fund_subscription','fund_redemption')
-              OR t.asset_id IN (SELECT asset_id FROM pams_asset_master WHERE asset_type=ANY(%s)))
-        ) candidates WHERE NOT (account_code=ANY(%s::text[])) ORDER BY account_code""",
-                (end, end, list(FUND_ASSET_TYPES), sorted(excluded_accounts)))
-    accounts = [row["account_code"] for row in cur.fetchall()]
+    if accounts is None:
+        cur.execute("""SELECT DISTINCT account_code FROM (
+              SELECT h.account_code FROM pams_holdings_snapshot h
+              WHERE h.minor_category='A股基金' AND h.asset_liability='资产' AND h.as_of<=%s
+              UNION
+              SELECT t.account_code FROM pams_investment_trade_fact t
+              WHERE t.trade_date<=%s AND (t.trade_type IN ('fund_subscription','fund_redemption')
+                  OR t.asset_id IN (SELECT asset_id FROM pams_asset_master WHERE asset_type=ANY(%s)))
+            ) candidates WHERE NOT (account_code=ANY(%s::text[])) ORDER BY account_code""",
+                    (end, end, list(FUND_ASSET_TYPES), sorted(excluded_accounts)))
+        accounts = [row["account_code"] for row in cur.fetchall()]
     if not accounts:
         return {}, [], []
     cur.execute("""SELECT DISTINCT asset_id, primary_symbol, canonical_name, currency, asset_type
@@ -69,7 +71,7 @@ def load_fund_history_inputs(cur, *, end, excluded_accounts=(), include_trades=T
     trades = [row for account in accounts
               for row in load_trade_rows(cur, account_code=account, start=date.min, end=end,
                                          originals=originals, include_fund_execution=True)
-              if row["trade_type"] in {"fund_subscription", "fund_redemption"}
+              if include_all_events or row["trade_type"] in {"fund_subscription", "fund_redemption"}
               or (row["asset_id"] in assets and row["trade_type"] in FUND_TRADES)]
     # Include confirmed zero snapshots and reject contradictory quantities, even
     # if the conflicting observation is earlier than the latest account snapshot.
@@ -145,6 +147,80 @@ def _position_history(rows, snapshots, days):
     if timeline and positions[timeline[-1]] > 0 and not snapshots:
         return None, ("ending_quantity_unverified", timeline[-1])
     return (positions, flows), None
+
+
+def apply_fund_card_pnl(row, trades, snapshots, end):
+    """Project verified CNY fund cash and remaining shares onto the open holding."""
+    quantity = _number(row.get("quantity"))
+    market = _number(row.get("market_value"))
+    ratio = _number(row.get("owner_ratio"))
+    if quantity is None or quantity <= 0 or market is None or ratio is None:
+        return
+    orders = [item for item in trades if item["trade_date"] <= end and _trade_day(item) <= end]
+    if not orders or any(item["asset_id"] != row["asset_id"] or item["symbol"] != row["symbol"]
+                         or item["currency"] != "CNY" for item in orders):
+        return
+    observed = defaultdict(set)
+    for item in snapshots:
+        if item["as_of"] <= end:
+            if item["asset_id"] != row["asset_id"] or item["symbol"] != row["symbol"]:
+                return
+            observed[item["as_of"]].add(_number(item["quantity"]))
+    if not observed:
+        return
+    history, issue = _position_history(orders, observed, [end])
+    if issue:
+        return
+    units, contributions = history
+    if units[end] != quantity:
+        return
+    executions = [{**item, "trade_date": _trade_day(item), "effective_fx_rate": 1} for item in orders]
+    state = _replay_weighted_average_trade_pnl(executions, as_of_key=end.isoformat())
+    income = sum((_number(item["net_cash"]) for item in orders if item["trade_type"] == "dividend"), Decimal(0))
+    remaining = state["cost"]
+    realized = state["realized_pnl"]
+    total = market - sum(contributions.values())
+    # The snapshot may use a different cost convention. Keep its original
+    # amount and use one weighted-average basis for all displayed P&L parts.
+    row.update(reported_cost=row.get("cost"), reported_cost_cny=row.get("cost_cny"),
+               cost_basis_mode="verified_weighted_average", buy_price=float(remaining / quantity),
+               realized_trade_pnl_source="verified_fund_trade_replay")
+    for field, value in (("cost", remaining), ("realized_trade_pnl", realized),
+                         ("net_distributions", income), ("holding_pnl", total)):
+        row[field] = float(value)
+        row[field + "_gross_cny"] = float(value)
+        row[field + "_cny"] = float(value * ratio)
+    row["realized_trade_pnl_native"] = float(realized)
+    row["holding_pnl_native"] = float(total)
+
+
+def enrich_open_fund_cards(cur, rows, *, as_of):
+    candidates = [r for r in rows if r.get("currency") == "CNY"
+                  and r.get("minor_category") in {"A股基金", "场外基金"}
+                  and r.get("asset_id") and r.get("symbol") and not r.get("is_closed")
+                  and r.get("realized_trade_pnl_source") == "unavailable_trade_coverage"]
+    if not candidates:
+        return
+    accounts = sorted({r["account"] for r in candidates})
+    assets, trades, snapshots = load_fund_history_inputs(cur, end=as_of, accounts=accounts, include_all_events=True)
+    for row in candidates:
+        asset = assets.get(row["asset_id"])
+        mark = _business_day(row.get("snapshot_as_of") or row.get("as_of"))
+        if not mark or mark > as_of or not asset or asset["primary_symbol"] != row["symbol"]:
+            continue
+
+        def relevant(item):
+            if item["account_code"] != row["account"]:
+                return False
+            if item["asset_id"] or item["symbol"]:
+                # Either match is enough to surface a conflicting identity to the validator.
+                return item["asset_id"] == row["asset_id"] or item["symbol"] == row["symbol"]
+            if item.get("name"):
+                return item["name"] == asset["canonical_name"]
+            return item.get("trade_type") in {"fund_subscription", "fund_redemption"}
+
+        apply_fund_card_pnl(row, [t for t in trades if relevant(t)],
+                            [s for s in snapshots if relevant(s)], mark)
 
 
 def reconstruct_fund_series(*, assets, trades, snapshots, marks, start, end, interval, owner_ratio):
