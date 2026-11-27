@@ -1,6 +1,8 @@
 """Read local index closes first, supplement missing sessions from the public daily series."""
-from datetime import timedelta
+from datetime import date, timedelta
 from functools import lru_cache
+import json
+from urllib.request import Request, urlopen
 
 from domain.market.price_history import build_price_series_payload, normalize_price_instrument, fetch_yfinance_history
 from domain.market.tencent_stock_history import fetch_history
@@ -19,6 +21,37 @@ def overseas_history(symbol, start, end):
     """Read completed overseas closes without mutating market facts."""
     closes, _ = fetch_yfinance_history([symbol], start=start, end=end)
     return tuple(sorted(closes.get(symbol, {}).items()))
+
+
+@lru_cache(maxsize=32)
+def eastmoney_index_history(secid: str, start: date, end: date, cache_day: date | None = None):
+    """Read daily index closes from Eastmoney push2his without mutating market facts."""
+    from domain.imports.isolation import require_external_access
+    require_external_access()
+    _ = cache_day
+    beg = start.strftime('%Y%m%d')
+    end_s = end.strftime('%Y%m%d')
+    url = (
+        'https://push2his.eastmoney.com/api/qt/stock/kline/get'
+        f'?secid={secid}&fields1=f1,f2,f3&fields2=f51,f53&klt=101&fqt=0&beg={beg}&end={end_s}'
+    )
+    req = Request(url, headers={'User-Agent': 'PAMS/2.0'})
+    with urlopen(req, timeout=8) as resp:
+        payload = json.loads(resp.read().decode('utf-8'))
+    klines = (payload.get('data') or {}).get('klines') or []
+    rows = []
+    for line in klines:
+        parts = str(line).split(',')
+        if len(parts) < 2:
+            continue
+        day_str, close_str = parts[0].strip(), parts[1].strip()
+        try:
+            close_val = float(close_str)
+        except ValueError:
+            continue
+        if day_str and close_val > 0:
+            rows.append((day_str, close_val))
+    return tuple(sorted(rows))
 
 
 def local_benchmark(cur, start, end, symbol='000300.SH'):

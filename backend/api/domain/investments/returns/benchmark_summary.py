@@ -6,7 +6,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from domain.investments.valuation.page_projection import read_page
-from domain.market.benchmark_history import benchmark_history, local_benchmark, overseas_history
+from domain.market.benchmark_history import (
+    benchmark_history,
+    eastmoney_index_history,
+    local_benchmark,
+    overseas_history,
+)
 
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _ACCOUNT_LABELS = {
@@ -65,7 +70,34 @@ def _series_return(rows: list[dict[str, Any]], start_iso: str) -> tuple[float | 
     return round((last_close / first_close - 1.0) * 100.0, 2), last_date
 
 
-def _load_benchmark_item(cur, *, key: str, name: str, symbol: str, provider_symbol: str, today: date, is_overseas: bool = False) -> dict[str, Any]:
+def _normalize_return_series(rows: list[dict[str, Any]], start_iso: str) -> list[dict[str, Any]]:
+    valid: list[tuple[str, float]] = []
+    for row in rows or []:
+        d = str(row.get("date") or "")
+        c = _f(row.get("close"))
+        if d >= start_iso and c is not None and c > 0:
+            valid.append((d, c))
+    if not valid:
+        return []
+    valid.sort(key=lambda item: item[0])
+    first_close = valid[0][1]
+    return [
+        {"date": d, "return_pct": round((c / first_close - 1.0) * 100.0, 2)}
+        for d, c in valid
+    ]
+
+
+def _load_benchmark_item(
+    cur,
+    *,
+    key: str,
+    name: str,
+    symbol: str,
+    provider_symbol: str,
+    today: date,
+    is_overseas: bool = False,
+    eastmoney_secid: str | None = None,
+) -> dict[str, Any]:
     ytd_start = date(today.year, 1, 1)
     m1_start = today - timedelta(days=31)
     rows: list[dict[str, Any]] = []
@@ -73,8 +105,14 @@ def _load_benchmark_item(cur, *, key: str, name: str, symbol: str, provider_symb
         local = local_benchmark(cur, ytd_start, today, symbol)
     except Exception:
         local = {}
+    closes: dict[str, Any] = dict(local)
+    if eastmoney_secid:
+        try:
+            for day_str, price in eastmoney_index_history(eastmoney_secid, ytd_start, today, cache_day=today):
+                closes.setdefault(day_str, price)
+        except Exception:
+            pass
     if is_overseas:
-        closes = dict(local)
         if len(closes) < 25:
             try:
                 for day, price in overseas_history(provider_symbol, ytd_start, today):
@@ -83,14 +121,18 @@ def _load_benchmark_item(cur, *, key: str, name: str, symbol: str, provider_symb
                 pass
         rows = [{"date": d, "close": str(closes[d])} for d in sorted(closes)]
     else:
-        try:
-            payload = benchmark_history(local, ytd_start, today, today, symbol=provider_symbol, name=name)
-            rows = payload.get("rows") or []
-        except Exception:
-            rows = [{"date": d, "close": str(local[d])} for d in sorted(local)]
+        if len(closes) < 25:
+            try:
+                payload = benchmark_history(closes, ytd_start, today, today, symbol=provider_symbol, name=name)
+                rows = payload.get("rows") or []
+            except Exception:
+                rows = [{"date": d, "close": str(closes[d])} for d in sorted(closes)]
+        else:
+            rows = [{"date": d, "close": str(closes[d])} for d in sorted(closes)]
 
     ytd_pct, as_of = _series_return(rows, ytd_start.isoformat())
     m1_pct, m1_as_of = _series_return(rows, m1_start.isoformat())
+    series = _normalize_return_series(rows, ytd_start.isoformat())
     return {
         "key": key,
         "name": name,
@@ -99,6 +141,7 @@ def _load_benchmark_item(cur, *, key: str, name: str, symbol: str, provider_symb
         "m1_return_pct": m1_pct,
         "as_of": as_of or m1_as_of,
         "status": "ok" if (ytd_pct is not None or m1_pct is not None) else "unavailable",
+        "series": series,
     }
 
 
@@ -205,6 +248,11 @@ def summarize_open_holdings_leaderboard(
 
     winners = sorted([x for x in items if x["pnl_cny"] > 0], key=lambda x: x["pnl_cny"], reverse=True)[:3]
     losers = sorted([x for x in items if x["pnl_cny"] < 0], key=lambda x: x["pnl_cny"])[:3]
+    heatmap_items = sorted(
+        [x for x in items if abs(x["pnl_cny"]) >= 0.01],
+        key=lambda x: abs(x["pnl_cny"]),
+        reverse=True,
+    )
 
     if (
         isinstance(secondary_capital_summary, dict)
@@ -233,6 +281,7 @@ def summarize_open_holdings_leaderboard(
             "winners": winners,
             "losers": losers,
         },
+        "heatmap_items": heatmap_items,
     }
 
 
@@ -294,6 +343,37 @@ def _load_closed_leaderboard_items(cur, *, ref_day: date) -> list[dict[str, Any]
         return []
 
 
+def _portfolio_total_return_series(cur, *, ref_day: date) -> dict[str, Any]:
+    """Read YTD daily total portfolio return curve from the published analysis projection."""
+    ytd_start = date(ref_day.year, 1, 1).isoformat()
+    series: list[dict[str, Any]] = []
+    try:
+        projected = read_page(cur, "analysis", business_date=ref_day, member="sections")
+        sections = (projected or {}).get("data")
+        total = sections.get("total") if isinstance(sections, dict) else None
+        rows = (total or {}).get("rows") if isinstance(total, dict) else None
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            d = str(row.get("date") or "")
+            rate = _f(row.get("capital_return_rate"))
+            if rate is None:
+                rate = _f(row.get("return_rate"))
+            if d >= ytd_start and rate is not None:
+                series.append({"date": d, "return_pct": round(rate * 100.0, 2)})
+    except Exception:
+        series = []
+    series.sort(key=lambda item: item["date"])
+    last = series[-1] if series else None
+    return {
+        "key": "total",
+        "name": "我的总收益率",
+        "ytd_return_pct": last["return_pct"] if last else None,
+        "as_of": last["date"] if last else None,
+        "series": series,
+    }
+
+
 def build_performance_summary_payload(cur, *, today: date | None = None) -> dict[str, Any]:
     ref_day = today or _shanghai_today()
     holdings: list[dict[str, Any]] = []
@@ -315,11 +395,44 @@ def build_performance_summary_payload(cur, *, today: date | None = None) -> dict
         secondary_capital_summary=secondary_capital,
     )
     benchmarks = [
-        _load_benchmark_item(cur, key="hs300", name="沪深300", symbol="000300.SH", provider_symbol="sh000300", today=ref_day, is_overseas=False),
-        _load_benchmark_item(cur, key="qqq", name="纳指100 (QQQ)", symbol="QQQ", provider_symbol="QQQ", today=ref_day, is_overseas=True),
+        _load_benchmark_item(
+            cur,
+            key="ssec",
+            name="上证指数",
+            symbol="000001.SH",
+            provider_symbol="sh000001",
+            eastmoney_secid="1.000001",
+            today=ref_day,
+            is_overseas=False,
+        ),
+        _load_benchmark_item(
+            cur,
+            key="kospi",
+            name="KOSPI",
+            symbol="^KS11",
+            provider_symbol="^KS11",
+            eastmoney_secid="100.KS11",
+            today=ref_day,
+            is_overseas=True,
+        ),
+        _load_benchmark_item(
+            cur,
+            key="sp500",
+            name="标普500",
+            symbol="^GSPC",
+            provider_symbol="^GSPC",
+            eastmoney_secid="100.SPX",
+            today=ref_day,
+            is_overseas=True,
+        ),
     ]
+    portfolio_curve = _portfolio_total_return_series(cur, ref_day=ref_day)
     return {
         "as_of": ref_day.isoformat(),
         **summary,
         "benchmarks": benchmarks,
+        "benchmark_comparison": {
+            "portfolio": portfolio_curve,
+            "benchmarks": benchmarks,
+        },
     }
