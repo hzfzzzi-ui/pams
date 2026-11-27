@@ -39,8 +39,8 @@ export function createInvestmentChartController({ root = document, host = window
     analysisPromise ??= reads.run('analysis', signal => readInvestmentAnalysisView({signal})).then(response => {
       if (current() && response?.projection) {
         analysisStale = response.projection.stale === true;
-        projectionStatus.hidden = !analysisStale;
-        projectionStatus.textContent = analysisStale ? '正在更新 · 显示上一批分析数据' : '';
+        projectionStatus.hidden = true;
+        projectionStatus.textContent = '';
       }
       return response?.data ?? null;
     });
