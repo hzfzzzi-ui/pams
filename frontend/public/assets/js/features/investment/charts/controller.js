@@ -18,7 +18,13 @@ export function createInvestmentChartController({ root = document, host = window
   owners.get(root)?.dispose();
   const reads = createReadScope({AbortController: host?.AbortController});
   const state = createInvestmentChartState(host);
-  const renderer = createInvestmentChartRenderer({ root, host, state, presenters, ChartClass });
+  function publishWindow(labels) {
+    if (!labels?.length) return;
+    const detail = { windowKey: state.activeWindow, startDate: labels[0], endDate: labels.at(-1) };
+    host.__investmentReturnWindow = detail;
+    host.dispatchEvent?.(new host.CustomEvent('pams:return-window-change', { detail }));
+  }
+  const renderer = createInvestmentChartRenderer({ root, host, state, presenters, ChartClass, onWindowChange: publishWindow });
   const sectionSpecs = RETURN_SECTION_SPECS.map((spec, index) => ({
     ...spec,
     color: MARKET_RETURN_COLORS.get(spec.key) ?? SERIES_COLORS[index],
@@ -153,6 +159,7 @@ export function createInvestmentChartController({ root = document, host = window
         && typeof host.IntersectionObserver === 'function');
       const result = renderer.renderReturns({ resp, sectionResponses, sectionSpecs, loadSection });
       publishCharts();
+      publishWindow(renderer.returnChart?.data.labels);
       if (state.contributionPending) {
         const observer = new host.IntersectionObserver(async entries => {
           if (!entries.some(entry => entry.isIntersecting)) return;
@@ -216,6 +223,7 @@ export function createInvestmentChartController({ root = document, host = window
       returnGeneration += 1;
       host.removeEventListener?.('pagehide', onPageHide);
       renderer.dispose();
+      delete host.__investmentReturnWindow;
       if (owners.get(root) === controller) owners.delete(root);
     },
   };

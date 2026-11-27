@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 
 from domain.assets.asset_master import AmbiguousAssetIdentityError, AssetMasterSchemaUnavailable
 from domain.assets.lookthrough_state import build_lookthrough_payload
+from domain.investments.returns.investment_view_date import daily_pnl_window_date
+from domain.investments.valuation.page_projection import performance_summary, read_page
 from domain.investments.valuation.portfolio_state import get_conn
 from domain.investments.attribution.return_attribution import build_return_attribution_payload
-from domain.investments.returns.benchmark_summary import build_performance_summary_payload
 
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -63,11 +64,15 @@ def return_attribution_summary(baseCurrency: str = Query("CNY")) -> dict[str, An
 
 @router.get("/performance-summary")
 def performance_benchmark_summary() -> dict[str, Any]:
-    """Return secondary-market benchmark comparison (HS300/QQQ) and Top 3 winners/losers."""
+    """Return portfolio and four index comparisons and Top 3 winners/losers."""
     with get_conn() as conn:
         conn.set_session(readonly=True, isolation_level="REPEATABLE READ")
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            return build_performance_summary_payload(cur)
+            day = daily_pnl_window_date()
+            cached = read_page(cur, "performance_summary", business_date=day)
+            if cached and not cached["projection"]["stale"]:
+                return cached["data"]
+            return performance_summary(cur, day)
 
 
 @router.post("/asset-master/sync")

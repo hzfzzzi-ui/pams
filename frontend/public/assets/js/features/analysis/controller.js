@@ -309,6 +309,11 @@ export function createAnalysisController({ root = document, host = window, viewS
       initialized = true;
       bindEvents();
       scheduleVisiblePanelLoads();
+      state.returnWindow = host.__investmentReturnWindow;
+      listen(host, 'pams:return-window-change', ({detail}) => {
+        state.returnWindow = detail;
+        view.renderBenchmarkWindow();
+      });
       listen(host, 'hashchange', scheduleVisiblePanelLoads);
       listen(host, 'pams:risk-scope-change', (event) => {
         if (!current()) return;

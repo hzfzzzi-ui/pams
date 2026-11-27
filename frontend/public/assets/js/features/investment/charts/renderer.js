@@ -11,7 +11,7 @@ import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from
 const WINDOW_TOGGLE_IDS = ['investmentReturnWindowToggle', 'investmentNavWindowToggle'];
 
 // Rendering owns DOM listeners and Chart instances, never requests or shared page data.
-export function createInvestmentChartRenderer({ root, host, state, presenters, ChartClass = globalThis.Chart }) {
+export function createInvestmentChartRenderer({ root, host, state, presenters, onWindowChange, ChartClass = globalThis.Chart }) {
   const { esc, statusBadge, formatNumber, formatPercentRate, fmtCny, fmtSignedCny, fmtSignedPctFromRate, TopContributionPanel } = presenters;
   const getElementById = id => root.getElementById ? root.getElementById(id) : root.querySelector(`#${id}`);
   const body = root.body || root;
@@ -611,6 +611,7 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
     renderReturnEventHotspots(chart, state);
     updateInvestmentNavChart(state);
     renderReturnContributionPanel(windowData.topContribution);
+    onWindowChange?.(windowData.labels);
   }
 
   function updateWindowToggleSelection(activeWindow) {

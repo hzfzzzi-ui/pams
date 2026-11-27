@@ -1,19 +1,18 @@
 """Secondary-market performance benchmark comparison and open-holding PnL leaderboard."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
-from domain.investments.valuation.page_projection import read_page
 from domain.market.benchmark_history import (
+    BENCHMARKS,
     benchmark_history,
-    eastmoney_index_history,
+    benchmark_session,
+    missing_index_closes,
     local_benchmark,
     overseas_history,
 )
 
-_SHANGHAI = ZoneInfo("Asia/Shanghai")
 _ACCOUNT_LABELS = {
     "tonghuashun": "同花顺",
     "ibkr": "盈透证券",
@@ -24,10 +23,6 @@ _ACCOUNT_LABELS = {
     "wechat_lqt": "微信零钱通",
     "tencent_licaitong_current_plus": "理财通活期+",
 }
-
-
-def _shanghai_today() -> date:
-    return datetime.now(_SHANGHAI).date()
 
 
 def _clean_display_name(name: str, symbol: str) -> str:
@@ -93,42 +88,31 @@ def _load_benchmark_item(
     key: str,
     name: str,
     symbol: str,
-    provider_symbol: str,
     today: date,
-    is_overseas: bool = False,
-    eastmoney_secid: str | None = None,
+    bucket: str,
+    secid: str,
 ) -> dict[str, Any]:
     ytd_start = date(today.year, 1, 1)
     m1_start = today - timedelta(days=31)
-    rows: list[dict[str, Any]] = []
-    try:
-        local = local_benchmark(cur, ytd_start, today, symbol)
-    except Exception:
-        local = {}
-    closes: dict[str, Any] = dict(local)
-    if eastmoney_secid:
+    end = benchmark_session(bucket, today)
+    closes = local_benchmark(cur, ytd_start, end, symbol) if end and end >= ytd_start else {}
+    if end and end >= ytd_start and end.isoformat() not in closes:
         try:
-            for day_str, price in eastmoney_index_history(eastmoney_secid, ytd_start, today, cache_day=today):
-                closes.setdefault(day_str, price)
-        except Exception:
+            closes.update(missing_index_closes(closes, secid, bucket, ytd_start, end))
+        except (OSError, ValueError):
             pass
-    if is_overseas:
-        if len(closes) < 25:
+        if end.isoformat() not in closes and len(closes) < 25:
             try:
-                for day, price in overseas_history(provider_symbol, ytd_start, today):
-                    closes.setdefault(day.isoformat() if hasattr(day, "isoformat") else str(day), price)
-            except Exception:
+                if bucket == "cn":
+                    fallback = benchmark_history(closes, ytd_start, end, today, symbol="sh000001", name=name)
+                    for row in fallback["rows"]:
+                        closes.setdefault(row["date"], row["close"])
+                else:
+                    for day, price in overseas_history(symbol, ytd_start, end):
+                        closes.setdefault(str(day), price)
+            except (OSError, ValueError):
                 pass
-        rows = [{"date": d, "close": str(closes[d])} for d in sorted(closes)]
-    else:
-        if len(closes) < 25:
-            try:
-                payload = benchmark_history(closes, ytd_start, today, today, symbol=provider_symbol, name=name)
-                rows = payload.get("rows") or []
-            except Exception:
-                rows = [{"date": d, "close": str(closes[d])} for d in sorted(closes)]
-        else:
-            rows = [{"date": d, "close": str(closes[d])} for d in sorted(closes)]
+    rows = [{"date": day, "close": price} for day, price in closes.items()]
 
     ytd_pct, as_of = _series_return(rows, ytd_start.isoformat())
     m1_pct, m1_as_of = _series_return(rows, m1_start.isoformat())
@@ -299,11 +283,9 @@ def summarize_open_holdings_leaderboard(
     }
 
 
-def _secondary_market_capital_summary(cur, *, ref_day: date) -> dict[str, float] | None:
+def _secondary_market_capital_summary(sections) -> dict[str, float] | None:
     """Aggregate ex-ESOP capital-return PnL and capital from the published analysis projection."""
     try:
-        projected = read_page(cur, "analysis", business_date=ref_day, member="sections")
-        sections = (projected or {}).get("data")
         if not isinstance(sections, dict):
             return None
         total_pnl = 0.0
@@ -357,14 +339,12 @@ def _load_closed_leaderboard_items(cur, *, ref_day: date) -> list[dict[str, Any]
         return []
 
 
-def _portfolio_total_return_series(cur, *, ref_day: date) -> dict[str, Any]:
+def _portfolio_total_return_series(total, *, ref_day: date) -> dict[str, Any]:
     """Read YTD daily total portfolio return curve from the published analysis projection."""
     ytd_start = date(ref_day.year, 1, 1).isoformat()
     series: list[dict[str, Any]] = []
     latest_total_pnl: float | None = None
     try:
-        projected = read_page(cur, "analysis", business_date=ref_day, member="total")
-        total = (projected or {}).get("data")
         rows = (total or {}).get("rows") if isinstance(total, dict) else None
         first_pnl: float | None = None
         for row in rows or []:
@@ -395,69 +375,23 @@ def _portfolio_total_return_series(cur, *, ref_day: date) -> dict[str, Any]:
     }
 
 
-def build_performance_summary_payload(cur, *, today: date | None = None) -> dict[str, Any]:
-    ref_day = today or _shanghai_today()
-    holdings: list[dict[str, Any]] = []
-    try:
-        projected = read_page(cur, "holdings", business_date=ref_day, member="holdings")
-        data = (projected or {}).get("data")
-        if isinstance(data, dict) and isinstance(data.get("rows"), list):
-            holdings = data["rows"]
-        elif isinstance(data, list):
-            holdings = data
-    except Exception:
-        holdings = []
+def build_performance_summary_payload(cur, *, today: date, holdings_data, sections, total) -> dict[str, Any]:
+    ref_day = today
+    data = holdings_data
+    holdings = data.get("rows", []) if isinstance(data, dict) else data or []
 
     closed_items = _load_closed_leaderboard_items(cur, ref_day=ref_day)
-    secondary_capital = _secondary_market_capital_summary(cur, ref_day=ref_day)
+    secondary_capital = _secondary_market_capital_summary(sections)
     summary = summarize_open_holdings_leaderboard(
         holdings,
         closed_items=closed_items,
         secondary_capital_summary=secondary_capital,
     )
     benchmarks = [
-        _load_benchmark_item(
-            cur,
-            key="ssec",
-            name="上证指数",
-            symbol="000001.SH",
-            provider_symbol="sh000001",
-            eastmoney_secid="1.000001",
-            today=ref_day,
-            is_overseas=False,
-        ),
-        _load_benchmark_item(
-            cur,
-            key="kospi",
-            name="KOSPI",
-            symbol="^KS11",
-            provider_symbol="^KS11",
-            eastmoney_secid="100.KS11",
-            today=ref_day,
-            is_overseas=True,
-        ),
-        _load_benchmark_item(
-            cur,
-            key="sp500",
-            name="标普500",
-            symbol="^GSPC",
-            provider_symbol="^GSPC",
-            eastmoney_secid="100.SPX",
-            today=ref_day,
-            is_overseas=True,
-        ),
-        _load_benchmark_item(
-            cur,
-            key="nasdaq",
-            name="纳指",
-            symbol="^NDX",
-            provider_symbol="^NDX",
-            eastmoney_secid="100.NDX",
-            today=ref_day,
-            is_overseas=True,
-        ),
+        _load_benchmark_item(cur, key=key, name=name, symbol=symbol, today=ref_day, bucket=bucket, secid=secid)
+        for key, name, symbol, secid, bucket in BENCHMARKS
     ]
-    portfolio_curve = _portfolio_total_return_series(cur, ref_day=ref_day)
+    portfolio_curve = _portfolio_total_return_series(total, ref_day=ref_day)
     if portfolio_curve.get("ytd_pnl_cny") is not None:
         summary["portfolio"]["total_pnl_cny"] = portfolio_curve["ytd_pnl_cny"]
     if portfolio_curve.get("ytd_return_pct") is not None:

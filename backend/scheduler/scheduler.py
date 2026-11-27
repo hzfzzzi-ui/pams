@@ -555,6 +555,13 @@ def run_calendar_fx(now=None):
         return {"status": "error", "reason": "checkpoint_unavailable"}
 
 
+def refresh_benchmark_closes():
+    result = _call("prices/refresh/benchmarks", "Benchmark daily closes", max_attempts=1)
+    if result_issues(result):
+        logger.warning("Benchmark close refresh incomplete: %s", (result or {}).get("errors"))
+    return result
+
+
 def refresh_crypto():
     """Refresh crypto prices."""
     return _call("prices/refresh/crypto", "Crypto")
@@ -740,6 +747,7 @@ def main():
     )
     imap_poll_time = os.environ.get("PAMS_IMAP_POLL_TIME", "08:30")
     schedule.every().day.at(imap_poll_time, ASIA_PACIFIC_REFRESH_TZ).do(run_daily_imap_bill_poll)
+    schedule.every(30).minutes.do(refresh_benchmark_closes)
     schedule.every(30).minutes.do(refresh_crypto)
     schedule.every(5).minutes.do(refresh_us_quotes)
     schedule.every(5).minutes.do(refresh_overseas_quotes)
@@ -751,6 +759,7 @@ def main():
     if _env_bool("PAMS_SCHEDULER_SKIP_STARTUP_REFRESH"):
         logger.info("Startup refresh skipped; scheduled jobs remain enabled")
     else:
+        refresh_benchmark_closes()
         refresh_us_quotes()
         refresh_overseas_quotes()
         refresh_crypto()

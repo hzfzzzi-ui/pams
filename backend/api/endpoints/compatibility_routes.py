@@ -818,7 +818,7 @@ def create_compatibility_router(
                 published = page_projection.read_page(cur, "analysis", business_date=_investment_today_label_date())
                 return json(published) if published is not None else json({}, status_code=404)
 
-    def build_investment_pages(cur):
+    def build_investment_pages(cur, business_date):
         start = Date.fromisoformat(page_projection.PAGE_START)
         curve_args = dict(start_date=start, interval="daily", baseCurrency="CNY")
         revisions = None
@@ -865,7 +865,7 @@ def create_compatibility_router(
             "precious_metal": capital_bundle["precious_metal"] if capital_bundle["precious_metal"].get("status") == "available" else legacy_sections["precious_metal"],
             "wealth": capital_bundle["wealth"],
         }
-        return {
+        pages = {
             "account_histories": accounts_endpoint._norm(histories),
             "account_balances": balances,
             "holdings": {
@@ -882,14 +882,18 @@ def create_compatibility_router(
             },
         }
 
+        pages["performance_summary"] = page_projection.performance_summary(cur, business_date, pages)
+        return pages
+
     @router.post("/api/investment/page-projection/refresh")
     def refresh_investment_pages():
         with get_conn() as conn:
             conn.set_session(isolation_level="REPEATABLE READ")
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                day = _investment_today_label_date()
                 return json(page_projection.refresh(
-                    cur, business_date=_investment_today_label_date(),
-                    build=build_investment_pages, connect=get_conn,
+                    cur, business_date=day,
+                    build=lambda read: build_investment_pages(read, day), connect=get_conn,
                 ))
 
 

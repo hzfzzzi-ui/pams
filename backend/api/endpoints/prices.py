@@ -34,6 +34,7 @@ from domain.market.price_refresh import (
     _normalize_overseas_market_filter,
     _price_refresh_as_of,
     _refresh_category,
+    refresh_benchmark_closes,
     _refresh_scheduled_overseas_quotes,
     _today_cst,
     logger,
@@ -210,6 +211,11 @@ def get_trade_price_context(
     payload["lookback_days"] = lookback
     payload["lookahead_days"] = lookahead
     return _json(payload)
+
+
+@router.post("/prices/refresh/benchmarks")
+def refresh_benchmarks():
+    return refresh_benchmark_closes()
 
 
 @router.post("/prices/refresh/a-stock")

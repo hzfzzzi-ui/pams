@@ -4,10 +4,12 @@ from contextlib import closing
 
 from psycopg2.extras import Json, RealDictCursor
 
+from domain.investments.returns.benchmark_summary import build_performance_summary_payload
+
 
 PAGE_START = "2026-01-01"
 _RECHECK_MINUTES = 5
-PROJECTION_SCHEMA_VERSION = "6"
+PROJECTION_SCHEMA_VERSION = "7"
 
 
 def schema_available(cur):
@@ -38,6 +40,19 @@ def read_page(cur, page, *, business_date, member=None):
             "stale": row["stale"],
         },
     }
+
+
+def performance_summary(cur, business_date, pages=None):
+    def member(page, key):
+        if pages is not None:
+            return pages[page][key]
+        projected = read_page(cur, page, business_date=business_date, member=key)
+        return (projected or {}).get("data")
+
+    return build_performance_summary_payload(
+        cur, today=business_date, holdings_data=member("holdings", "holdings"),
+        sections=member("analysis", "sections"), total=member("analysis", "total"),
+    )
 
 
 def refresh(cur, *, business_date, build, connect):

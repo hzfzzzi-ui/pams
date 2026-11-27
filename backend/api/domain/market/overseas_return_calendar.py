@@ -9,7 +9,7 @@ import exchange_calendars as xcals
 
 from domain.investments.returns.investment_view_date import daily_pnl_window_date
 
-MARKET_CALENDARS = {"us": "XNYS", "hk": "XHKG", "kr": "XKRX", "se": "XSTO", "ch": "XSWX"}
+MARKET_CALENDARS = {"cn": "XSHG", "us": "XNYS", "hk": "XHKG", "kr": "XKRX", "se": "XSTO", "ch": "XSWX"}
 MARKET_CURRENCIES = {"us": "USD", "hk": "HKD", "kr": "KRW", "se": "SEK", "ch": "CHF"}
 MARKET_LABELS = {"us": "美股", "hk": "港股", "kr": "韩股", "se": "瑞典", "ch": "瑞士"}
 _LISTINGS = {"美国": "us", "united states": "us", "香港": "hk", "hong kong": "hk",
@@ -38,7 +38,7 @@ def market_bucket(row: dict[str, Any]) -> str | None:
     return next((bucket for bucket, ccy in MARKET_CURRENCIES.items() if ccy == currency), None)
 
 
-@lru_cache(maxsize=5)
+@lru_cache(maxsize=None)
 def market_calendar(bucket: str):
     return xcals.get_calendar(MARKET_CALENDARS[bucket])
 
