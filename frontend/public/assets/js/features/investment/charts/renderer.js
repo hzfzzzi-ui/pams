@@ -175,10 +175,32 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
                   if (estimate) {
                     return `${estimate.label || ctx.dataset.label} · ${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
                   }
+                  const secRows = chartState.sectionRowsByKey?.get(ctx.dataset.returnSeriesKey) || [];
+                  const secRow = secRows.find(item => item.date === date) || {};
+                  if (secRow.return_basis === 'capital_return') {
+                    const lines = [`${ctx.dataset.label}投入本金收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`];
+                    if (secRow.total_pnl != null) lines.push(`${ctx.dataset.label}累计盈亏：${formatReturnMetric(secRow.total_pnl, fmtSignedCny)}`);
+                    if (secRow.cumulative_capital != null) lines.push(`${ctx.dataset.label}投入本金：${formatReturnMetric(secRow.cumulative_capital, amount => `¥${fmt2(amount)}`)}`);
+                    if (secRow.time_weighted_return_rate != null) lines.push(`时间加权(TWR)：${formatReturnMetric(secRow.time_weighted_return_rate, fmtSignedPctFromRate)}`);
+                    return lines;
+                  }
                   return `${ctx.dataset.label}区间收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
                 }
                 const visibleRows = chartState.visibleRows || [];
                 const row = visibleRows.find(item => item.date === date) || {};
+                const isCapitalBasis = row.return_basis === 'capital_return' || chartState.totalReturnScope === 'capital_return';
+                if (isCapitalBasis) {
+                  const lines = [
+                    `投入本金收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`,
+                    `累计投资收益：${formatReturnMetric(row.total_pnl, fmtSignedCny)}`,
+                    `自有投入本金：${formatReturnMetric(row.cumulative_capital, amount => `¥${fmt2(amount)}`)}`,
+                    `投资净值：${formatReturnMetric(row.market_value, amount => `¥${fmt2(amount)}`)}`,
+                  ];
+                  if (row.time_weighted_return_rate != null) {
+                    lines.push(`时间加权(TWR)：${formatReturnMetric(row.time_weighted_return_rate, fmtSignedPctFromRate)}`);
+                  }
+                  return lines;
+                }
                 return [
                   `区间总收益率：${value >= 0 ? '+' : ''}${value.toFixed(2)}%`,
                   `单日收益率：${formatReturnMetric(row.daily_return_rate, fmtSignedPctFromRate)}`,
@@ -651,13 +673,20 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, C
       income_evidence_unknown: '组合总收益率待核验，部分收益缺少有效来源或实收金额。',
       account_cash_coverage_unverified: '组合总收益率待核验，部分证券账户的历史现金和出入金覆盖尚未核验。',
     }[state?.totalReturnReason] ?? '组合总收益率在此区间暂无可用数据。';
-    const positionScopeStatus = state?.totalReturnScope === 'investment_positions'
-      ? '投资持仓收益 · 按可估值及可比较的标的计算' : '';
+    const positionScopeStatus = state?.totalReturnScope === 'capital_return'
+      ? '投入本金口径 · 含融资杠杆（股票含A股与海外全市场）'
+      : state?.totalReturnScope === 'investment_positions'
+        ? '投资持仓收益 · 按可估值及可比较的标的计算' : '';
     showStatus(totalUnavailable ? totalUnavailableMessage : positionScopeStatus);
     el.setAttribute('aria-multiselectable', 'true');
+    const visibleSectionSpecs = sectionSpecs.filter(spec => {
+      if (!spec.optional) return true;
+      const ds = chart.data.datasets.find(row => row.returnSeriesKey === spec.key);
+      return Boolean(ds?.data?.some(value => value != null));
+    });
     const options = [
       { key: 'total', label: '总收益率', datasetLabel: '总收益率', color: CHART_THEME.line },
-      ...sectionSpecs.map(spec => ({ key: spec.key, label: spec.label, datasetLabel: spec.label, color: spec.color })),
+      ...visibleSectionSpecs.map(spec => ({ key: spec.key, label: spec.label, datasetLabel: spec.label, color: spec.color })),
     ];
     const syncButtons = () => {
       el.querySelectorAll('[data-return-series]').forEach(btn => {

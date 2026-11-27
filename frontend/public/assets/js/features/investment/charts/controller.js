@@ -8,10 +8,10 @@ import { createInvestmentChartRenderer } from './renderer.js';
 
 const owners = new WeakMap();
 const MARKET_RETURN_COLORS = new Map([
-  ['a_stock', '#ff6269'],
+  ['stocks', '#ff6269'],
   ['a_fund', '#54cdb2'],
-  ['us_stock', '#69aaff'],
   ['precious_metal', '#f4c34f'],
+  ['wealth', '#a78bfa'],
 ]);
 
 export function createInvestmentChartController({ root = document, host = window, presenters, ChartClass = globalThis.Chart, loadChartClass = () => ChartClass, onNavUpdate }) {
@@ -171,7 +171,7 @@ export function createInvestmentChartController({ root = document, host = window
       }
       // Load the default section if the portfolio series is unavailable.
       if (!(resp.rows || []).some(row => returnRateForChart(row) != null)) {
-        await loadSection('a_stock');
+        await loadSection('stocks');
       }
       return result;
     } catch (error) {

@@ -478,7 +478,7 @@ def create_compatibility_router(
 
     @router.get("/investment/section-return-series")
     def investment_section_return_series(
-        section: str = Query(..., pattern="^(a_stock|a_fund|us_stock|precious_metal)$"),
+        section: str = Query(..., pattern="^(a_stock|a_fund|us_stock|precious_metal|stocks|wealth)$"),
         start: str = Query("2026-01-01"),
         interval: str = Query("daily", pattern="^(daily|weekly)$"),
         baseCurrency: str = "CNY",
@@ -492,6 +492,23 @@ def create_compatibility_router(
         with get_conn() as conn:
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                if section in ("stocks", "wealth"):
+                    published = page_projection.read_page(cur, "analysis", business_date=_investment_today_label_date(), member="sections")
+                    cached = ((published or {}).get("data") or {}).get(section)
+                    if isinstance(cached, dict) and cached.get("rows") is not None:
+                        return json(cached)
+                    from domain.investments.returns.capital_return_series import build_asset_type_capital_return_bundle
+                    histories = {}
+                    _verified_nav_weekly(cur, latest=True, start_date=None, interval="daily", baseCurrency=baseCurrency, account_histories=histories)
+                    view_as_of = latest_position_valuation_date(
+                        cur, holding_date=_investment_return_view_as_of(cur), through=_investment_today_label_date()
+                    )
+                    bundle = build_asset_type_capital_return_bundle(
+                        cur, start=start_date, end=view_as_of, base_currency=baseCurrency,
+                        owner_ratio=_account_owner_ratio, excluded_accounts=_excluded_holding_accounts(),
+                        histories=histories,
+                    )
+                    return json(bundle[section])
                 return json(build_section_curve(cur, section=section, start_date=start_date, interval=interval, baseCurrency=baseCurrency))
 
     def build_section_curve(cur, *, section, start_date, interval, baseCurrency, read_revision=_return_revision):
@@ -819,6 +836,35 @@ def create_compatibility_router(
         card_bals = account_center_balances(
             holdings["account_positions"], holdings["funds"], holdings["account_cards"])
         balances = accounts_endpoint._norm(merge_account_center_balances(balances, card_bals))
+        from domain.investments.returns.capital_return_series import build_asset_type_capital_return_bundle
+
+        legacy_total = build_total_curve(cur, **curve_args, read_revision=read_revision)
+        view_as_of = latest_position_valuation_date(
+            cur, holding_date=_investment_return_view_as_of(cur), through=_investment_today_label_date()
+        )
+        capital_bundle = build_asset_type_capital_return_bundle(
+            cur,
+            start=start,
+            end=view_as_of,
+            base_currency="CNY",
+            owner_ratio=_account_owner_ratio,
+            excluded_accounts=_excluded_holding_accounts(),
+            histories=histories,
+        )
+        total_curve = capital_bundle["total"] if capital_bundle["total"].get("status") == "available" else legacy_total
+        if isinstance(legacy_total, dict) and legacy_total.get("closed_wealth_returns") is not None:
+            total_curve = {**total_curve, "closed_wealth_returns": legacy_total["closed_wealth_returns"]}
+        legacy_sections = {
+            section: build_section_curve(cur, section=section, **curve_args, read_revision=read_revision)
+            for section in ("a_stock", "a_fund", "us_stock", "precious_metal")
+        }
+        sections_payload = {
+            **legacy_sections,
+            "stocks": capital_bundle["stocks"],
+            "a_fund": capital_bundle["a_fund"] if capital_bundle["a_fund"].get("status") == "available" else legacy_sections["a_fund"],
+            "precious_metal": capital_bundle["precious_metal"] if capital_bundle["precious_metal"].get("status") == "available" else legacy_sections["precious_metal"],
+            "wealth": capital_bundle["wealth"],
+        }
         return {
             "account_histories": accounts_endpoint._norm(histories),
             "account_balances": balances,
@@ -831,11 +877,8 @@ def create_compatibility_router(
                 # The opening observation is the previous year's close; keep
                 # its actual date rather than treating it as a January 1 close.
                 "nav": nav,
-                "total": build_total_curve(cur, **curve_args, read_revision=read_revision),
-                "sections": {
-                    section: build_section_curve(cur, section=section, **curve_args, read_revision=read_revision)
-                    for section in ("a_stock", "a_fund", "us_stock", "precious_metal")
-                },
+                "total": total_curve,
+                "sections": sections_payload,
             },
         }
 

@@ -53,6 +53,26 @@ function rebaseReturnRate(rate, baseRate) {
   return ((1 + safeNum(rate)) / denominator) - 1;
 }
 
+function capitalWindowReturnRate(row, baseRow, windowKey) {
+  if (!row || row.return_basis !== 'capital_return') return null;
+  const rate = returnRateForChart(row);
+  if (rate === null) return null;
+  if (windowKey === 'ytd' || !baseRow) return rate;
+  const pnl = row.total_pnl != null ? Number(row.total_pnl) : NaN;
+  const basePnl = baseRow.total_pnl != null ? Number(baseRow.total_pnl) : NaN;
+  const baseMv = baseRow.market_value != null ? Number(baseRow.market_value) : NaN;
+  const cap = row.cumulative_capital != null ? Number(row.cumulative_capital) : NaN;
+  const baseCap = baseRow.cumulative_capital != null ? Number(baseRow.cumulative_capital) : NaN;
+  if (Number.isFinite(pnl) && Number.isFinite(basePnl) && Number.isFinite(baseMv)
+      && Number.isFinite(cap) && Number.isFinite(baseCap)) {
+    const netAdded = Math.max(0, cap - baseCap);
+    const denom = baseMv + netAdded;
+    if (denom > 0.005) return (pnl - basePnl) / denom;
+  }
+  const baseRate = returnRateForChart(baseRow);
+  return baseRate === null ? rate : rebaseReturnRate(rate, baseRate);
+}
+
 function returnWindowLabel(windowKey) {
   return RETURN_WINDOW_OPTIONS.find(item => item.key === windowKey)?.label || '年初至今';
 }
@@ -157,10 +177,14 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
   }
   const labels = [...dates].sort();
   const totalByDate = new Map(windowRows.map(row => [row.date, row]));
-  const totalBaseRate = windowRows.map(returnRateForChart).find(value => value !== null) ?? null;
+  const totalBaseRow = windowRows.find(row => returnRateForChart(row) !== null) ?? null;
+  const totalBaseRate = totalBaseRow ? returnRateForChart(totalBaseRow) : null;
   const totalData = labels.map(date => {
-    const rate = returnRateForChart(totalByDate.get(date));
-    return rate === null || totalBaseRate === null ? null : rebaseReturnRate(rate, totalBaseRate) * 100;
+    const row = totalByDate.get(date);
+    const rate = returnRateForChart(row);
+    if (rate === null || totalBaseRate === null) return null;
+    const capRate = capitalWindowReturnRate(row, totalBaseRow, windowKey);
+    return (capRate !== null ? capRate : rebaseReturnRate(rate, totalBaseRate)) * 100;
   });
   const labelSet = new Set(labels);
   const visibleEvents = (events || [])
@@ -173,11 +197,13 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
   for (const spec of sectionSpecs) {
     const estimate = sectionEstimates.get(spec.key);
     const sectionRows = estimate?.rows || sectionRowsByKey.get(spec.key) || [];
+    const rowByDate = new Map(sectionRows.map(row => [row.date, row]));
     const rateByDate = new Map(sectionRows.map(row => [row.date, returnRateForChart(row)]));
     const usable = sectionRows.filter(row => rateByDate.get(row.date) != null);
     const loneHoldingReturn = usable.length === 1
       && usable[0].return_rate_basis === 'current_holding_pnl_over_cost';
     let sectionBaseRate = null;
+    let sectionBaseRow = null;
     const zeroBefore = sectionZeroBefore.get(spec.key);
     const sectionData = labels.map(date => {
       if (!rateByDate.has(date)) {
@@ -187,12 +213,17 @@ function buildInvestmentReturnWindowData(rows, sectionRowsByKey, sectionSpecs, w
         }
         return null;
       }
+      const row = rowByDate.get(date);
       const rate = rateByDate.get(date);
       if (rate === null || !Number.isFinite(rate)) return null;
       if (estimate) return rate * 100;
       if (loneHoldingReturn) return windowKey === 'ytd' ? rate * 100 : null;
-      if (sectionBaseRate == null) sectionBaseRate = rate;
-      return rebaseReturnRate(rate, sectionBaseRate) * 100;
+      if (sectionBaseRate == null) {
+        sectionBaseRate = rate;
+        sectionBaseRow = row;
+      }
+      const capRate = capitalWindowReturnRate(row, sectionBaseRow, windowKey);
+      return (capRate !== null ? capRate : rebaseReturnRate(rate, sectionBaseRate)) * 100;
     });
     const pointRadius = pointRadiusForReturnSeries(sectionData.filter(value => value != null).length, isMobile);
     const gaps = sectionGapDates.get(spec.key);
