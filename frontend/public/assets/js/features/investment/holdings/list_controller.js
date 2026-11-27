@@ -1,5 +1,5 @@
 import {
-  esc, buildAccountCashRows,
+  esc, stockMarketLabel, buildAccountCashRows,
   isInvestmentRow, historicalReferenceRow
 } from './list_legacy_model.js';
 import {
@@ -103,7 +103,7 @@ export function mount(root, context) {
       if (secondary) {
         secondary.hidden = !segments.length || !['股票','基金'].includes(currentGroup);
         secondary.innerHTML = secondary.hidden ? '' : button(currentGroup === '股票' ? '全部市场' : '全部基金','',!currentSegment)
-          + segments.map(g => button(g,g,g === currentSegment)).join('');
+          + segments.map(g => button(currentGroup === '股票' ? stockMarketLabel(g) : g,g,g === currentSegment)).join('');
       }
       if (currentGroup === '负债') {
         view.renderFinancing(overview?.financing_items);

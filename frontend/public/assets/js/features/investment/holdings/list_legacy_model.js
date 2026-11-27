@@ -176,10 +176,19 @@ export function dilutedAveragePriceText(row) {
   return currency && currency !== 'CNY' ? `${text} ${currency}` : text;
 }
 
+export function stockMarketLabel(market) {
+  if (market === 'stock') return '股票';
+  return typeLabel(market).replace(/个股$/, '');
+}
+
 export function holdingGroupLabel(row) {
+  if (row.position_group === '股票') {
+    const market = row.position_segment || row.minor_category || row.major_category;
+    return stockMarketLabel(market) || '股票';
+  }
   const label = typeLabel(row.minor_category || row.type || row.major_category) || '其他';
+  if (label.endsWith('个股')) return stockMarketLabel(label);
   const normalized = {
-    A股: 'A股个股',
     美股基金: '美股/海外',
     黄金: '贵金属',
     员工持股: '内部股份/分红',
@@ -188,8 +197,8 @@ export function holdingGroupLabel(row) {
 }
 
 export function holdingGroupRank(label) {
-  const order = ['A股个股', 'A股基金', '基金', '美股', '港股', '韩股', '美股/海外', '贵金属', '内部股份', 'ESOP', '现金/活期', '现金'];
-  const index = order.findIndex((item) => label.includes(item));
+  const order = ['A股', 'A股基金', '基金', '美股', '港股', '韩股', '美股/海外', '贵金属', '内部股份', 'ESOP', '现金/活期', '现金'];
+  const index = order.findIndex((item) => label === item || label.startsWith(item + '/'));
   return index >= 0 ? index : order.length;
 }
 
