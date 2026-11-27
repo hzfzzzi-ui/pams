@@ -170,7 +170,10 @@
           <section class="investmentAnalysisCard investmentReturnCard" aria-labelledby="investmentReturnHeading">
             <div class="returnChartHeader">
               <h3 id="investmentReturnHeading">组合收益率</h3>
-              <div id="investmentReturnWindowToggle" class="returnWindowSegment" aria-label="收益率曲线时间范围切换"></div>
+              <div class="returnWindowControls">
+                <time id="investmentTotalReturnAsOf" class="muted" hidden></time>
+                <div id="investmentReturnWindowToggle" class="returnWindowSegment" aria-label="收益率曲线时间范围切换"></div>
+              </div>
             </div>
             <div id="investmentReturnToggle" class="returnSeriesToggle" aria-label="收益率曲线切换"></div>
             <div id="investmentReturnSeriesStatus" class="returnChartHint" role="status" hidden></div>

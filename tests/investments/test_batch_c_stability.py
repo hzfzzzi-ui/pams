@@ -429,10 +429,17 @@ def test_page_projection_stamps_and_checks_schema_version():
     result = page_projection.refresh(
         _FakeWriteCur(),
         business_date=date(2026, 11, 27),
-        build=lambda cur: {"holdings": {"ok": True}},
+        expected_through=date(2026, 11, 27),
+        build=lambda cur: {"holdings": {"ok": True}, "analysis": {"total": {"rows": [
+            {"date": "2026-11-25", "return_rate": "0"},
+            {"date": "2026-11-26", "return_rate": None},
+            {"date": "2026-11-27", "return_rate": ""},
+        ]}}},
         connect=lambda: _FakeReader(),
     )
-    assert result == {"status": "published", "revision": 5}
+    assert result == {"status": "waiting", "revision": 5, "analysis_total_as_of": "2026-11-25",
+                      "reason": "waiting_for_return_inputs"}
+    assert written["payload"]["analysis"]["total"]["return_as_of"] == "2026-11-25"
     assert written["payload"]["_schema_version"] == page_projection.PROJECTION_SCHEMA_VERSION
     assert written["payload"]["holdings"] == {"ok": True}
 

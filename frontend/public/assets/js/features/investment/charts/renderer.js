@@ -5,7 +5,7 @@ import {
   createInvestmentReturnCanvasFallback as buildReturnCanvasFallback,
   drawInvestmentNavCanvasFallback as renderNavCanvasFallback,
 } from './canvas_fallback.js';
-import { RETURN_WINDOW_OPTIONS, buildInvestmentNavChartData } from './legacy_model.js';
+import { RETURN_WINDOW_OPTIONS, buildInvestmentNavChartData, returnRateForChart } from './legacy_model.js';
 import { initializeReturnState, updateVisibleReturnState, setReturnWindow } from './state.js';
 
 const WINDOW_TOGGLE_IDS = ['investmentReturnWindowToggle', 'investmentNavWindowToggle'];
@@ -59,6 +59,13 @@ export function createInvestmentChartRenderer({ root, host, state, presenters, o
     const el = getElementById('investmentReturnChart');
     if (!el) return null;
     const rows = resp.rows || [];
+    const cutoff = getElementById('investmentTotalReturnAsOf');
+    if (cutoff) {
+      const day = resp.return_as_of ?? rows.findLast(row => returnRateForChart(row) !== null)?.date;
+      cutoff.dateTime = day || '';
+      cutoff.textContent = day ? `截至 ${day.slice(5).replace('-', '/')}` : '';
+      cutoff.hidden = !day;
+    }
     const chartState = state;
     chartState.loadSection = loadSection;
     chartState.loadedSections = new Set(sectionSpecs.filter((_, index) => sectionResponses[index]).map(spec => spec.key));
