@@ -8,6 +8,7 @@ import {
   fmtSignedPctFromRate, sectionTodayReturnAmount, annualizedRateFromPeriod, buildInvestmentConclusion
 } from './summary_legacy_model.js';
 import { fmt2, accountLabel } from '../../../api.js';
+import { stockMarketLabel } from './list_legacy_model.js';
 import { safeNum, pnlPct } from '../../../utils.js';
 import { CHART_THEME, SERIES_COLORS } from '../../../shared/chart_theme.js';
 import {
@@ -210,23 +211,30 @@ function filteredPositionHero(category, segment, data, account, selection) {
   const day = data?.daily_as_of?.slice(5).replace('-', '/');
   const known = data?.daily_pnl_valued_count || 0;
   const estimate = data?.daily_pnl_estimated_count ? '（含估算）' : '';
-  const partial = known > 0 && known < data?.daily_pnl_total_count;
+  const total = data?.daily_pnl_total_count;
+  let coverage = '';
+  if (known < total) {
+    if (category === '股票') coverage = ` · 已知 ${known}/${total}`;
+    else if (known > 0) coverage = '（部分）';
+  }
   const metric = (label, value, { signed = false, main = false } = {}) => {
     const tone = signed && value != null && Number(value) !== 0 ? (Number(value) > 0 ? 'up' : 'down') : '';
     return `<div class="mobileHeroPrimaryMetric${main ? ' main' : ''}"><span>${esc(label)}</span><strong class="${tone}">${value == null ? '—' : signed ? fmtSignedCny(value) : fmtCny(value)}</strong></div>`;
   };
-  const showAccount = category === '股票' || segment !== '场内';
+  const domesticStock = category === '股票' && segment === 'A股';
+  const showAccount = domesticStock || (category === '基金' && segment !== '场内');
   const fundNav = category === '基金' && segment === '场外';
   const marketLabel = data?.missing_values ? '已知持仓市值' : '持仓市值';
-  return `<div class="mobileAccountHeroTop"><span>${esc(category === '基金' ? (segment ? segment + '基金' : '全部基金') : segment)}</span>${filterWeightLabel(selection)}</div>
+  const title = category === '基金' ? (segment || '全部') + '基金' : segment ? stockMarketLabel(segment) : '全部股票';
+  return `<div class="mobileAccountHeroTop"><span>${esc(title)}</span>${filterWeightLabel(selection)}</div>
     <div class="mobileHeroPrimaryGrid">
       ${metric(fundNav ? '场外基金及活期净值（估算）' : marketLabel, fundNav ? account?.net_value?.value : data?.market_value_cny, { main: true })}
-      ${metric(`今日盈亏${day ? ' · ' + day : ''}${partial ? '（部分）' : ''}${estimate}`, data?.daily_pnl_cny, { signed: true })}
+      ${metric(`今日盈亏${day ? ' · ' + day : ''}${coverage}${estimate}`, data?.daily_pnl_cny, { signed: true })}
       ${metric(data?.floating_pnl_missing ? '已知持仓浮盈' : '持仓浮盈', data?.floating_pnl_cny, { signed: true })}
     </div>
-    <div class="mobileHeroMiniGrid">
+    <div class="mobileHeroMiniGrid${showAccount ? '' : ' mobileHeroMiniGrid-empty'}">
       ${fundNav ? mobileHeroMetaItem(marketLabel, data?.market_value_cny == null ? '—' : fmtCny(data.market_value_cny)) : ''}
-      ${category === '股票' ? mobileHeroMetaItem('同花顺账户净值', account?.net_value?.value == null ? '—' : fmtCny(account.net_value.value)) : ''}
+      ${domesticStock ? mobileHeroMetaItem('同花顺账户净值', account?.net_value?.value == null ? '—' : fmtCny(account.net_value.value)) : ''}
       ${category === '基金' && !segment ? mobileHeroMetaItem('场外基金及活期净值（估算）', account?.net_value?.value == null ? '—' : fmtCny(account.net_value.value)) : ''}
       ${showAccount && account?.cumulative_pnl?.value != null ? mobileHeroMetaItem(category === '股票' ? '账户持仓累计盈亏' : '场外基金已核对盈亏', fmtSignedCny(account.cumulative_pnl.value)) : ''}
       ${showAccount ? mobileHeroMetaItem('现金余额', account?.cash?.value == null ? '—' : fmtCny(account.cash.value)) : ''}
@@ -239,11 +247,13 @@ function updateMobilePortfolioHero(group = currentMobileHeroGroup()) {
   if (!mobileHeroEl) return;
   const selected = normalizeMobileHeroGroup(group);
   const profile = mobileHeroContext.profiles[selected] || mobileHeroContext.profiles['全部'];
-  mobileHeroEl.classList.toggle('mobileHeroAll', Boolean(profile.hideHeader));
-  mobileHeroEl.classList.toggle('mobileHeroCategory', !profile.hideHeader);
   const filter = document.getElementById('holdingGroupFilter');
   const category = filter?.value;
   const segment = filter?.dataset.segment || '';
+  const filteredPosition = category === '股票' || category === '基金';
+  const showAllHero = !filteredPosition && Boolean(profile.hideHeader);
+  mobileHeroEl.classList.toggle('mobileHeroAll', showAllHero);
+  mobileHeroEl.classList.toggle('mobileHeroCategory', !showAllHero);
   const overview = mobileHeroContext.profiles['全部']?.accountCard;
   const weights = overview?.filter_weights;
   const selection = category && !['全部', '负债', '现金/活期'].includes(category) ? {
@@ -251,7 +261,7 @@ function updateMobilePortfolioHero(group = currentMobileHeroGroup()) {
     partial: !overview?.complete_position_weights,
     label: segment || category,
   } : null;
-  if (category === '基金' || (category === '股票' && segment === 'A股')) {
+  if (filteredPosition) {
     const data = mobileHeroContext.filterSummaries?.[category]?.[segment];
     mobileHeroEl.innerHTML = filteredPositionHero(category, segment, data, profile.accountCard, selection);
     return;
