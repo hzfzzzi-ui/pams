@@ -191,6 +191,7 @@ const BENCH_LINE_META = {
   ssec: { color: '#f97316', width: 1.7, primary: false },
   kospi: { color: '#a78bfa', width: 1.7, primary: false },
   sp500: { color: '#34d399', width: 1.7, primary: false },
+  nasdaq: { color: '#fbbf24', width: 1.7, primary: false },
 };
 
 function compactTileName(raw, maxLen = 7) {
@@ -246,11 +247,10 @@ function treemapPartition(items, rect) {
   ];
 }
 
-function buildPnlTreemapHtml(items, portfolio) {
+function buildPnlTreemap(items, portfolio) {
   const valid = (items || [])
     .filter((r) => r && Number.isFinite(Number(r.pnl_cny)) && Math.abs(Number(r.pnl_cny)) >= 0.01)
-    .sort((a, b) => Math.abs(Number(b.pnl_cny)) - Math.abs(Number(a.pnl_cny)))
-    .slice(0, 12);
+    .sort((a, b) => Math.abs(Number(b.pnl_cny)) - Math.abs(Number(a.pnl_cny)));
   const gainCount = valid.filter((r) => Number(r.pnl_cny) > 0).length;
   const lossCount = valid.filter((r) => Number(r.pnl_cny) < 0).length;
   const headerPnl = portfolio?.total_pnl_cny ?? portfolio?.ex_esop_pnl_cny;
@@ -258,24 +258,28 @@ function buildPnlTreemapHtml(items, portfolio) {
   const myTone = headerPct == null ? '' : Number(headerPct) >= 0 ? 'good' : 'bad';
 
   if (!valid.length) {
-    return `
-      <div class="perfBlockCard perfTreemapCard">
-        <div class="perfBlockHead">
-          <h3>盈亏分布图</h3>
-          <span class="perfBlockSub">含已清仓</span>
+    return {
+      items: [],
+      html: `
+        <div class="perfBlockCard perfTreemapCard">
+          <div class="perfBlockHead">
+            <h3>盈亏分布图</h3>
+          </div>
+          <div class="lookthroughEmpty compact">暂无盈亏分布数据</div>
         </div>
-        <div class="lookthroughEmpty compact">暂无盈亏分布数据</div>
-      </div>
-    `;
+      `,
+    };
   }
 
-  const weighted = valid.map((row) => ({
+  const weighted = valid.map((row, idx) => ({
     row,
-    weight: Math.max(Math.pow(Math.abs(Number(row.pnl_cny)), 0.72), 1),
+    idx,
+    weight: Math.max(Math.pow(Math.abs(Number(row.pnl_cny)), 0.78), 1),
   }));
   const layout = treemapPartition(weighted, { x: 0, y: 0, w: 100, h: 100 });
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-  const tilesHtml = layout.map(({ row, rect }) => {
+  const tilesHtml = layout.map(({ row, idx, rect }) => {
     const pnl = Number(row.pnl_cny);
     const pct = row.pnl_pct != null && Number.isFinite(Number(row.pnl_pct)) ? Number(row.pnl_pct) : null;
     const isGain = pnl >= 0;
@@ -284,47 +288,103 @@ function buildPnlTreemapHtml(items, portfolio) {
       ? `rgba(22, 163, 74, ${intensity.toFixed(2)})`
       : `rgba(220, 38, 38, ${intensity.toFixed(2)})`;
     const area = rect.w * rect.h;
-    const shortSide = Math.min(rect.w, rect.h);
-    const sizeCls = area >= 520 && shortSide >= 20
-      ? 'is-lg'
-      : area >= 240 && shortSide >= 14
-        ? 'is-md'
-        : 'is-sm';
-    const displayName = compactTileName(row.name || row.symbol, sizeCls === 'is-lg' ? 10 : sizeCls === 'is-md' ? 7 : 6);
+    const showName = rect.w >= 7 && rect.h >= 7.5;
+    const showPnl = rect.w >= 11.5 && rect.h >= 12;
+    const showPct = rect.w >= 16 && rect.h >= 17 && pct != null;
+    const nameFs = clamp(Math.min(Math.sqrt(area) * 0.54, rect.w * 0.42, rect.h * 0.34), 8, 14.5);
+    const pnlFs = clamp(nameFs * 0.92, 8, 13.5);
+    const pctFs = clamp(nameFs * 0.76, 8, 10.5);
+    const maxChars = rect.w >= 26 ? 10 : rect.w >= 16 ? 7 : 5;
+    const displayName = compactTileName(row.name || row.symbol, maxChars);
     const title = `${row.name || row.symbol} (${row.symbol || ''}${row.is_closed ? ' · 已清仓' : ''}) ${fmtSignedYuan(pnl)} (${fmtSignedPct(pct)})`;
     return `
       <button type="button"
-        class="perfTreemapTile ${isGain ? 'is-gain' : 'is-loss'} ${sizeCls}"
-        style="left:${rect.x.toFixed(3)}%;top:${rect.y.toFixed(3)}%;width:${rect.w.toFixed(3)}%;height:${rect.h.toFixed(3)}%;background:${bg};"
+        class="perfTreemapTile ${isGain ? 'is-gain' : 'is-loss'}"
+        style="left:${rect.x.toFixed(3)}%;top:${rect.y.toFixed(3)}%;width:${rect.w.toFixed(3)}%;height:${rect.h.toFixed(3)}%;background:${bg};--tile-name-fs:${nameFs.toFixed(1)}px;--tile-pnl-fs:${pnlFs.toFixed(1)}px;--tile-pct-fs:${pctFs.toFixed(1)}px;"
         title="${esc(title)}"
+        data-tile-idx="${idx}"
         data-jump-trade-review="${esc(row.symbol || '')}">
-        <span class="perfTreemapName">${esc(displayName)}${row.is_closed && sizeCls === 'is-lg' ? ' <i>清仓</i>' : ''}</span>
-        <strong class="perfTreemapPnl">${esc(fmtSignedYuan(pnl))}</strong>
-        ${sizeCls === 'is-lg' && pct != null ? `<em class="perfTreemapPct">${esc(fmtSignedPct(pct))}</em>` : ''}
+        ${showName ? `<span class="perfTreemapName">${esc(displayName)}</span>` : ''}
+        ${showPnl ? `<strong class="perfTreemapPnl">${esc(fmtSignedYuan(pnl))}</strong>` : ''}
+        ${showPct ? `<em class="perfTreemapPct">${esc(fmtSignedPct(pct))}</em>` : ''}
       </button>
     `;
   }).join('');
 
-  return `
-    <div class="perfBlockCard perfTreemapCard">
-      <div class="perfBlockHead">
-        <div>
-          <h3>盈亏分布图</h3>
-          <span class="perfBlockSub">含已清仓 · 前${valid.length}大盈亏标的</span>
-        </div>
-        <div class="perfTreemapMeta">
-          <strong class="${myTone}">${esc(fmtSignedYuan(headerPnl))} <em>${esc(fmtSignedPct(headerPct))}</em></strong>
-          <div class="perfTreemapLegend">
-            <span class="good">盈 ${gainCount}</span>
-            <span class="bad">亏 ${lossCount}</span>
+  return {
+    items: valid,
+    html: `
+      <div class="perfBlockCard perfTreemapCard">
+        <div class="perfBlockHead">
+          <div>
+            <h3>盈亏分布图</h3>
+          </div>
+          <div class="perfTreemapMeta">
+            <strong class="${myTone}">${esc(fmtSignedYuan(headerPnl))} <em>${esc(fmtSignedPct(headerPct))}</em></strong>
+            <div class="perfTreemapLegend">
+              <span class="good">盈 ${gainCount}</span>
+              <span class="bad">亏 ${lossCount}</span>
+            </div>
           </div>
         </div>
+        <div class="perfTreemapCanvas" data-perf-treemap role="group" aria-label="红绿方块盈亏图">
+          ${tilesHtml}
+          <div class="perfTreemapTooltip" data-treemap-tooltip hidden></div>
+        </div>
       </div>
-      <div class="perfTreemapCanvas" role="group" aria-label="红绿方块盈亏图">
-        ${tilesHtml}
+    `,
+  };
+}
+
+function bindTreemapHover(rootEl, items) {
+  const canvas = rootEl?.querySelector('[data-perf-treemap]');
+  const tip = canvas?.querySelector('[data-treemap-tooltip]');
+  if (!canvas || !tip || !items.length) return;
+
+  const showTip = (tile, clientX, clientY) => {
+    const idx = Number(tile.dataset.tileIdx);
+    const row = items[idx];
+    if (!row) return;
+    const pnl = Number(row.pnl_cny);
+    const tone = pnl >= 0 ? 'good' : 'bad';
+    const meta = [row.symbol, row.account, row.is_closed ? '已清仓' : ''].filter(Boolean).join(' · ');
+    tip.innerHTML = `
+      <div class="perfTreemapTipName">${esc(row.name || row.symbol)}</div>
+      <div class="perfTreemapTipMeta">${esc(meta)}</div>
+      <div class="perfTreemapTipVal ${tone}">
+        <b>${esc(fmtSignedYuan(pnl))}</b>
+        ${row.pnl_pct != null ? `<span>${esc(fmtSignedPct(row.pnl_pct))}</span>` : ''}
       </div>
-    </div>
-  `;
+    `;
+    tip.hidden = false;
+    const cRect = canvas.getBoundingClientRect();
+    const tRect = tile.getBoundingClientRect();
+    const anchorX = Number.isFinite(clientX) ? clientX - cRect.left : (tRect.left - cRect.left + tRect.width / 2);
+    const anchorY = Number.isFinite(clientY) ? clientY - cRect.top : (tRect.top - cRect.top);
+    const tipW = tip.offsetWidth || 160;
+    const tipH = tip.offsetHeight || 62;
+    const left = Math.max(6, Math.min(cRect.width - tipW - 6, anchorX - tipW / 2));
+    const top = anchorY > tipH + 14 ? anchorY - tipH - 10 : Math.min(cRect.height - tipH - 6, anchorY + 12);
+    tip.style.left = `${left.toFixed(0)}px`;
+    tip.style.top = `${Math.max(6, top).toFixed(0)}px`;
+  };
+
+  const hideTip = () => { tip.hidden = true; };
+
+  canvas.addEventListener('pointerover', (e) => {
+    const tile = e.target?.closest?.('[data-tile-idx]');
+    if (tile) showTip(tile, e.clientX, e.clientY);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const tile = e.target?.closest?.('[data-tile-idx]');
+    if (tile) showTip(tile, e.clientX, e.clientY);
+  });
+  canvas.addEventListener('focusin', (e) => {
+    const tile = e.target?.closest?.('[data-tile-idx]');
+    if (tile) showTip(tile);
+  });
+  canvas.addEventListener('pointerleave', hideTip);
+  canvas.addEventListener('focusout', hideTip);
 }
 
 function buildBenchmarkChartModel(comparison) {
@@ -491,7 +551,7 @@ function renderBenchmarkLineChart(container, comparison) {
         </div>
       </div>
       <div class="perfBenchPills">${legendHtml}</div>
-      <div class="perfBenchReadout" data-bench-readout>${formatReadout(dates.length - 1)}</div>
+      <div class="perfBenchReadout" data-bench-readout hidden></div>
       <div class="perfBenchSvgWrap">
         <svg class="perfBenchSvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="我的总收益率与主要指数对比折线图">
           ${yGridHtml}
@@ -536,13 +596,16 @@ function renderBenchmarkLineChart(container, comparison) {
         return `<circle cx="${cx.toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="${s.primary ? 3.8 : 3}" fill="${s.color}" stroke="#0b1120" stroke-width="1.2" />`;
       }).join('');
     }
-    if (readout) readout.innerHTML = formatReadout(clamped);
+    if (readout) {
+      readout.innerHTML = formatReadout(clamped);
+      readout.hidden = false;
+    }
   };
 
   const resetPointer = () => {
     if (crosshair) crosshair.setAttribute('hidden', '');
     if (dotsGroup) dotsGroup.innerHTML = '';
-    if (readout) readout.innerHTML = formatReadout(dates.length - 1);
+    if (readout) readout.hidden = true;
   };
 
   if (svg && hit) {
@@ -577,12 +640,14 @@ function renderPerformanceSummary() {
     benchmarks: data.benchmarks || [],
   };
 
+  const treemap = buildPnlTreemap(heatmapItems, p);
   el.innerHTML = `
     <div class="perfSplitStack">
-      ${buildPnlTreemapHtml(heatmapItems, p)}
+      ${treemap.html}
       <div data-perf-benchmark-chart></div>
     </div>
   `;
+  bindTreemapHover(el, treemap.items);
   renderBenchmarkLineChart(el.querySelector('[data-perf-benchmark-chart]'), comparison);
 }
 

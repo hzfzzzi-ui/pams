@@ -446,6 +446,16 @@ def build_performance_summary_payload(cur, *, today: date | None = None) -> dict
             today=ref_day,
             is_overseas=True,
         ),
+        _load_benchmark_item(
+            cur,
+            key="nasdaq",
+            name="纳指",
+            symbol="^NDX",
+            provider_symbol="^NDX",
+            eastmoney_secid="100.NDX",
+            today=ref_day,
+            is_overseas=True,
+        ),
     ]
     portfolio_curve = _portfolio_total_return_series(cur, ref_day=ref_day)
     if portfolio_curve.get("ytd_pnl_cny") is not None:
