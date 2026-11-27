@@ -7,6 +7,7 @@ from psycopg2.extras import Json, RealDictCursor
 
 PAGE_START = "2026-01-01"
 _RECHECK_MINUTES = 5
+PROJECTION_SCHEMA_VERSION = "2"
 
 
 def schema_available(cur):
@@ -20,10 +21,11 @@ def read_page(cur, page, *, business_date, member=None):
     cur.execute(
         """SELECT payload #> %s::text[] AS data, published_revision, published_at,
                   EXISTS (SELECT 1 FROM public.investment_projection_invalidation) OR business_date <> %s
-                  OR published_at < now() - make_interval(mins => %s) AS stale
+                  OR published_at < now() - make_interval(mins => %s)
+                  OR (payload ->> '_schema_version') IS DISTINCT FROM %s AS stale
              FROM public.investment_page_projection
             WHERE singleton AND payload IS NOT NULL""",
-        ([page] if member is None else [page, member], business_date, _RECHECK_MINUTES),
+        ([page] if member is None else [page, member], business_date, _RECHECK_MINUTES, PROJECTION_SCHEMA_VERSION),
     )
     row = cur.fetchone()
     if not row or row["data"] is None:
@@ -48,9 +50,10 @@ def refresh(cur, *, business_date, build, connect):
     cur.execute(
         """SELECT published_revision,
                   EXISTS (SELECT 1 FROM public.investment_projection_invalidation) AS dirty,
-                  business_date = %s AND published_at >= now() - make_interval(mins => %s) AS recent
+                  business_date = %s AND published_at >= now() - make_interval(mins => %s)
+                  AND (payload ->> '_schema_version') = %s AS recent
              FROM public.investment_page_projection WHERE singleton""",
-        (business_date, _RECHECK_MINUTES),
+        (business_date, _RECHECK_MINUTES, PROJECTION_SCHEMA_VERSION),
     )
     state = cur.fetchone()
     if state["recent"] and not state["dirty"]:
@@ -64,6 +67,7 @@ def refresh(cur, *, business_date, build, connect):
         with reader.cursor(cursor_factory=RealDictCursor) as read:
             read.execute("SET TRANSACTION SNAPSHOT %s", (snapshot,))
             payload = build(read)
+    stored_payload = {**payload, "_schema_version": PROJECTION_SCHEMA_VERSION} if isinstance(payload, dict) else payload
     revision = (state["published_revision"] or 0) + 1
     # Only markers visible to the computation are cleared. Concurrent commits
     # remain dirty, including writers that started before this transaction.
@@ -73,6 +77,6 @@ def refresh(cur, *, business_date, build, connect):
               SET payload = %s, published_revision = %s, business_date = %s,
                   published_at = clock_timestamp()
             WHERE singleton""",
-        (Json(payload), revision, business_date),
+        (Json(stored_payload), revision, business_date),
     )
     return {"status": "published", "revision": revision}

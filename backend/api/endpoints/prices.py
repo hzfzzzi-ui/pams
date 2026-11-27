@@ -320,7 +320,7 @@ def refresh_fund_nav_estimates(
 def refresh_fund_nav_history(start: date, preview: bool = True):
     """Preview or explicitly archive historical unit NAVs for portfolio funds."""
     from fastapi import HTTPException
-    from domain.imports.isolation import source_mode
+    from domain.imports.isolation import source_enabled, source_mode
     from domain.investments.returns.fund_return_history import load_fund_history_inputs
     from domain.market.fund_nav_archive import archive_fund_nav_history
     from domain.market.fund_nav_estimates import current_china_fund_date

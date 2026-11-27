@@ -18,6 +18,7 @@ import time
 from datetime import UTC, date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -56,10 +57,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 
 
-def _call(endpoint: str, label: str):
+def _api_origin() -> str:
+    parsed = urlsplit(API_BASE)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return APP_BASE.rstrip("/")
+
+
+def _call(endpoint: str, label: str, **kwargs):
     """Call an /api write endpoint."""
     url = f"{API_BASE}/{endpoint}"
-    return _request_json("post", url, label)
+    return _request_json("post", url, label, **kwargs)
 
 
 def _retry_after(value):
@@ -701,7 +709,11 @@ def should_catch_up_north_america_investments(now_utc: datetime | None = None) -
 def run_daily_imap_bill_poll():
     """Trigger daily-once Gmail IMAP bill pull via pams-api."""
     try:
-        return _call("import-inbox/pull-email", "Daily Gmail bill pull")
+        return _call(
+            "import-inbox/pull-email",
+            "Daily Gmail bill pull",
+            headers={"Origin": _api_origin()},
+        )
     except Exception as exc:
         logger.warning("[IMAP] daily poll failed: %s", exc)
         return {"skipped": False, "error": str(exc)}
@@ -731,10 +743,11 @@ def main():
     schedule.every(30).minutes.do(refresh_crypto)
     schedule.every(5).minutes.do(refresh_us_quotes)
     schedule.every(5).minutes.do(refresh_overseas_quotes)
-
+    schedule.every(30).seconds.do(refresh_investment_page_projection)
 
     logger.info("Waiting for API readiness (10 seconds)...")
     time.sleep(10)
+    refresh_investment_page_projection()
     if _env_bool("PAMS_SCHEDULER_SKIP_STARTUP_REFRESH"):
         logger.info("Startup refresh skipped; scheduled jobs remain enabled")
     else:
@@ -749,6 +762,7 @@ def main():
         run_due_window("asia")
         run_due_window("north_america")
         poll_confirmed_fund_nav()
+        refresh_investment_page_projection()
     schedule.every(30).minutes.do(lambda: run_due_window("asia"))
     schedule.every(30).minutes.do(lambda: run_due_window("north_america"))
     schedule.every(30).minutes.do(run_flex_confirmation)
@@ -758,7 +772,6 @@ def main():
     schedule.every(30).minutes.do(run_daily_us_return_recovery)
     schedule.every(30).minutes.do(run_cash_event_confirmation)
     schedule.every(30).minutes.do(run_portfolio_valuation_publication)
-    schedule.every(30).seconds.do(refresh_investment_page_projection)
 
     while True:
         schedule.run_pending()

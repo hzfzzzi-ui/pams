@@ -11,10 +11,11 @@ from __future__ import annotations
 import os
 import re
 from collections import Counter, defaultdict, deque
-from datetime import date as Date
+from datetime import date as Date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -240,7 +241,8 @@ def _position_key(position: dict[str, Any]) -> tuple[str, str]:
 
 
 def _latest_snapshot_date(cur) -> Date:
-    value = latest_complete_snapshot_date(cur, view_as_of=Date.today())
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    value = latest_complete_snapshot_date(cur, view_as_of=today)
     if hasattr(value, "date"):
         return value.date()
     if hasattr(value, "isoformat"):
@@ -248,7 +250,7 @@ def _latest_snapshot_date(cur) -> Date:
     try:
         return Date.fromisoformat(str(value)[:10])
     except (TypeError, ValueError):
-        return Date.today()
+        return today
 
 
 def _owner_ratios(account_cfg: dict[str, Any]) -> tuple[dict[str, Decimal], Decimal]:

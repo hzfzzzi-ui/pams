@@ -5,9 +5,10 @@ Profit, realized PnL and return-rate calculations remain in investment_returns.
 """
 from __future__ import annotations
 
-from datetime import date as Date, timedelta
+from datetime import date as Date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.holdings.snapshot_coverage import load_account_snapshot_coverage
@@ -142,7 +143,7 @@ def load_account_balance_basis(
         FROM latest_account
         WHERE account_code = %s
         """,
-        (Date.today(), account_code),
+        (datetime.now(ZoneInfo("Asia/Shanghai")).date(), account_code),
     )
     row = cur.fetchone()
     as_of = row["as_of"] if row else None

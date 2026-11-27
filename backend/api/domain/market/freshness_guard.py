@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
+
+
+def _today_shanghai() -> date:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
 
 
 def business_days_between(start_day: date | None, end_day: date) -> int:
@@ -107,7 +112,7 @@ def _parse_iso_date(value: Any) -> date | None:
 def build_holdings_freshness_and_projection(cur, *, today: date | None = None) -> dict[str, Any]:
     from domain.investments.valuation.page_projection import read_page
 
-    ref_day = today or date.today()
+    ref_day = today or _today_shanghai()
     account_cards: dict[str, Any] = {}
     try:
         projected = read_page(cur, "holdings", business_date=ref_day, member="account_cards")
@@ -182,19 +187,45 @@ def build_holdings_freshness_and_projection(cur, *, today: date | None = None) -
     snap_rows = [dict(r) for r in cur.fetchall()]
     if snap_rows:
         max_snap_date = max(r["as_of"] for r in snap_rows if r.get("as_of"))
-        cur.execute(
-            """
-            SELECT symbol, name, side, quantity, trade_date
-            FROM pams_investment_trade_fact
-            WHERE account_code = 'tonghuashun'
-              AND trade_date > %s
-              AND lower(COALESCE(side, trade_type, '')) IN ('buy', 'sell')
-              AND quantity IS NOT NULL
-            ORDER BY trade_date ASC
-            """,
-            (max_snap_date,),
-        )
-        trade_rows = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS redesigned")
+        has_source_records = bool((cur.fetchone() or {}).get("redesigned"))
+        if has_source_records:
+            from domain.investments.trades.trade_read_v2 import load_trade_rows
+
+            raw_trades = load_trade_rows(
+                cur,
+                account_code="tonghuashun",
+                start=max_snap_date + timedelta(days=1),
+                end=ref_day,
+            )
+            trade_rows = [
+                {
+                    "symbol": t.get("symbol"),
+                    "name": t.get("asset_name") or t.get("name"),
+                    "side": (t.get("side") or t.get("trade_type") or "").strip().lower(),
+                    "quantity": t.get("quantity"),
+                    "trade_date": t.get("trade_date"),
+                }
+                for t in raw_trades
+                if t.get("source_evidence_status") == "verified"
+                and (t.get("side") or t.get("trade_type") or "").strip().lower() in {"buy", "sell"}
+                and t.get("quantity") is not None
+            ]
+        else:
+            cur.execute(
+                """
+                SELECT symbol, name, COALESCE(NULLIF(side, ''), trade_type) AS side, quantity, trade_date
+                FROM pams_investment_trade_fact
+                WHERE account_code = 'tonghuashun'
+                  AND trade_date > %s
+                  AND trade_date <= %s
+                  AND lower(COALESCE(NULLIF(side, ''), trade_type, '')) IN ('buy', 'sell')
+                  AND quantity IS NOT NULL
+                ORDER BY trade_date ASC
+                """,
+                (max_snap_date, ref_day),
+            )
+            trade_rows = [dict(r) for r in cur.fetchall()]
         ths_adjustments = compute_ths_trade_projection(snap_rows, trade_rows)
 
     return {

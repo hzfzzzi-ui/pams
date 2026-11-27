@@ -467,8 +467,8 @@ def apply_month(row, values, entries, proofs, transit=()):
             "through": str(day),
             "native_balance": str(e["native"]) if e["native"] is not None else None,
             "currency": e["currency"],
-            "owner_ratio": str(e["owner_ratio"]),
-            "fx_rate": str(e["rate"]),
+            "owner_ratio": str(e["owner_ratio"]) if e["owner_ratio"] is not None else None,
+            "fx_rate": str(e["rate"]) if e["rate"] is not None else None,
             "fx_as_of": e["fx_date"],
             "price_dates": {k: str(v) for k, v in e["price_dates"].items()},
         }
