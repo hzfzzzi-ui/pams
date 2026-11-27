@@ -417,13 +417,15 @@ function buildBenchmarkChartModel(comparison, range) {
   const series = rawSeries.map((s) => {
     const base = Number(s.points[0].return_pct);
     const map = new Map(s.points.map(pt => [pt.date, (Number(pt.return_pct) - base) / (100 + base) * 100]));
+    const lastDate = s.points.at(-1).date;
     let lastVal = null;
     const values = dates.map((d) => {
+      if (d > lastDate) return null;
       if (map.has(d)) lastVal = map.get(d);
       return lastVal;
     });
     const meta = BENCH_LINE_META[s.key] || { color: '#94a3b8', width: 1.6, primary: false };
-    return { ...s, ...meta, values, windowReturn: values.at(-1) };
+    return { ...s, ...meta, values, windowReturn: map.get(lastDate) };
   });
   return { dates, series };
 }

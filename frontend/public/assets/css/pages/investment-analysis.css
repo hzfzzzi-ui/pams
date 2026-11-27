@@ -27,6 +27,17 @@
   margin: 0 0 3px;
 }
 
+#return-trend .returnWindowControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+#investmentTotalReturnAsOf {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 :is(#return-trend, #asset-overview) .returnWindowSegment,
 #return-trend .returnSeriesToggle,
 #return-trend .analysisSwitch {

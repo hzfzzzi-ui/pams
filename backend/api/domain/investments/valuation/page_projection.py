@@ -1,6 +1,7 @@
 """Publish and read derived investment page data from one input revision."""
 
 from contextlib import closing
+from math import isfinite
 
 from psycopg2.extras import Json, RealDictCursor
 
@@ -9,7 +10,20 @@ from domain.investments.returns.benchmark_summary import build_performance_summa
 
 PAGE_START = "2026-01-01"
 _RECHECK_MINUTES = 5
-PROJECTION_SCHEMA_VERSION = "9"
+PROJECTION_SCHEMA_VERSION = "10"
+
+
+def total_return_as_of(rows):
+    """Return the last plotted observation, including a confirmed zero return."""
+    for row in reversed(rows):
+        rate = next((row[key] for key in ("return_rate", "display_return_rate", "time_weighted_return_rate")
+                     if row.get(key) is not None), None)
+        try:
+            if row.get("date") and isfinite(float(rate)):
+                return str(row["date"])
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return None
 
 
 def schema_available(cur):
@@ -57,7 +71,7 @@ def refresh(cur, *, business_date, build, connect, expected_through=None):
     if not cur.fetchone()["locked"]:
         return {"status": "busy"}
     cur.execute(
-        """SELECT published_revision, payload #>> '{analysis,total,rows,-1,date}' AS total_as_of,
+        """SELECT published_revision, payload #>> '{analysis,total,return_as_of}' AS total_as_of,
                   EXISTS (SELECT 1 FROM public.investment_projection_invalidation) AS dirty,
                   business_date = %s AND published_at >= now() - make_interval(mins => %s)
                   AND (payload ->> '_schema_version') = %s AS recent
@@ -79,6 +93,10 @@ def refresh(cur, *, business_date, build, connect, expected_through=None):
         with reader.cursor(cursor_factory=RealDictCursor) as read:
             read.execute("SET TRANSACTION SNAPSHOT %s", (snapshot,))
             payload = build(read)
+    total = payload.get("analysis", {}).get("total", {}) if isinstance(payload, dict) else {}
+    actual = total_return_as_of(total.get("rows") or [])
+    if "rows" in total:
+        total["return_as_of"] = actual
     stored_payload = {**payload, "_schema_version": PROJECTION_SCHEMA_VERSION} if isinstance(payload, dict) else payload
     revision = (state["published_revision"] or 0) + 1
     # Only markers visible to the computation are cleared. Concurrent commits
@@ -92,8 +110,6 @@ def refresh(cur, *, business_date, build, connect, expected_through=None):
         (Json(stored_payload), revision, business_date),
     )
     if expected_through:
-        rows = payload["analysis"]["total"].get("rows") or []
-        actual = rows[-1].get("date") if rows else None
         if not actual or str(actual) < expected_through.isoformat():
             return {"status": "waiting", "revision": revision, "analysis_total_as_of": actual,
                     "reason": "waiting_for_return_inputs"}
