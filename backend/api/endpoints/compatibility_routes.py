@@ -11,7 +11,11 @@ from domain.brokers.ibkr.ibkr_holding_pnl import reuse_ibkr_holding_evidence
 from domain.investments.returns.fund_return_history import METHOD as FUND_HISTORY_METHOD
 from domain.investments.valuation.investment_overview import holdings_overview_card
 from domain.accounts.monthly.valuation_book import current_balances, read_account_view
-from domain.investments.holdings.holdings_account_cards import build_holdings_account_cards
+from domain.investments.holdings.holdings_account_cards import (
+    account_center_balances,
+    build_holdings_account_cards,
+    merge_account_center_balances,
+)
 from domain.investments.holdings.holding_market_history import holding_history, holding_price_comparison
 from domain.investments.holdings.personal_holdings import personal_holdings
 from domain.investments.holdings.ths_trade_rollforward import merge_cash_management_holding_rows
@@ -211,6 +215,7 @@ def create_compatibility_router(
                 if published is not None:
                     data = published["data"]
                     if (data["holdings"].get("cash_view_version") != 2 or
+                            "investment_overview" not in (data.get("account_cards") or {}) or
                             "personal_summary" not in data["holdings"] or
                             "daily_pnl_cny" not in (data["holdings"].get("personal_summary") or {}) or
                             any("position_dividend_return" not in r for r in data["holdings"]["rows"])):
@@ -219,11 +224,13 @@ def create_compatibility_router(
                     data = build_holdings_page(cur, show_closed=show_closed)
                 else:
                     data = {**data, "projection": published["projection"]}
-                overview = holdings_overview_card(data, _load_portfolio_accounts_config())
-                shares = overview.pop("account_card_net_shares")
-                cards = {key: {**card, "portfolio_share": shares[key]} if key in shares else card
-                         for key, card in data["account_cards"].items()}
-                return json({**data, "account_cards": {**cards, "investment_overview": overview}})
+                if "investment_overview" not in (data.get("account_cards") or {}):
+                    overview = holdings_overview_card(data, _load_portfolio_accounts_config())
+                    shares = overview.pop("account_card_net_shares")
+                    cards = {key: {**card, "portfolio_share": shares[key]} if key in shares else card
+                             for key, card in data["account_cards"].items()}
+                    data = {**data, "account_cards": {**cards, "investment_overview": overview}}
+                return json(data)
 
     @router.get("/api/investment/account-funding-history")
     def investment_account_funding_history(account: str):
@@ -242,6 +249,14 @@ def create_compatibility_router(
             conn.set_session(readonly=True, isolation_level='REPEATABLE READ')
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 balances = read_account_view(cur, 'account_balances', accounts_endpoint._view_as_of())
+                published = page_projection.read_page(
+                    cur, "holdings", business_date=_investment_today_label_date())
+                if published is not None and isinstance(published.get("data"), dict):
+                    pdata = published["data"]
+                    if pdata.get("account_positions") and pdata.get("funds") and pdata.get("account_cards"):
+                        card_bals = account_center_balances(
+                            pdata["account_positions"], pdata["funds"], pdata["account_cards"])
+                        balances = merge_account_center_balances(balances, card_bals)
                 return json(accounts_endpoint._norm(balances))
 
     def build_holdings_page(cur, *, show_closed, account_balances=None):
@@ -279,7 +294,7 @@ def create_compatibility_router(
                 positions=positions, overview=accounts["overview"], stock_performance=accounts["tonghuashun"],
                 stock=stock, funds=funds_all, overseas=overseas, closed_returns=closed_returns,
             )
-            return {
+            page_data = {
                 "holdings": holdings_for_list(
                     cur, context, limit=None, include_closed=show_closed, account_balances=account_balances,
                 ),
@@ -295,6 +310,14 @@ def create_compatibility_router(
                 "account_positions": positions,
                 "accounts": accounts,
             }
+            overview = holdings_overview_card(page_data, _load_portfolio_accounts_config())
+            shares = overview.pop("account_card_net_shares")
+            cards_with_share = {
+                key: {**card, "portfolio_share": shares[key]} if key in shares else card
+                for key, card in cards.items()
+            }
+            page_data["account_cards"] = {**cards_with_share, "investment_overview": overview}
+            return page_data
 
 
     def read_account_performance(cur, account_code, overview_payload):
@@ -793,6 +816,9 @@ def create_compatibility_router(
         nav = _verified_nav_weekly(cur, latest=True, start_date=None, interval="daily", baseCurrency="CNY", account_histories=histories)
         balances = accounts_endpoint._norm(current_balances(histories))
         holdings = build_holdings_page(cur, show_closed=False, account_balances=balances)
+        card_bals = account_center_balances(
+            holdings["account_positions"], holdings["funds"], holdings["account_cards"])
+        balances = accounts_endpoint._norm(merge_account_center_balances(balances, card_bals))
         return {
             "account_histories": accounts_endpoint._norm(histories),
             "account_balances": balances,

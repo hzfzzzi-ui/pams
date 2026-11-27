@@ -255,8 +255,27 @@ def apply_ths_post_snapshot_trades(
     return project_ths_post_snapshot_rows(rows, trades, view_as_of=cutoff, account_code=account_code)
 
 
+def _cn_a_symbol_variants(symbol: str) -> tuple[str, str]:
+    raw = str(symbol or "").strip()
+    upper = raw.upper()
+    if upper.endswith(".SH"):
+        bare = upper[:-3]
+        return bare, "sh" + bare
+    if upper.endswith(".SZ"):
+        bare = upper[:-3]
+        return bare, "sz" + bare
+    if upper.endswith(".BJ"):
+        bare = upper[:-3]
+        return bare, "bj" + bare
+    low = raw.lower()
+    if low.startswith(("sh", "sz", "bj")) and len(low) > 2:
+        return low[2:], low
+    prefix = "sh" if raw.startswith(("5", "6", "9")) else ("bj" if raw.startswith(("4", "8")) else "sz")
+    return raw, prefix + raw
+
+
 def _latest_cn_a_price(cur, symbol: str, as_of: date) -> Decimal | None:
-    prefixed = ("sh" if symbol.startswith("6") else "sz") + symbol
+    bare, prefixed = _cn_a_symbol_variants(symbol)
     if _table_exists(cur, "market_observations"):
         cur.execute(
             """SELECT price FROM market_observations
@@ -264,7 +283,7 @@ def _latest_cn_a_price(cur, symbol: str, as_of: date) -> Decimal | None:
                   AND symbol IN (%s, %s) AND quote_date <= %s
                   AND price > 0 AND price::text NOT IN ('NaN', 'Infinity', '-Infinity')
                 ORDER BY quote_date DESC, updated_at DESC LIMIT 1""",
-            (symbol, prefixed, as_of),
+            (bare, prefixed, as_of),
         )
         row = cur.fetchone()
         if row and row.get("price") is not None:
@@ -272,10 +291,10 @@ def _latest_cn_a_price(cur, symbol: str, as_of: date) -> Decimal | None:
     if _table_exists(cur, "pams_ohlcv_daily"):
         cur.execute(
             """SELECT close FROM pams_ohlcv_daily
-                WHERE market = 'CN_A' AND symbol = %s AND trade_date <= %s
+                WHERE market = 'CN_A' AND symbol IN (%s, %s) AND trade_date <= %s
                   AND close > 0 AND close::text NOT IN ('NaN', 'Infinity', '-Infinity')
                 ORDER BY trade_date DESC LIMIT 1""",
-            (prefixed, as_of),
+            (prefixed, bare, as_of),
         )
         row = cur.fetchone()
         if row and row.get("close") is not None:
@@ -283,25 +302,62 @@ def _latest_cn_a_price(cur, symbol: str, as_of: date) -> Decimal | None:
     return None
 
 
-def ths_post_snapshot_position_delta(
+def _snapshot_open_quantities(cur, *, snap_day: date, account_code: str) -> dict[str, Decimal]:
+    if not _table_exists(cur, "pams_holdings_snapshot"):
+        return {}
+    cur.execute(
+        """SELECT symbol, SUM(quantity) AS qty
+             FROM pams_holdings_snapshot
+            WHERE account_code = %s AND as_of = %s
+              AND COALESCE(asset_liability, '资产') = '资产'
+              AND UPPER(COALESCE(currency, '')) = 'CNY'
+              AND COALESCE(major_category, '') <> '现金'
+              AND COALESCE(quantity, 0) > 0
+            GROUP BY symbol""",
+        (account_code, snap_day),
+    )
+    out: dict[str, Decimal] = {}
+    for row in cur.fetchall() or []:
+        sym = str((row["symbol"] if isinstance(row, dict) else row[0]) or "").strip()
+        qty = _to_dec(row["qty"] if isinstance(row, dict) else row[1])
+        if sym and qty is not None and qty > 0:
+            out[sym] = qty
+    return out
+
+
+def ths_post_snapshot_delta_and_count(
     cur,
     *,
     snap_day: date,
     as_of: date,
     account_code: str = "tonghuashun",
-) -> Decimal | None:
-    """Return whole-account CNY market value delta from verified post-snapshot buy/sell trades.
+    snapshot_quantities: dict[str, Decimal] | None = None,
+) -> tuple[Decimal, int | None] | None:
+    """Return (whole-account CNY MV delta, projected open holding count) or None (fail-closed).
 
-    Returns Decimal(0) if there are no buy/sell trades after snap_day, or None (fail-closed)
-    if any post-snapshot trade is unverified or lacks a market price.
+    Enforces the exact same fail-closed preconditions as project_ths_post_snapshot_rows:
+    every post-snapshot buy/sell symbol must exist in the snapshot and no sell may exceed
+    held quantity, so holdings and cash rollforward can never diverge.
     """
     if as_of <= snap_day or not _table_exists(cur, "source_records"):
-        return _ZERO
+        return _ZERO, None
     trades = load_trade_rows(cur, account_code=account_code, start=snap_day + timedelta(days=1), end=as_of)
     if not trades:
-        return _ZERO
+        return _ZERO, None
+    snap_qty = (
+        dict(snapshot_quantities)
+        if snapshot_quantities is not None
+        else _snapshot_open_quantities(cur, snap_day=snap_day, account_code=account_code)
+    )
+    if not snap_qty:
+        return None
+    running_qty = dict(snap_qty)
     qty_deltas: dict[str, Decimal] = {}
-    for t in trades:
+    ordered = sorted(
+        trades,
+        key=lambda t: (_to_date(t.get("trade_date")) or date.min, int(t.get("trade_id") or 0)),
+    )
+    for t in ordered:
         t_type = str(t.get("trade_type") or "").lower()
         if (t.get("source_evidence_status") != "verified"
                 or str(t.get("currency") or "").upper() != "CNY"
@@ -310,9 +366,12 @@ def ths_post_snapshot_position_delta(
         if t_type in {"buy", "sell"}:
             sym = str(t.get("symbol") or "").strip()
             qty = _to_dec(t.get("quantity"))
-            if not sym or qty is None or qty <= 0:
+            if not sym or sym not in snap_qty or qty is None or qty <= 0:
+                return None
+            if t_type == "sell" and qty > running_qty.get(sym, _ZERO):
                 return None
             signed = qty if t_type == "buy" else -qty
+            running_qty[sym] = running_qty.get(sym, _ZERO) + signed
             qty_deltas[sym] = qty_deltas.get(sym, _ZERO) + signed
     total_delta = _ZERO
     for sym, delta_qty in qty_deltas.items():
@@ -322,7 +381,24 @@ def ths_post_snapshot_position_delta(
         if px is None:
             return None
         total_delta += delta_qty * px
-    return total_delta
+    open_count = sum(1 for q in running_qty.values() if q > Decimal("0.0001"))
+    return total_delta, open_count
+
+
+def ths_post_snapshot_position_delta(
+    cur,
+    *,
+    snap_day: date,
+    as_of: date,
+    account_code: str = "tonghuashun",
+    snapshot_quantities: dict[str, Decimal] | None = None,
+) -> Decimal | None:
+    """Return whole-account CNY market value delta from verified post-snapshot buy/sell trades."""
+    res = ths_post_snapshot_delta_and_count(
+        cur, snap_day=snap_day, as_of=as_of, account_code=account_code,
+        snapshot_quantities=snapshot_quantities,
+    )
+    return None if res is None else res[0]
 
 
 def merge_cash_management_holding_rows(

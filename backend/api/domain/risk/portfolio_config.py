@@ -754,12 +754,71 @@ def _financing_metrics_from_debt(current_debt_cny: float, plan: dict[str, Any]) 
     }
 
 
-def _financing_metrics(risk: dict[str, Any], plan: dict[str, Any]) -> dict[str, float]:
-    return _financing_metrics_from_debt(_negative_cash_cny(risk), plan)
+def _account_cards_financing_items(account_cards: dict[str, Any] | None) -> list[dict[str, Any]]:
+    ov = (account_cards or {}).get("investment_overview") if isinstance(account_cards, dict) else None
+    items = (ov or {}).get("financing_items") if isinstance(ov, dict) else None
+    return [item for item in items if isinstance(item, dict) and item.get("amount_cny") is not None] if isinstance(items, list) else []
 
 
-def _financing_children(risk: dict[str, Any], nav: float, total_debt_cny: float) -> list[dict[str, Any]]:
-    sources = [row for row in _cash_balance_sources(risk) if _source_value(row) < -1]
+def _account_cards_ibkr_debt_cny(account_cards: dict[str, Any] | None) -> float:
+    items = [
+        item for item in _account_cards_financing_items(account_cards)
+        if item.get("account_code") == "ibkr" and item.get("kind") == "negative_cash"
+    ]
+    if items:
+        return sum(abs(_n(item.get("amount_cny"))) for item in items)
+    ibkr_card = (account_cards or {}).get("ibkr") if isinstance(account_cards, dict) else None
+    by_ccy = (ibkr_card or {}).get("cash_by_currency") if isinstance(ibkr_card, dict) else None
+    if isinstance(by_ccy, list) and by_ccy:
+        return sum(
+            abs(_n(entry.get("amount_base")))
+            for entry in by_ccy
+            if isinstance(entry, dict) and entry.get("amount_base") is not None and _n(entry.get("amount_base")) < 0
+        )
+    ibkr_cash_raw = (ibkr_card.get("cash") or {}).get("value") if isinstance(ibkr_card, dict) else None
+    return abs(_n(ibkr_cash_raw)) if ibkr_cash_raw is not None and _n(ibkr_cash_raw) < 0 else 0.0
+
+
+def _account_cards_total_debt_cny(account_cards: dict[str, Any] | None) -> float:
+    ov = (account_cards or {}).get("investment_overview") if isinstance(account_cards, dict) else None
+    fin = (ov or {}).get("financing") if isinstance(ov, dict) else None
+    val = fin.get("value") if isinstance(fin, dict) else fin
+    if val is not None and _n(val) > 0:
+        return abs(_n(val))
+    items = _account_cards_financing_items(account_cards)
+    if items:
+        return sum(abs(_n(item.get("amount_cny"))) for item in items)
+    return _account_cards_ibkr_debt_cny(account_cards)
+
+
+def _financing_metrics(
+    risk: dict[str, Any],
+    plan: dict[str, Any],
+    account_cards: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    cards_debt = _account_cards_total_debt_cny(account_cards)
+    current_debt = cards_debt if cards_debt > 0 else _negative_cash_cny(risk)
+    return _financing_metrics_from_debt(current_debt, plan)
+
+
+def _financing_children(
+    risk: dict[str, Any],
+    nav: float,
+    total_debt_cny: float,
+    account_cards: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    card_items = _account_cards_financing_items(account_cards)
+    if card_items:
+        sources = [
+            {
+                "name": str(item.get("name") or item.get("account_name") or "融资负债"),
+                "value_cny": -abs(_n(item.get("amount_cny"))),
+            }
+            for item in card_items
+            if abs(_n(item.get("amount_cny"))) > 1
+        ]
+    else:
+        sources = [row for row in _cash_balance_sources(risk) if _source_value(row) < -1]
     if not sources and total_debt_cny > 1:
         sources = [{"name": "\u878d\u8d44\u8d1f\u503a", "value_cny": -abs(total_debt_cny)}]
     return _children_from_signed_sources(sources, nav, total_cny=-abs(total_debt_cny))
@@ -936,7 +995,7 @@ def build_portfolio_config_payload_from_inputs(
     look_total = _n(lookthrough.get("total_market_value_cny")) or nav
     esop_amount = _esop_value(risk, lookthrough)
     cash_amount = _cash_short_value(risk, lookthrough)
-    financing = _financing_metrics(risk, plan)
+    financing = _financing_metrics(risk, plan, account_cards)
     commodity_gold_amount = _exposure_value(lookthrough, "asset_type", "黄金 / 商品", look_total)
     non_allocation_amount = _non_allocation_asset_value(risk, lookthrough)
     bond_amount = _exposure_value(lookthrough, "asset_type", ["债券", "中长期债券", "利率债", "信用债"], look_total)
@@ -1194,7 +1253,7 @@ def build_portfolio_config_payload_from_inputs(
             "limit_label": "<=50.0%",
             "detail": "只统计负现金账户和融资余额，不进入现金短债缓冲池。",
             "signed_current_amount": True,
-            "children": _financing_children(risk, nav, financing["current_debt_cny"]),
+            "children": _financing_children(risk, nav, financing["current_debt_cny"], account_cards),
         }),
         _rule({
             "id": "debt_cost",
@@ -1233,9 +1292,7 @@ def build_portfolio_config_payload_from_inputs(
     visible_rules = [rule for rule in rules if rule.get("display", True)]
     drilldown_rules = [rule for rule in rules if not rule.get("display", True)]
 
-    ibkr_card = (account_cards or {}).get("ibkr") if isinstance(account_cards, dict) else None
-    ibkr_cash_raw = (ibkr_card.get("cash") or {}).get("value") if isinstance(ibkr_card, dict) else None
-    ibkr_debt_cny = abs(_n(ibkr_cash_raw)) if ibkr_cash_raw is not None and _n(ibkr_cash_raw) < 0 else 0.0
+    ibkr_debt_cny = _account_cards_ibkr_debt_cny(account_cards)
     by_id = {rule["id"]: rule for rule in rules}
     incremental_buckets = []
     for bid in ("cash", "bond", "us_broad", "stock"):

@@ -674,6 +674,48 @@ def _card_metric(cards: dict[str, Any] | None, card_id: str, field: str) -> floa
     return parsed if parsed == parsed else None
 
 
+def _ibkr_negative_cash_debt(account_cards: dict[str, Any] | None) -> float:
+    cards = account_cards or {}
+    ov = cards.get("investment_overview") if isinstance(cards, dict) else None
+    items = (ov or {}).get("financing_items") if isinstance(ov, dict) else None
+    if isinstance(items, list):
+        neg_items = [
+            item for item in items
+            if isinstance(item, dict)
+            and item.get("account_code") == "ibkr"
+            and item.get("kind") == "negative_cash"
+            and item.get("amount_cny") is not None
+        ]
+        if neg_items:
+            return sum(abs(_n(item.get("amount_cny"))) for item in neg_items)
+    ibkr_card = cards.get("ibkr") if isinstance(cards, dict) else None
+    by_ccy = (ibkr_card or {}).get("cash_by_currency") if isinstance(ibkr_card, dict) else None
+    if isinstance(by_ccy, list) and by_ccy:
+        return sum(
+            abs(_n(entry.get("amount_base")))
+            for entry in by_ccy
+            if isinstance(entry, dict) and entry.get("amount_base") is not None and _n(entry.get("amount_base")) < 0
+        )
+    ibkr_cash = _card_metric(account_cards, "ibkr", "cash")
+    return abs(ibkr_cash) if ibkr_cash is not None and ibkr_cash < 0 else 0.0
+
+
+def _esop_loan_debt(account_cards: dict[str, Any] | None) -> float | None:
+    cards = account_cards or {}
+    ov = cards.get("investment_overview") if isinstance(cards, dict) else None
+    items = (ov or {}).get("financing_items") if isinstance(ov, dict) else None
+    if isinstance(items, list):
+        loan_items = [
+            item for item in items
+            if isinstance(item, dict)
+            and item.get("kind") == "loan"
+            and item.get("amount_cny") is not None
+        ]
+        if loan_items:
+            return sum(abs(_n(item.get("amount_cny"))) for item in loan_items)
+    return _card_metric(account_cards, "esop", "debt") or _card_metric(account_cards, "esop", "financing_debt")
+
+
 def _build_risk_diagnosis(
     risk: dict[str, Any],
     lookthrough: dict[str, Any],
@@ -687,14 +729,18 @@ def _build_risk_diagnosis(
         if str(h.get("assetType") or "") == "非上市股权" or "esop" in str(h.get("symbol") or "").lower()
     )
     overview_net = _card_metric(account_cards, "investment_overview", "net_value")
-    overview_debt = _card_metric(account_cards, "investment_overview", "financing_debt")
-    ibkr_cash = _card_metric(account_cards, "ibkr", "cash")
+    overview_debt = (
+        _card_metric(account_cards, "investment_overview", "financing")
+        or _card_metric(account_cards, "investment_overview", "financing_debt")
+    )
     ibkr_lev = _card_metric(account_cards, "ibkr", "leverage")
-    esop_debt_card = _card_metric(account_cards, "esop", "debt") or _card_metric(account_cards, "esop", "financing_debt")
+    esop_debt_card = _esop_loan_debt(account_cards)
 
-    ibkr_debt = abs(ibkr_cash) if ibkr_cash is not None and ibkr_cash < 0 else 0.0
+    ibkr_debt = _ibkr_negative_cash_debt(account_cards)
     if overview_debt is not None and overview_debt > 0:
         total_debt = abs(overview_debt)
+    elif esop_debt_card is not None and esop_debt_card > 0:
+        total_debt = ibkr_debt + abs(esop_debt_card)
     elif overview_net is not None and total_mv > overview_net:
         total_debt = max(0.0, total_mv - overview_net)
     else:
