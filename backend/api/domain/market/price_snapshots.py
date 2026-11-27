@@ -912,21 +912,26 @@ def _refresh_scheduled_overseas_quotes(bucket: str, as_of: date) -> dict:
     }
 
 
-def _upsert_yfinance_closes(rows: List[dict]) -> int:
-    """Store recent Yahoo Finance close rows for overseas daily PnL."""
-    payload = []
-    seen = set()
+def _completed_yfinance_closes(rows, history, *, now=None):
+    from domain.market.overseas_return_calendar import latest_completed_session, market_calendar
+
+    closes = {}
+    cutoffs = {}
     for row in rows:
         symbol = row.get("symbol")
-        if not symbol:
-            continue
-        for trade_date, close in _YFINANCE_CLOSE_CACHE.get(str(symbol), []):
-            key = (str(symbol), "YF", trade_date)
-            if key in seen:
-                continue
-            seen.add(key)
-            payload.append((str(symbol), "YF", trade_date, close))
+        bucket = _overseas_market_bucket(row)
+        for day, price in history.get(symbol, ()):
+            if bucket != "other":
+                if bucket not in cutoffs:
+                    cutoffs[bucket] = latest_completed_session(bucket, now)
+                if not cutoffs[bucket] or day > cutoffs[bucket] or not market_calendar(bucket).is_session(day):
+                    continue
+            closes[(symbol, day)] = price
+    return closes
 
+
+def _upsert_yfinance_closes(closes) -> int:
+    payload = [(symbol, "YF", day, close) for (symbol, day), close in closes.items()]
     if not payload:
         return 0
 

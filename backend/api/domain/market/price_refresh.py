@@ -28,6 +28,8 @@ from domain.market.price_providers import (
 )
 from domain.market.price_snapshots import (
     _apply_same_day_a_stock_trades,
+    _completed_yfinance_closes,
+    _overseas_market_bucket,
     _estimate_quote_source_summary,
     _filter_us_estimate_prices_for_holdings,
     _get_holdings_with_symbol,
@@ -88,7 +90,8 @@ def _refresh_category(
     quote_sources: dict[str, int] = {}
     skipped_estimates: list[dict[str, Any]] = []
     if category == "美股":
-        close_rows = _upsert_yfinance_closes(holdings)
+        completed = _completed_yfinance_closes(holdings, _YFINANCE_CLOSE_CACHE)
+        close_rows = _upsert_yfinance_closes(completed)
         if price_basis == "estimate":
             prices, skipped_estimates = _filter_us_estimate_prices_for_holdings(holdings, prices)
             priced_symbols = [str(sym) for sym in symbols if sym in prices or str(sym).upper() in prices]
@@ -96,11 +99,15 @@ def _refresh_category(
             quote_sources = _estimate_quote_source_summary(priced_symbols)
         if price_basis == "close":
             prices = _latest_stored_yfinance_prices(symbols, as_of=target_as_of, fallback=prices)
-            if require_current_close:
-                # Do not stamp Friday's last close as Monday's confirmed quote.
-                current_symbols = {sym for sym in symbols for trade_date, _ in _YFINANCE_CLOSE_CACHE.get(str(sym), [])
-                                   if trade_date == target_as_of}
-                prices = {sym: value for sym, value in prices.items() if sym in current_symbols}
+            # A prior close or a still-open daily bar cannot confirm the requested US day.
+            for holding in holdings:
+                symbol = holding["symbol"]
+                if require_current_close or _overseas_market_bucket(holding) == "us":
+                    close = completed.get((symbol, target_as_of))
+                    if close is None:
+                        prices.pop(symbol, None)
+                    else:
+                        prices[symbol] = close
 
     updates = []
     errors = []

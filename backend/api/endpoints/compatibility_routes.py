@@ -170,7 +170,7 @@ def create_compatibility_router(
             cur, account_config=account_config, as_of=context[0],
             excluded_accounts=context[2]["excluded_accounts"], owner_ratio=_account_owner_ratio,
         )
-        holdings = personal_holdings(holdings, accounts=account_config.get("accounts", {}))
+        holdings = personal_holdings(holdings, accounts=account_config.get("accounts", {}), active_date=context[1])
         holdings["cash_view_version"] = 2
         holdings["rows"] = holdings["rows"][:limit]
         return holdings

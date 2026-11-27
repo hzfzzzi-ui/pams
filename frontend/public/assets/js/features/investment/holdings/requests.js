@@ -2,13 +2,20 @@ import { readFallback } from '../../../shared/read_scope.js';
 import { accountPositionsPath } from './view_request.js';
 
 // Summary and list reads share available view payloads and retain legacy fallbacks.
+function readProjectedHoldings(load) {
+  return load?.()?.catch(error => {
+    if (error.status >= 400 && error.status < 500 && error.status !== 404) throw error;
+    return readFallback(error, null);
+  });
+}
+
 function selectPart(view, name, legacy) {
   return view ? view.then(data => data?.[name] ?? legacy()) : legacy();
 }
 
 export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryFresh, loadHoldingView, loadAccountView, loadAccountPositions }) {
   const jgetFresh = path => get(path, { cache: false });
-  const view = loadHoldingView?.();
+  const view = readProjectedHoldings(loadHoldingView);
   const account = view ? selectPart(view, 'accounts', () => loadAccountView?.()) : loadAccountView?.();
   const part = (name, legacy) => selectPart(view, name, legacy);
   const holding = (name, path) => part(name, () => jgetFresh(path));
@@ -38,7 +45,7 @@ export function readSummaryInputs({ get, withClosedParam, loadInvestmentSummaryF
 
 export function readListInputs({ get: jget, withClosedParam, onHoldings, onSupplementError, loadHoldingView, loadAccountPositions }) {
   const legacy = () => jget(withClosedParam('/holdings/latest'));
-  const view = loadHoldingView?.();
+  const view = readProjectedHoldings(loadHoldingView);
   const request = selectPart(view, 'holdings', legacy);
   const holdings = request.then(payload => {
     onHoldings?.(payload);
