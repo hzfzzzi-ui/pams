@@ -202,7 +202,7 @@ function renderPerformanceSummary() {
   const myTone = myPct == null ? '' : myPct >= 0 ? 'good' : 'bad';
 
   const benchSeries = [
-    { name: '我的二级市场', val: myPct, sub: `浮盈 ${fmtSignedYuan(p.ex_esop_pnl_cny)}`, primary: true },
+    { name: '我的二级市场', val: myPct, sub: `盈亏 ${fmtSignedYuan(p.ex_esop_pnl_cny)}`, primary: true },
     ...benchmarks.map((b) => ({
       name: b.name,
       val: b.ytd_return_pct ?? b.m1_return_pct,
@@ -232,7 +232,7 @@ function renderPerformanceSummary() {
     <button type="button" class="perfLeaderRow is-${tone}" data-jump-trade-review="${esc(row.symbol || '')}">
       <div class="perfLeaderName">
         <strong>${esc(row.name || row.symbol)}</strong>
-        <small>${esc(row.symbol || '')} · ${esc(row.account || '')}</small>
+        <small>${esc(row.symbol || '')} · ${esc(row.account || '')}${row.is_closed ? ' · 已清仓' : ''}</small>
       </div>
       <div class="perfLeaderVal">
         <b class="${tone}">${esc(fmtSignedYuan(row.pnl_cny))}</b>
@@ -250,12 +250,12 @@ function renderPerformanceSummary() {
     <div class="perfBenchGrid">${benchCards}</div>
     <div class="perfLeaderGrid">
       <div class="perfLeaderCol">
-        <div class="perfLeaderTitle good">浮盈 Top 3</div>
-        ${winners.length ? winners.map((r) => leaderRow(r, 'good')).join('') : '<div class="lookthroughEmpty compact">暂无正浮盈标的</div>'}
+        <div class="perfLeaderTitle good">盈利 Top 3</div>
+        ${winners.length ? winners.map((r) => leaderRow(r, 'good')).join('') : '<div class="lookthroughEmpty compact">暂无盈利标的</div>'}
       </div>
       <div class="perfLeaderCol">
-        <div class="perfLeaderTitle bad">浮亏 Top 3</div>
-        ${losers.length ? losers.map((r) => leaderRow(r, 'bad')).join('') : '<div class="lookthroughEmpty compact">暂无浮亏标的</div>'}
+        <div class="perfLeaderTitle bad">亏损 Top 3</div>
+        ${losers.length ? losers.map((r) => leaderRow(r, 'bad')).join('') : '<div class="lookthroughEmpty compact">暂无亏损标的</div>'}
       </div>
     </div>
   `;

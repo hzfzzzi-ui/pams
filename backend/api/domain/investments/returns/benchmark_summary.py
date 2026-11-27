@@ -102,13 +102,19 @@ def _load_benchmark_item(cur, *, key: str, name: str, symbol: str, provider_symb
     }
 
 
-def summarize_open_holdings_leaderboard(holdings: list[dict[str, Any]]) -> dict[str, Any]:
-    """Compute ex-ESOP simple holding return ratio and Top 3 winners / losers."""
+def summarize_open_holdings_leaderboard(
+    holdings: list[dict[str, Any]],
+    *,
+    closed_items: list[dict[str, Any]] | None = None,
+    secondary_capital_summary: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Compute ex-ESOP total PnL (open + closed + distributions) and Top 3 winners / losers."""
     ex_esop_pnl = 0.0
     ex_esop_cost = 0.0
     ex_esop_mv = 0.0
     esop_pnl = 0.0
     items: list[dict[str, Any]] = []
+    open_keys: set[tuple[str, str]] = set()
 
     for row in holdings or []:
         if not isinstance(row, dict):
@@ -129,19 +135,22 @@ def summarize_open_holdings_leaderboard(holdings: list[dict[str, Any]]) -> dict[
         cost = _f(row.get("cost_cny"))
         if cost is None and ccy == "CNY":
             cost = _f(row.get("cost"))
-        # Use unrealized floating PnL (MV - remaining cost) to match method_note and Holdings page.
-        pnl = _f(row.get("floating_pnl_cny"))
-        if pnl is None and cost is not None:
-            pnl = mv - cost
-        if pnl is None:
-            pnl = _f(row.get("holding_pnl_cny") if row.get("holding_pnl_cny") is not None else row.get("pnl_cny"))
+        # Use total holding PnL (unrealized + realized trades + distributions) for true profit/loss view.
+        pnl = _f(row.get("holding_pnl_cny") if row.get("holding_pnl_cny") is not None else row.get("pnl_cny"))
         if pnl is None and ccy == "CNY":
             pnl = _f(row.get("holding_pnl") if row.get("holding_pnl") is not None else row.get("pnl"))
+        if pnl is None:
+            pnl = _f(row.get("floating_pnl_cny"))
+        if pnl is None and cost is not None:
+            pnl = mv - cost
         is_esop = "esop" in sym.lower() or "内部股份" in name or "非上市" in cat or "esop" in cat.lower()
         if is_esop:
             if pnl is not None:
                 esop_pnl += pnl
             continue
+        acct_code = str(row.get("account_code") or row.get("account") or "").strip()
+        if acct_code and sym:
+            open_keys.add((acct_code, sym.upper()))
         ex_esop_mv += mv
         if pnl is not None:
             ex_esop_pnl += pnl
@@ -160,26 +169,129 @@ def summarize_open_holdings_leaderboard(holdings: list[dict[str, Any]]) -> dict[
             "market_value_cny": round(mv, 2),
             "pnl_cny": round(pnl, 2),
             "pnl_pct": pnl_pct,
+            "is_closed": False,
+        })
+
+    # Include fully closed positions (skipping symbols still open to avoid double-counting realized PnL).
+    for closed in closed_items or []:
+        if not isinstance(closed, dict):
+            continue
+        acct_code = str(closed.get("account_code") or closed.get("account") or "").strip()
+        sym = str(closed.get("symbol") or "").strip()
+        if acct_code and sym and (acct_code, sym.upper()) in open_keys:
+            continue
+        cycles = closed.get("cycles") or []
+        pnl = sum(
+            (_f(c.get("trade_pnl")) or 0.0) + (_f(c.get("distributions")) or 0.0)
+            for c in cycles if isinstance(c, dict)
+        )
+        cost = sum((_f(c.get("cost")) or 0.0) for c in cycles if isinstance(c, dict))
+        if abs(pnl) < 0.01:
+            continue
+        name = _clean_display_name(str(closed.get("name") or sym or "未命名"), sym)
+        ex_esop_pnl += pnl
+        if cost > 0:
+            ex_esop_cost += cost
+        pnl_pct = round((pnl / cost) * 100.0, 2) if cost > 0 else None
+        items.append({
+            "symbol": sym or name,
+            "name": name,
+            "account": _account_display(closed),
+            "market_value_cny": 0.0,
+            "pnl_cny": round(pnl, 2),
+            "pnl_pct": pnl_pct,
+            "is_closed": True,
         })
 
     winners = sorted([x for x in items if x["pnl_cny"] > 0], key=lambda x: x["pnl_cny"], reverse=True)[:3]
     losers = sorted([x for x in items if x["pnl_cny"] < 0], key=lambda x: x["pnl_cny"])[:3]
-    ex_esop_return_pct = round((ex_esop_pnl / ex_esop_cost) * 100.0, 2) if ex_esop_cost > 0 else None
+
+    if (
+        isinstance(secondary_capital_summary, dict)
+        and secondary_capital_summary.get("capital_cny", 0.0) > 0
+    ):
+        final_pnl = secondary_capital_summary["pnl_cny"]
+        final_cost = secondary_capital_summary["capital_cny"]
+        final_return_pct = round((final_pnl / final_cost) * 100.0, 2)
+        method_note = "二级市场（剔除 ESOP）总盈亏（含已清仓、分红与融资利息）/ 自有投入本金。"
+    else:
+        final_pnl = ex_esop_pnl
+        final_cost = ex_esop_cost
+        final_return_pct = round((ex_esop_pnl / ex_esop_cost) * 100.0, 2) if ex_esop_cost > 0 else None
+        method_note = "二级市场（剔除 ESOP）在仓与已清仓标的累计总盈亏 / 投入成本。"
 
     return {
         "portfolio": {
             "ex_esop_market_value_cny": round(ex_esop_mv, 2),
-            "ex_esop_cost_cny": round(ex_esop_cost, 2),
-            "ex_esop_pnl_cny": round(ex_esop_pnl, 2),
-            "ex_esop_return_pct": ex_esop_return_pct,
+            "ex_esop_cost_cny": round(final_cost, 2),
+            "ex_esop_pnl_cny": round(final_pnl, 2),
+            "ex_esop_return_pct": final_return_pct,
             "esop_pnl_cny": round(esop_pnl, 2),
-            "method_note": "二级市场（剔除 ESOP）在仓标的总浮盈亏 / 剩余成本（简单持仓回报比，非 TWR/MWR）。",
+            "method_note": method_note,
         },
         "leaderboard": {
             "winners": winners,
             "losers": losers,
         },
     }
+
+
+def _secondary_market_capital_summary(cur, *, ref_day: date) -> dict[str, float] | None:
+    """Aggregate ex-ESOP capital-return PnL and capital from the published analysis projection."""
+    try:
+        projected = read_page(cur, "analysis", business_date=ref_day, member="sections")
+        sections = (projected or {}).get("data")
+        if not isinstance(sections, dict):
+            return None
+        total_pnl = 0.0
+        total_cap = 0.0
+        found = 0
+        for key in ("stocks", "a_fund", "precious_metal", "wealth"):
+            sec = sections.get(key)
+            if not isinstance(sec, dict) or sec.get("return_basis") != "capital_return":
+                continue
+            rows = sec.get("rows") or []
+            if not rows:
+                continue
+            last = rows[-1]
+            pnl = _f(last.get("total_pnl"))
+            cap = _f(last.get("cumulative_capital"))
+            mv = _f(last.get("market_value"))
+            if pnl is not None:
+                total_pnl += pnl
+                found += 1
+            if cap is not None and cap > 0 and (mv is None or mv > 0):
+                total_cap += cap
+        if found > 0 and total_cap > 0:
+            return {"pnl_cny": total_pnl, "capital_cny": total_cap}
+    except Exception:
+        return None
+    return None
+
+
+def _load_closed_leaderboard_items(cur, *, ref_day: date) -> list[dict[str, Any]]:
+    try:
+        from domain.accounts.views.account_policy import owner_ratio_lookup
+        from domain.investments.returns.period_trade_returns import load_closed_trade_returns
+        from domain.investments.valuation.portfolio_state import _excluded_accounts, _load_accounts_config
+
+        cfg = _load_accounts_config()
+        by_section = load_closed_trade_returns(
+            cur,
+            start=date(ref_day.year, 1, 1),
+            end=ref_day,
+            base_currency="CNY",
+            owner_ratio=owner_ratio_lookup(cfg),
+            sections=None,
+            excluded_accounts=_excluded_accounts(cfg),
+        )
+        out: list[dict[str, Any]] = []
+        for payload in (by_section or {}).values():
+            if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+                out.extend(payload["items"])
+        return out
+    except Exception:
+        return []
 
 
 def build_performance_summary_payload(cur, *, today: date | None = None) -> dict[str, Any]:
@@ -195,7 +307,13 @@ def build_performance_summary_payload(cur, *, today: date | None = None) -> dict
     except Exception:
         holdings = []
 
-    summary = summarize_open_holdings_leaderboard(holdings)
+    closed_items = _load_closed_leaderboard_items(cur, ref_day=ref_day)
+    secondary_capital = _secondary_market_capital_summary(cur, ref_day=ref_day)
+    summary = summarize_open_holdings_leaderboard(
+        holdings,
+        closed_items=closed_items,
+        secondary_capital_summary=secondary_capital,
+    )
     benchmarks = [
         _load_benchmark_item(cur, key="hs300", name="沪深300", symbol="000300.SH", provider_symbol="sh000300", today=ref_day, is_overseas=False),
         _load_benchmark_item(cur, key="qqq", name="纳指100 (QQQ)", symbol="QQQ", provider_symbol="QQQ", today=ref_day, is_overseas=True),

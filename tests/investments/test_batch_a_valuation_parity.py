@@ -192,11 +192,26 @@ class BenchmarkSummaryParityTest(TestCase):
                 "market_value": 10000.0, "market_value_cny": None, "cost": 8000.0, "cost_cny": None,
             },
         ]
-        res = summarize_open_holdings_leaderboard(rows)
-        self.assertAlmostEqual(res["portfolio"]["ex_esop_pnl_cny"], -27665.21, places=2)
+        closed_items = [
+            # Fully closed winner must appear in winners leaderboard
+            {
+                "account_code": "tencent_licaitong", "symbol": "011613", "name": "华夏科创50ETF联接C",
+                "cycles": [{"cost": "38000", "trade_pnl": "12641.96", "distributions": "0"}],
+            },
+            # Closed cycle for a currently open symbol (601899) must NOT be double-counted
+            {
+                "account_code": "tonghuashun", "symbol": "601899", "name": "紫金矿业",
+                "cycles": [{"cost": "50000", "trade_pnl": "-20000", "distributions": "0"}],
+            },
+        ]
+        res = summarize_open_holdings_leaderboard(rows, closed_items=closed_items)
+        # Total PnL = -35868.96 (601899) + -51639.75 (005930.KS) + 12641.96 (closed 011613)
+        self.assertAlmostEqual(res["portfolio"]["ex_esop_pnl_cny"], -74866.75, places=2)
         self.assertAlmostEqual(res["portfolio"]["ex_esop_market_value_cny"], 190327.01, places=2)
+        self.assertEqual([w["symbol"] for w in res["leaderboard"]["winners"]], ["011613"])
+        self.assertTrue(res["leaderboard"]["winners"][0]["is_closed"])
         by_sym = {x["symbol"]: x for x in res["leaderboard"]["losers"]}
         self.assertEqual(by_sym["601899"]["account"], "同花顺")
-        self.assertAlmostEqual(by_sym["601899"]["pnl_cny"], -10027.10, places=2)
+        self.assertAlmostEqual(by_sym["601899"]["pnl_cny"], -35868.96, places=2)
         self.assertEqual(by_sym["005930.KS"]["name"], "SAMSUNG ELECTRONICS CO LTD")
         self.assertEqual(by_sym["005930.KS"]["account"], "盈透证券")
