@@ -145,7 +145,7 @@ export function mountUnifiedIconPickers(doc = document, win = window) {
     el.addEventListener('click', () => win.setTimeout(() => { if (!disposed) syncEntry(entry); }, 0), { signal: ac.signal });
 
     // Proxy programmatic .value / .selectedIndex assignments on native <select> so picker label never desyncs.
-    if (kind === 'select') {
+    if (rule.kind === 'select') {
       const proto = win.HTMLSelectElement?.prototype || Object.getPrototypeOf(el);
       const restoreProps = [];
       for (const prop of ['value', 'selectedIndex']) {
