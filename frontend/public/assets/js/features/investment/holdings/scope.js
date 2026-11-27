@@ -84,16 +84,25 @@ export function createOwnedDetails(show, close) {
 const errorOwners = new WeakMap();
 export function createOwnedError(node) {
   const owner = {};
+  function clear() {
+    const messages = errorOwners.get(node);
+    if (!messages?.delete(owner)) return;
+    const remaining = [...messages.values()].at(-1);
+    node.style.display = remaining ? 'block' : 'none';
+    node.textContent = remaining || '';
+    if (!messages.size) errorOwners.delete(node);
+  }
   return {
     show(error) {
       if (!node) return;
-      errorOwners.set(node, owner);
-      node.style.display = 'block'; node.textContent = '加载失败：' + String(error);
+      const messages = errorOwners.get(node) || new Map();
+      const message = '加载失败：' + String(error);
+      messages.set(owner, message);
+      errorOwners.set(node, messages);
+      node.style.display = 'block';
+      node.textContent = message;
     },
-    dispose() {
-      if (node && errorOwners.get(node) === owner) {
-        node.style.display = 'none'; node.textContent = ''; errorOwners.delete(node);
-      }
-    },
+    clear,
+    dispose: clear,
   };
 }

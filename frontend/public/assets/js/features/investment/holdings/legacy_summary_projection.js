@@ -344,6 +344,7 @@ export function applyLegacySummaryPayload(payloads, context) {
       asOf: dashboardSummary.asOf,
       syncAt: latestSyncAt,
       mobileProfiles,
+      filterSummaries: latestHoldings?.filter_summaries,
     });
 
 }

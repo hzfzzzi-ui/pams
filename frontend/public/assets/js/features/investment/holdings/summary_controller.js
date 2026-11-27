@@ -336,6 +336,7 @@ function promoteHoldingsTable() {
       }), 'holdings'));
       if (!scope.active) return;
       applyLegacySummaryPayload(payloads, {document, Chart, showClosedPositions, view});
+      errorView.clear();
       const projectionStatus = document.getElementById('holdingProjectionStatus');
       if (projectionStatus) {
         projectionStatus.hidden = !payloads.at(-1)?.stale;

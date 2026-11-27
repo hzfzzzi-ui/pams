@@ -208,6 +208,33 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null, sele
   `;
 }
 
+function filteredPositionHero(category, segment, data, account, selection) {
+  const day = data?.daily_as_of?.slice(5).replace('-', '/');
+  const known = data?.daily_pnl_valued_count || 0;
+  const estimate = data?.daily_pnl_estimated_count ? '（含估算）' : '';
+  const partial = known > 0 && known < data?.daily_pnl_total_count;
+  const metric = (label, value, signed = false) => {
+    const tone = signed && value != null && Number(value) !== 0 ? (Number(value) > 0 ? 'up' : 'down') : '';
+    return `<div class="mobileHeroPrimaryMetric"><span>${esc(label)}</span><strong class="${tone}">${value == null ? '—' : signed ? fmtSignedCny(value) : fmtCny(value)}</strong></div>`;
+  };
+  const showAccount = category === '股票' || segment !== '场内';
+  const fundNav = category === '基金' && segment === '场外';
+  const marketLabel = data?.missing_values ? '已知持仓市值' : '持仓市值';
+  return `<div class="mobileAccountHeroTop"><span>${esc(category === '基金' ? (segment ? segment + '基金' : '全部基金') : segment)}</span>${filterWeightBadge(selection)}</div>
+    <div class="mobileHeroPrimaryGrid">
+      ${metric(fundNav ? '场外基金及活期净值（估算）' : marketLabel, fundNav ? account?.net_value?.value : data?.market_value_cny)}
+      ${metric(`今日盈亏${day ? ' · ' + day : ''}${partial ? '（部分）' : ''}${estimate}`, data?.daily_pnl_cny, true)}
+      ${metric(data?.floating_pnl_missing ? '已知持仓浮盈' : '持仓浮盈', data?.floating_pnl_cny, true)}
+    </div>
+    <div class="mobileHeroMiniGrid">
+      ${fundNav ? mobileHeroMetaItem(marketLabel, data?.market_value_cny == null ? '—' : fmtCny(data.market_value_cny)) : ''}
+      ${category === '股票' ? mobileHeroMetaItem('同花顺账户净值', account?.net_value?.value == null ? '—' : fmtCny(account.net_value.value)) : ''}
+      ${category === '基金' && !segment ? mobileHeroMetaItem('场外基金及活期净值（估算）', account?.net_value?.value == null ? '—' : fmtCny(account.net_value.value)) : ''}
+      ${showAccount && account?.cumulative_pnl?.value != null ? mobileHeroMetaItem(category === '股票' ? '账户持仓累计盈亏' : '场外基金已核对盈亏', fmtSignedCny(account.cumulative_pnl.value)) : ''}
+      ${showAccount ? mobileHeroMetaItem('现金余额', account?.cash?.value == null ? '—' : fmtCny(account.cash.value)) : ''}
+    </div>`;
+}
+
 function updateMobilePortfolioHero(group = currentMobileHeroGroup()) {
   if (!mobileHeroContext) return;
   const mobileHeroEl = document.getElementById('mobilePortfolioHero');
@@ -226,6 +253,11 @@ function updateMobilePortfolioHero(group = currentMobileHeroGroup()) {
     partial: !overview?.complete_position_weights,
     label: segment || category,
   } : null;
+  if (category === '基金' || (category === '股票' && segment === 'A股')) {
+    const data = mobileHeroContext.filterSummaries?.[category]?.[segment];
+    mobileHeroEl.innerHTML = filteredPositionHero(category, segment, data, profile.accountCard, selection);
+    return;
+  }
   mobileHeroEl.innerHTML = MobilePortfolioHero(profile, mobileHeroContext.asOf, mobileHeroContext.dataIssues, mobileHeroContext.syncAt, selection);
 }
 
@@ -785,11 +817,13 @@ function renderInvestmentDashboard({
   asOf,
   syncAt,
   mobileProfiles,
+  filterSummaries,
 }) {
   const summaryEl = document.getElementById('investmentSummaryHeader');
   if (summaryEl) summaryEl.innerHTML = InvestmentSummaryHeaderCompact(summary);
 
   mobileHeroContext = {
+    filterSummaries,
     profiles: mobileProfiles || { '全部': { value: summary.marketValue, dailyPnl: summary.dailyPnl, totalPnl: summary.totalPnl, currentFloatPnl: summary.currentFloatPnl, totalRate: summary.twr, share: 1 } },
     dataIssues,
     asOf,

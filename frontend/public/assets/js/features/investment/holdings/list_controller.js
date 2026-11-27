@@ -171,6 +171,7 @@ export function mount(root, context) {
       showCashStatus(cash.missing);
       document.getElementById('asof').textContent = holdings.as_of || '--';
       if (!supplementFailed) memory?.write('rows', variant, {rows, references, summary, returnOverview: overview, asOf: holdings.as_of, missingCash: cash.missing});
+      errorView.clear();
       showRememberedData(refreshNote);
     } catch (error) {
       if (!scope.active) return;

@@ -30,17 +30,19 @@ export function createReturnView({document, scope, details, openPosition, showFi
     const amount = accountMode ? metricMoney(overview?.net_value)
       : (summary?.missing_values ? '已知 ' : '') + money(summary?.market_value_cny);
     const recentDaily = overview?.recent_daily_pnl;
-    const dailyVal = summary?.daily_pnl_cny ?? (recentDaily?.value != null ? Number(recentDaily.value) : null);
+    const todayValue = summary?.daily_as_of ? summary.daily_pnl_cny : null;
+    const dailyVal = todayValue ?? (recentDaily?.value != null ? Number(recentDaily.value) : null);
     const dailyValued = Number(summary?.daily_pnl_valued_count || 0);
     const dailyTotal = Number(summary?.daily_pnl_total_count || 0);
-    const dailyLabel = summary?.daily_pnl_cny != null
-      ? (dailyTotal > 0 && dailyValued < dailyTotal ? `今日盈亏 · 已知 ${dailyValued}/${dailyTotal}` : '今日盈亏')
+    const todayLabel = summary?.daily_pnl_estimated_count ? '今日盈亏（含估算）' : '今日盈亏';
+    const dailyLabel = todayValue != null
+      ? (dailyTotal > 0 && dailyValued < dailyTotal ? `${todayLabel} · 已知 ${dailyValued}/${dailyTotal}` : todayLabel)
       : (recentDaily?.value != null
         ? `最近一日盈亏${recentDaily.as_of ? ` · ${String(recentDaily.as_of).slice(5)}` : ''}`
         : '今日盈亏');
     const dailyText = dailyVal == null ? '—'
-      : (summary?.daily_pnl_cny == null && recentDaily?.status === 'partial' ? '已知 ' : '') + formatSignedCurrency(dailyVal);
-    const dailySub = summary?.daily_pnl_cny != null ? signedPct(summary?.daily_pnl_ratio) : '';
+      : (todayValue == null && recentDaily?.status === 'partial' ? '已知 ' : '') + formatSignedCurrency(dailyVal);
+    const dailySub = todayValue != null ? signedPct(summary?.daily_pnl_ratio) : '';
     const floatVal = summary?.floating_pnl_cny;
     const floatLabel = floatVal != null && Number(summary?.floating_pnl_missing || 0) > 0 ? '持仓浮盈 · 已知' : '持仓浮盈';
     const floatText = floatVal == null ? '—' : formatSignedCurrency(floatVal);

@@ -45,7 +45,7 @@ def _us_position(row: dict) -> bool:
 
 
 def attach_recent_us_returns(
-    cur, payload: dict[str, Any], *, active_date: date,
+    cur, payload: dict[str, Any], *, active_date: date, now: datetime | None = None,
     load_date: Callable[[date], dict[str, Any]],
 ) -> dict[str, Any]:
     """Replay the existing reader once at the latest evidenced prior US close.
@@ -62,17 +62,23 @@ def attach_recent_us_returns(
     cur.execute("SELECT to_regclass('public.market_observations') IS NOT NULL AS exists")
     if not (cur.fetchone() or {}).get("exists"):
         return payload
-    cur.execute("""
-        SELECT MAX(quote_date) AS as_of FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') AS observation_rows
-        WHERE market = 'US' AND currency = 'USD' AND return_status = 'confirmed'
-          AND quote_date < %s AND symbol = ANY(%s::text[])
-          AND price > 0 AND price::text NOT IN ('NaN', 'Infinity', '-Infinity')
-    """, (active_date, sorted({str(r["symbol"]) for r in pending})))
-    raw_date = (cur.fetchone() or {}).get("as_of")
-    if not raw_date:
+    completed = latest_completed_session("us", now)
+    if completed is None:
         return payload
-    close_date = date.fromisoformat(str(raw_date)[:10])
-    if close_date >= active_date:
+    calendar = market_calendar("us")
+    # A provider may stamp a prior close with a holiday or processing date.
+    # Only exchange sessions strictly before the active bucket can be replayed.
+    cur.execute("""
+        SELECT DISTINCT quote_date AS as_of FROM (SELECT * FROM market_observations WHERE observation_type = 'quote') AS observation_rows
+        WHERE market = 'US' AND currency = 'USD' AND return_status = 'confirmed'
+          AND quote_date < %s AND quote_date <= %s AND symbol = ANY(%s::text[])
+          AND price > 0 AND price::text NOT IN ('NaN', 'Infinity', '-Infinity')
+        ORDER BY quote_date DESC
+    """, (active_date, completed, sorted({str(r["symbol"]) for r in pending})))
+    close_date = next((row["as_of"] for row in cur.fetchall()
+                       if row["as_of"] >= calendar.first_session.date()
+                       and calendar.is_session(row["as_of"].isoformat())), None)
+    if close_date is None:
         return payload
     try:
         historical = {_key(r): r for r in load_date(close_date).get("rows", []) if _us_position(r)}
@@ -147,7 +153,7 @@ def attach_recent_market_returns(
         return history[day]
 
     output = attach_recent_nav_returns(payload, active_date=active_date, load_date=load)
-    output = attach_recent_us_returns(cur, output, active_date=active_date, load_date=load)
+    output = attach_recent_us_returns(cur, output, active_date=active_date, now=current_time, load_date=load)
     if unavailable:
         return output
     rows = output.get("rows") or []

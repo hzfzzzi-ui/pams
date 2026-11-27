@@ -129,8 +129,8 @@ def attach_combined_positions(rows):
         for field in ("buy_price", "current_price", "previous_price", "price_change_pct"):
             values = {row.get(field) for row in members}
             combined[field] = values.pop() if len(values) == 1 else None
-        dates = {row.get("daily_pnl_as_of") for row in members}
-        pending = (len(dates) != 1 or None in dates or combined["daily_total_pnl_cny"] is None
+        dates = {str(row.get("daily_return_status_as_of") or row.get("daily_pnl_as_of") or "")[:10] for row in members}
+        pending = (len(dates) != 1 or "" in dates or combined["daily_total_pnl_cny"] is None
                    or any(row.get("daily_pnl_stale") or row.get("daily_return_status") == "pending" for row in members))
         combined["daily_pnl_stale"] = pending
         if pending:
@@ -157,10 +157,69 @@ def holding_filter_weights(holdings):
             for group, amounts in weights.items()}
 
 
-def personal_holdings(payload, classes=None, *, accounts=None):
+def _position_summary(rows, active_date):
+    """Summarize the same open personal positions and active business day as the list."""
+    total = Decimal(0)
+    missing = 0
+    floating_total = Decimal("0")
+    floating_cost = Decimal("0")
+    floating_valued = 0
+    floating_missing = 0
+    daily_total = Decimal("0")
+    daily_base = Decimal("0")
+    daily_valued = 0
+    estimated_count = 0
+    for row in rows:
+        mv = row.get("market_value_cny")
+        if mv is None:
+            missing += 1
+        else:
+            total += Decimal(str(mv))
+        fpnl = row.get("floating_pnl_cny")
+        rcost = row.get("cost_cny")
+        if fpnl is not None and rcost is not None:
+            floating_valued += 1
+            floating_total += Decimal(str(fpnl))
+            floating_cost += Decimal(str(rcost))
+        else:
+            floating_missing += 1
+        day = row.get("daily_return_status_as_of") or row.get("daily_pnl_as_of")
+        if row.get("daily_pnl_stale") or row.get("daily_return_status") == "pending":
+            continue
+        if active_date and (str(day or "")[:10] != str(active_date)[:10]
+                            or row.get("daily_return_status") not in {"confirmed", "estimated"}):
+            continue
+        raw_daily = row.get("daily_total_pnl_cny")
+        if raw_daily is None and row.get("currency") in (None, "CNY"):
+            raw_daily = row.get("daily_pnl_cny")
+        if raw_daily is not None and mv is not None:
+            daily_valued += 1
+            if row.get("daily_return_status") == "estimated":
+                estimated_count += 1
+            d_dec = Decimal(str(raw_daily))
+            daily_total += d_dec
+            base_mv = Decimal(str(mv)) - d_dec
+            if base_mv > 0:
+                daily_base += base_mv
+
+    return {
+        "daily_as_of": str(active_date)[:10] if active_date else None,
+        "market_value_cny": float(total) if len(rows) > missing or not missing else None,
+        "missing_values": missing,
+        "floating_pnl_cny": float(floating_total) if floating_valued else None,
+        "floating_pnl_ratio": float(floating_total / floating_cost) if floating_valued and floating_cost > 0 else None,
+        "floating_pnl_missing": floating_missing,
+        "daily_pnl_cny": float(daily_total) if daily_valued else None,
+        "daily_pnl_ratio": float(daily_total / daily_base) if daily_valued and daily_base > 0 else None,
+        "daily_pnl_valued_count": daily_valued,
+        "daily_pnl_estimated_count": estimated_count,
+        "daily_pnl_total_count": len(rows),
+    }
+
+
+def personal_holdings(payload, classes=None, *, accounts=None, active_date=None):
     classes = instrument_classes() if classes is None else classes
     total = Decimal("0")
-    missing = valued = 0
     rows = []
     for source in payload.get("rows", []):
         group, segment = position_category(source, classes)
@@ -171,10 +230,7 @@ def personal_holdings(payload, classes=None, *, accounts=None):
         if group in {"现金/活期", "负债"} or row.get("reference_as_of") or row.get("is_closed"):
             continue
         amount = row.get("market_value_cny")
-        if amount is None:
-            missing += 1
-        else:
-            valued += 1
+        if amount is not None:
             total += Decimal(str(amount))
             row["portfolio_weight"] = Decimal(str(amount))
     for row in rows:
@@ -193,58 +249,22 @@ def personal_holdings(payload, classes=None, *, accounts=None):
                                       if floating is not None and Decimal(str(cost)) > 0 else None)
         item["cumulative_pnl_ratio"] = (float(Decimal(str(pnl)) / Decimal(str(cost)))
                                         if pnl is not None and cost is not None and Decimal(str(cost)) > 0 else None)
-    floating_total = Decimal("0")
-    floating_cost = Decimal("0")
-    floating_valued = 0
-    floating_missing = 0
-    daily_total = Decimal("0")
-    daily_base = Decimal("0")
-    daily_valued = 0
-    daily_total_count = 0
-    for row in rows:
-        if row["position_group"] in {"现金/活期", "负债"} or row.get("reference_as_of") or row.get("is_closed"):
-            continue
-        daily_total_count += 1
-        fpnl = row.get("floating_pnl_cny")
-        rcost = row.get("cost_cny")
-        if fpnl is not None and rcost is not None:
-            floating_valued += 1
-            floating_total += Decimal(str(fpnl))
-            floating_cost += Decimal(str(rcost))
-        else:
-            floating_missing += 1
-        stale = row.get("daily_pnl_stale") is True or str(row.get("daily_return_status") or "").lower() == "pending"
-        raw_daily = None
-        if not stale:
-            raw_daily = row.get("daily_total_pnl_cny")
-            if raw_daily is None:
-                raw_daily = row.get("daily_pnl_cny")
-        else:
-            recent = row.get("recent_confirmed_return") or {}
-            if recent.get("status") == "confirmed":
-                raw_daily = (recent.get("fields") or {}).get("daily_total_pnl_cny")
-        mv = row.get("market_value_cny")
-        if raw_daily is not None and mv is not None:
-            daily_valued += 1
-            d_dec = Decimal(str(raw_daily))
-            daily_total += d_dec
-            base_mv = Decimal(str(mv)) - d_dec
-            if base_mv > 0:
-                daily_base += base_mv
-
+    active = [r for r in rows if r["position_group"] not in {"现金/活期", "负债"}
+              and not r.get("is_closed") and not r.get("reference_as_of")]
+    groups = {}
+    for row in active:
+        group = row["position_group"]
+        if group in {"基金", "股票"}:
+            segments = groups.setdefault(group, {})
+            segments.setdefault("", []).append(row)
+            if segment := row.get("position_segment"):
+                segments.setdefault(segment, []).append(row)
+    active_date = active_date or payload.get("as_of")
+    filtered = {group: {segment: _position_summary(members, active_date) for segment, members in segments.items()}
+                for group, segments in groups.items()}
     references = []
     for reference in payload.get("historical_references", []):
         group, segment = position_category(reference, classes)
         references.append(dict(reference, position_group=group, position_segment=segment))
     return dict(payload, rows=rows, historical_references=references,
-                personal_summary={
-                    "market_value_cny": float(total) if valued or not missing else None,
-                    "missing_values": missing,
-                    "floating_pnl_cny": float(floating_total) if floating_valued else None,
-                    "floating_pnl_ratio": float(floating_total / floating_cost) if floating_valued and floating_cost > 0 else None,
-                    "floating_pnl_missing": floating_missing,
-                    "daily_pnl_cny": float(daily_total) if daily_valued else None,
-                    "daily_pnl_ratio": float(daily_total / daily_base) if daily_valued and daily_base > 0 else None,
-                    "daily_pnl_valued_count": daily_valued,
-                    "daily_pnl_total_count": daily_total_count,
-                })
+                personal_summary=_position_summary(active, active_date), filter_summaries=filtered)
