@@ -1366,6 +1366,8 @@ html.pams-content body.app-shell:not(.page-account-import) > .wrap {
   .returnDetail > strong,
   .returnLink b,
   .hmHero strong,
+  .holdingMarketDetail .hmHero b,
+  .holdingMarketDetail .hmBreakdown b,
   .perfBenchTile strong,
   .perfLeaderVal,
   .portfolioRuleAmount,

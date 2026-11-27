@@ -9,7 +9,7 @@ from domain.investments.returns.benchmark_summary import build_performance_summa
 
 PAGE_START = "2026-01-01"
 _RECHECK_MINUTES = 5
-PROJECTION_SCHEMA_VERSION = "7"
+PROJECTION_SCHEMA_VERSION = "8"
 
 
 def schema_available(cur):

@@ -218,7 +218,8 @@ def create_compatibility_router(
                             "investment_overview" not in (data.get("account_cards") or {}) or
                             "personal_summary" not in data["holdings"] or
                             "daily_pnl_cny" not in (data["holdings"].get("personal_summary") or {}) or
-                            any("position_dividend_return" not in r for r in data["holdings"]["rows"])):
+                            any("position_dividend_return" not in r or "position_pnl" not in r
+                                for r in data["holdings"]["rows"])):
                         published = None
                 if published is None:
                     data = build_holdings_page(cur, show_closed=show_closed)

@@ -66,6 +66,33 @@ class PersonalHoldingsTest(TestCase):
         self.assertEqual(holding_filter_weights(result), {"股票": {"": 0.3, "A股": 0.3},
                          "基金": {"": 0.7, "场内": 0.7}, "贵金属": {"": None}})
 
+    def test_detail_pnl_for_mixed_owners_uses_whole_positions_once(self):
+        from decimal import Decimal
+        from domain.investments.holdings.holdings_positions import _apply_owner_ratio
+
+        def holding(account, realized):
+            source = dict(account=account, symbol="SEC", currency="CNY", major_category="A股",
+                          market_value_cny=120, cost_cny=100, holding_pnl_cny=20 + realized,
+                          realized_trade_pnl_cny=realized)
+            return _apply_owner_ratio(source, owner_ratios={"joint": Decimal("0.25")},
+                                      default_owner_ratio=Decimal(1))
+
+        joint = holding("joint", 10)
+        full = holding("sole", 0)
+        first, second = personal_holdings({"rows": [joint, full]}, {})["rows"]
+        self.assertEqual(first["market_value_cny"], 30)
+        self.assertEqual(first["position_pnl"], {"scope": "account", "cumulative_cny": 30,
+                                                "realized_cny": 10, "floating_cny": 20})
+        self.assertEqual(second["position_pnl"], {"scope": "personal", "cumulative_cny": 20,
+                                                 "realized_cny": 0, "floating_cny": 20})
+        self.assertEqual(first["combined_position"]["position_pnl"],
+                         {"scope": "account", "cumulative_cny": 50, "realized_cny": 10, "floating_cny": 40})
+
+        joint.update(realized_trade_pnl_gross_cny=None, realized_trade_pnl_source="unavailable_trade_coverage")
+        combined = personal_holdings({"rows": [full, joint]}, {})["rows"][0]["combined_position"]
+        self.assertEqual(combined["position_pnl"], {"scope": "account", "cumulative_cny": None,
+                                                  "realized_cny": None, "floating_cny": 40})
+
     def test_one_instrument_in_two_accounts_keeps_both_details(self):
         rows = [dict(holding_id=i, account=str(i), symbol="TEST", currency="CNY",
                      major_category="A股", minor_category="A股基金", market_value_cny=str(i))

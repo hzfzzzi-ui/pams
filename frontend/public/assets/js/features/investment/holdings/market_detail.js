@@ -7,17 +7,17 @@ const number = (value, digits = 2) => Number(value).toLocaleString('zh-CN', {
 const amount = value => value == null ? '—' : '¥' + number(value);
 const before = (end, days) => new Date(Date.parse(end) - days * 86400000).toISOString().slice(0, 10);
 
-export function marketDetailHtml({subtitle, value, totalPnl, pnlClass, breakdown, fields, iconMarkup = ''}) {
+export function marketDetailHtml({subtitle, value, cumulative, breakdown, fields, iconMarkup = ''}) {
   return `<section class="holdingMarketDetail">
     <div class="hmIdentity">${iconMarkup}<div class="hmSubtitle">${esc(subtitle)}</div></div>
-    <div class="hmHero"><div><small>个人持仓市值</small><strong>${esc(value)}</strong></div>
-      <div><small>累计盈亏</small><b class="${pnlClass}">${esc(totalPnl)}</b></div></div>
+    <div class="hmHero"><div><small>${esc(cumulative.label)}</small><strong class="${cumulative.tone}">${esc(cumulative.amount)}</strong></div>
+      <div><small>个人持仓市值</small><b>${esc(value)}</b></div></div>
     <div class="hmBreakdown">${breakdown.map(item=>`<div><small>${esc(item.label)}</small><b class="${item.tone || ''}">${esc(item.amount)}</b></div>`).join('')}</div>
     <div class="holdingAccountLinks"></div>
-    <div class="hmBar"><strong>走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
-    <div class="hmPanel"><strong>持仓市值走势</strong><div class="hmLegend"><span>持仓市值 · 万元</span></div><div class="hmPlot" aria-label="持仓市值历史走势"></div><div class="hmReadout" aria-live="polite">正在读取走势…</div></div>
-    <div class="hmPanel"><strong>我的持仓收益率</strong><div class="hmReturnPlot"></div><div class="hmReturnReadout" aria-live="polite">正在读取走势…</div></div>
-    <div class="hmPanel"><strong>标的与大盘对比</strong><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span class="hmBenchmarkName"></span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></div>
+    <div class="hmBar"><strong>持仓市值走势</strong><div><button data-period="ytd" aria-pressed="true">年初至今</button><button data-period="month">近1月</button><button data-period="quarter">近3月</button></div></div>
+    <div class="hmPanel"><div class="hmLegend"><span>个人持仓市值 · 万元</span></div><div class="hmPlot" aria-label="持仓市值历史走势"></div><div class="hmReadout" aria-live="polite">正在读取走势…</div></div>
+    <details><summary>我的持仓收益率</summary><div class="hmReturnPlot"></div><div class="hmReturnReadout" aria-live="polite">正在读取走势…</div></details>
+    <details><summary>标的与大盘对比</summary><div class="hmLegend hmComparisonLegend" hidden><span>标的</span><span class="hmBenchmarkName"></span></div><div class="hmComparisonPlot"></div><div class="hmComparisonReadout" aria-live="polite">正在读取走势…</div></details>
     <details><summary>账户成交记录</summary><div class="hmTrades"></div></details>
     <details><summary>持仓与盈亏明细</summary>${fields}</details>
   </section>`;
@@ -126,9 +126,6 @@ function returnMarkup(rows) {
 
 export function bindMarketDetail(sheet, holding, shared = false) {
   if (!sheet) return;
-  if (shared) {
-    sheet.querySelector('.hmLegend span').textContent = '按当前归属折算的持仓市值 · 万元';
-  }
   const accounts = holding.__accountRows || [holding];
   const end = accounts.flatMap(row => [row.as_of, row.snapshot_as_of])
     .map(value => String(value || '').slice(0, 10))
