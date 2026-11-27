@@ -294,9 +294,15 @@ def _combine_capital_series(
             "rows": [],
         }
 
-    # Stop at the earliest terminal date among active components so a component
-    # ending 1-2 days earlier never causes an artificial PnL cliff.
-    common_end = min(max(c.keys()) for c in active)
+    # Stop at the earliest terminal date among STILL-OPEN components so an active
+    # component ending 1-2 days earlier never causes an artificial PnL cliff, while
+    # a permanently closed component (e.g. redeemed wealth product with mv == 0)
+    # carries its realized PnL forward without truncating the portfolio curve.
+    open_ends = [
+        max(c.keys()) for c in active
+        if (c[max(c.keys())].get("market_value") or ZERO) != ZERO
+    ]
+    common_end = min(open_ends) if open_ends else max(max(c.keys()) for c in active)
     all_days = sorted({d for c in active for d in c.keys() if start <= d <= common_end})
 
     rows: list[dict[str, Any]] = []
@@ -306,7 +312,7 @@ def _combine_capital_series(
     twr = ZERO
 
     for day in all_days:
-        # Require every component that has already started on or before `day` to have a value
+        # Require every open component that has already started on or before `day` to have a value
         missing = False
         mv_sum = ZERO
         cap_sum = ZERO
@@ -315,6 +321,15 @@ def _combine_capital_series(
             first_d = min(comp.keys())
             if day < first_d:
                 continue
+            last_d = max(comp.keys())
+            if day > last_d:
+                last_item = comp[last_d]
+                if (last_item.get("market_value") or ZERO) == ZERO:
+                    # Closed component: realized PnL remains in cumulative total PnL
+                    pnl_sum += last_item.get("total_pnl") or ZERO
+                    continue
+                missing = True
+                break
             item = comp.get(day)
             if item is None:
                 missing = True

@@ -92,3 +92,26 @@ def test_combine_capital_series_merges_stocks_without_dropout_cliff():
     assert abs(Decimal(last["capital_return_rate"]) - Decimal("-0.3333333")) < Decimal("0.0001")
     assert last["return_basis"] == "capital_return"
     assert last["time_weighted_return_rate"] is not None
+
+
+def test_combine_capital_series_does_not_truncate_on_closed_component():
+    d1, d2, d3 = date(2026, 1, 1), date(2026, 3, 20), date(2026, 11, 24)
+    open_stocks = {
+        d1: {"market_value": Decimal("1000"), "cumulative_capital": Decimal("1000"), "total_pnl": Decimal("0")},
+        d2: {"market_value": Decimal("900"), "cumulative_capital": Decimal("1000"), "total_pnl": Decimal("-100")},
+        d3: {"market_value": Decimal("800"), "cumulative_capital": Decimal("1000"), "total_pnl": Decimal("-200")},
+    }
+    closed_wealth = {
+        d1: {"market_value": Decimal("500"), "cumulative_capital": Decimal("500"), "total_pnl": Decimal("0")},
+        d2: {"market_value": Decimal("0"), "cumulative_capital": Decimal("0"), "total_pnl": Decimal("25")},
+    }
+    payload = crs._combine_capital_series(
+        [open_stocks, closed_wealth], start=d1, end=d3, section="total", base_currency="CNY", coverage_notes=[]
+    )
+    assert payload["end"] == "2026-11-24"
+    assert len(payload["rows"]) == 3
+    last = payload["rows"][-1]
+    assert Decimal(last["market_value"]) == Decimal("800")
+    assert Decimal(last["cumulative_capital"]) == Decimal("1000")
+    assert Decimal(last["total_pnl"]) == Decimal("-175")  # -200 + 25 realized wealth gain
+    assert abs(Decimal(last["capital_return_rate"]) - Decimal("-0.175")) < Decimal("0.0001")
