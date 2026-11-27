@@ -232,7 +232,7 @@ export function createAnalysisController({ root = document, host = window, viewS
 
       const jumpReviewBtn = event.target?.closest?.('[data-jump-trade-review]');
       if (jumpReviewBtn) {
-        const txTab = doc.querySelector('[data-invest-tab-btn="transactions"], [data-invest-nav="transactions"], button[data-tab="transactions"]');
+        const txTab = doc.querySelector('[data-invest-tab="transactions"], [data-invest-tab-btn="transactions"], [data-invest-nav="transactions"], button[data-tab="transactions"]');
         if (txTab) txTab.click();
         else if (doc.body) doc.body.dataset.investTab = 'transactions';
         host.setTimeout(() => {

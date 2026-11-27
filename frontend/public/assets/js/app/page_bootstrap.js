@@ -80,10 +80,33 @@ export function createPageBootstrap({
     timers.add(timer);
   }
 
+  const PRIVACY_KEY = 'pams:privacy-mode';
+  function applyLocalPrivacy(enabled) {
+    if (enabled) doc.documentElement.dataset.privacy = '1';
+    else delete doc.documentElement.dataset.privacy;
+    doc.body?.classList.toggle('is-privacy-masked', Boolean(enabled));
+  }
+  function syncPrivacyFromStorage() {
+    let enabled = false;
+    try { enabled = win.localStorage?.getItem(PRIVACY_KEY) === '1'; } catch { /* ignore */ }
+    applyLocalPrivacy(enabled);
+  }
+  const onPrivacyMessage = (event) => {
+    if (event.origin === win.location?.origin && event.data?.type === 'pams-privacy') {
+      applyLocalPrivacy(Boolean(event.data.enabled));
+    }
+  };
+  const onPrivacyStorage = (event) => {
+    if (!event.key || event.key === PRIVACY_KEY) syncPrivacyFromStorage();
+  };
+
   function start() {
     if (started || disposed) return;
     started = true;
     doc.body.classList.add('app-shell');
+    syncPrivacyFromStorage();
+    win.addEventListener('message', onPrivacyMessage);
+    win.addEventListener('storage', onPrivacyStorage);
     disposePickers = mountUnifiedIconPickers(doc, win);
     win.addEventListener('pagehide', dispose, {once: true});
     const connection = win.navigator.connection || win.navigator.mozConnection || win.navigator.webkitConnection;
@@ -96,6 +119,8 @@ export function createPageBootstrap({
   function dispose() {
     if (disposed) return;
     disposed = true;
+    win.removeEventListener('message', onPrivacyMessage);
+    win.removeEventListener('storage', onPrivacyStorage);
     disposePickers?.();
     disposePickers = null;
     warmup.abort();

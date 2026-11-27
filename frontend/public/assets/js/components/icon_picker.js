@@ -132,6 +132,7 @@ export function mountUnifiedIconPickers(doc = document, win = window) {
     entries.set(el, entry);
 
     trigger.addEventListener('click', (event) => {
+      event.preventDefault();
       event.stopPropagation();
       const willOpen = menu.hidden;
       closeAll(entry);
@@ -142,6 +143,28 @@ export function mountUnifiedIconPickers(doc = document, win = window) {
 
     el.addEventListener('change', () => syncEntry(entry), { signal: ac.signal });
     el.addEventListener('click', () => win.setTimeout(() => { if (!disposed) syncEntry(entry); }, 0), { signal: ac.signal });
+
+    // Proxy programmatic .value / .selectedIndex assignments on native <select> so picker label never desyncs.
+    if (kind === 'select') {
+      const proto = win.HTMLSelectElement?.prototype || Object.getPrototypeOf(el);
+      const restoreProps = [];
+      for (const prop of ['value', 'selectedIndex']) {
+        const desc = proto && Object.getOwnPropertyDescriptor(proto, prop);
+        if (desc?.get && desc?.set) {
+          Object.defineProperty(el, prop, {
+            configurable: true,
+            enumerable: desc.enumerable,
+            get() { return desc.get.call(this); },
+            set(next) {
+              desc.set.call(this, next);
+              if (!disposed) syncEntry(entry);
+            },
+          });
+          restoreProps.push(prop);
+        }
+      }
+      entry.restoreProps = restoreProps;
+    }
 
     if (typeof MutationObserver === 'function') {
       const obs = new MutationObserver(() => {
@@ -203,6 +226,9 @@ export function mountUnifiedIconPickers(doc = document, win = window) {
     bodyObserver?.disconnect();
     for (const [el, entry] of entries) {
       entry.observer?.disconnect();
+      for (const prop of entry.restoreProps || []) {
+        delete el[prop];
+      }
       entry.wrap.remove();
       el.classList.remove('pamsPickerOriginHidden');
       delete el.dataset.pamsIconPicker;

@@ -34,7 +34,7 @@ export function formatCurrency(value, currency = 'CNY', options = {}) {
   const n = toFiniteNumber(value);
   const code = String(currency || 'CNY').toUpperCase();
   const symbol = code === 'CNY' ? '¥' : code === 'USD' ? '$' : `${code} `;
-  const sign = options.signed ? (n >= 0 ? '+' : '-') : '';
+  const sign = options.signed ? (n >= 0 ? '+' : '-') : (n < 0 ? '-' : '');
   const maximumFractionDigits = options.maximumFractionDigits ?? 2;
   const minimumFractionDigits = options.minimumFractionDigits ?? maximumFractionDigits;
   return `${sign}${symbol}${Math.abs(n).toLocaleString('zh-CN', {

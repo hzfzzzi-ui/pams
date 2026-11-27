@@ -1334,7 +1334,7 @@ html.pams-content body.app-shell:not(.page-account-import) > .wrap {
 }
 
 /* Global privacy mode: blur monetary amounts while keeping percentages, names, and charts readable. */
-html[data-privacy="1"] :is(
+:is(html[data-privacy="1"], body.is-privacy-masked) :is(
   #holdingReturnHero > strong,
   #holdingReturnHero .returnStats strong,
   #holdingReturnHero .returnStats b,
@@ -1342,6 +1342,8 @@ html[data-privacy="1"] :is(
   #mobileHoldingList .personalPositionValues > small:nth-of-type(2),
   #mobileHoldingList .personalPositionValues > small:nth-of-type(4),
   .mobileHeroValue,
+  .mobileHeroPrimaryMetric strong,
+  .mobileHeroMiniMetric strong,
   .ledgerMobileValue,
   .ledgerMobileStat strong,
   .ledgerStreamRowAmount,
@@ -1352,14 +1354,24 @@ html[data-privacy="1"] :is(
   .ledgerTransferSummary strong,
   .monthlyHero strong[data-nav],
   .monthlyHero span[data-change],
+  .monthlyOverview .metricTabs b,
+  .monthlyOverview .plotRow .rowValue,
+  .monthlyTip b,
+  .monthlyAudit summary,
   .monthlyAudit b,
+  #accountNetworthDebtsPanel strong,
+  #accountNetworthDebtsPanel b,
   .assetDebtRow strong,
   .accountSyncAmount,
   .returnDetail > strong,
   .returnLink b,
-  .hmHero strong
+  .hmHero strong,
+  .perfBenchTile strong,
+  .perfLeaderVal,
+  .portfolioRuleAmount,
+  .tradeItemNumbers strong
 ) {
-  filter: blur(7px);
+  filter: blur(7px) !important;
   user-select: none;
   transition: filter 160ms ease;
 }
@@ -3941,8 +3953,17 @@ body.page-investments .portfolioRiskDashboard:not(.risk):not(.warn) {
   align-items: center;
   flex: 0 0 auto;
   margin-left: auto;
+  z-index: 20;
+}
+.pamsIconPicker:has(> .pamsIconMenu:not([hidden])) {
+  z-index: 140;
 }
 .pamsIconPicker[hidden] { display: none !important; }
+body.page-investments #holdings-smart-table,
+body.page-investments .personalHoldingHeading,
+body.page-investments .personalHoldingActions {
+  overflow: visible !important;
+}
 
 .pamsIconTrigger {
   display: inline-flex;

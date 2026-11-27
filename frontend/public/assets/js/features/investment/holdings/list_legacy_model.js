@@ -326,7 +326,7 @@ export function buildAccountCashRows(accountValues, existingRows) {
     rows.push({
       ...cashRow({
         symbol: `${account.toUpperCase()}_CASH`, name: `${label}现金`, account,
-        currency: account === 'ibkr' ? String(evidence.base_currency || 'USD').toUpperCase() : 'CNY',
+        currency: 'CNY',
         nativeAmount: evidence.cash_base, amountCny: evidence.cash_base, source: evidence.status,
       }),
       gross_cash_base: evidence.gross_cash_base ?? null,
