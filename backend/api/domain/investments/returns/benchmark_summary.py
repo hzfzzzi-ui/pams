@@ -348,9 +348,8 @@ def _portfolio_total_return_series(cur, *, ref_day: date) -> dict[str, Any]:
     ytd_start = date(ref_day.year, 1, 1).isoformat()
     series: list[dict[str, Any]] = []
     try:
-        projected = read_page(cur, "analysis", business_date=ref_day, member="sections")
-        sections = (projected or {}).get("data")
-        total = sections.get("total") if isinstance(sections, dict) else None
+        projected = read_page(cur, "analysis", business_date=ref_day, member="total")
+        total = (projected or {}).get("data")
         rows = (total or {}).get("rows") if isinstance(total, dict) else None
         for row in rows or []:
             if not isinstance(row, dict):
