@@ -484,3 +484,48 @@ def test_batch_c_modules_avoid_naive_utc_date_today():
         assert "date.today()" not in content, f"{path.name} still uses date.today()"
         assert "Date.today()" not in content, f"{path.name} still uses Date.today()"
         assert "Asia/Shanghai" in content, f"{path.name} missing Asia/Shanghai timezone"
+
+
+def test_account_contribution_ratios_falls_back_to_verified_trade_facts(monkeypatch):
+    from domain.investments.valuation import capital_ownership
+    from domain.investments.trades import nav_trade_source_v2, trade_read_v2
+
+    d1, d2 = date(2026, 1, 1), date(2026, 10, 19)
+    cfg = {"funding_history": {"as_of": "2026-11-21", "complete_personal_flows": True}}
+
+    # Simulate _read_event_prefix stopping early at a missing-balance-column export
+    monkeypatch.setattr(nav_trade_source_v2, "_read_event_prefix", lambda cur, code: ([], date(2026, 9, 21)))
+    verified_facts = [
+        {"trade_date": d1, "trade_type": "deposit", "currency": "CNY", "net_cash": Decimal("100"), "source_evidence_status": "verified"},
+        {"trade_date": d2, "trade_type": "deposit", "currency": "CNY", "net_cash": Decimal("50"), "source_evidence_status": "verified"},
+    ]
+    monkeypatch.setattr(trade_read_v2, "load_trade_rows", lambda cur, **kw: verified_facts)
+
+    captured = {}
+
+    def _fake_load(cur, c, events, dates, *, unverified_from=None):
+        if unverified_from is not None:
+            return {}
+        captured["events"] = events
+        return {d1: Decimal("0.5"), d2: Decimal("0.6667")}
+
+    monkeypatch.setattr(capital_ownership, "load_contribution_ratios", _fake_load)
+
+    class _FakeCur:
+        def execute(self, sql, params=None):
+            pass
+
+        def fetchone(self):
+            return {"ready": True}
+
+    res = capital_ownership.account_contribution_ratios(_FakeCur(), "tonghuashun", cfg, [d1, d2])
+    assert res == {d1: Decimal("0.5"), d2: Decimal("0.6667")}
+    assert len(captured["events"]) == 2
+
+    # Fail-closed when any trade fact is unverified
+    unverified_facts = [
+        *verified_facts,
+        {"trade_date": d2, "trade_type": "buy", "currency": "CNY", "net_cash": Decimal("-10"), "source_evidence_status": "unverified"},
+    ]
+    monkeypatch.setattr(trade_read_v2, "load_trade_rows", lambda cur, **kw: unverified_facts)
+    assert capital_ownership.account_contribution_ratios(_FakeCur(), "tonghuashun", cfg, [d1, d2]) == {}
