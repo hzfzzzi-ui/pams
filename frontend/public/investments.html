@@ -190,45 +190,6 @@
           </section>
         </div>
       </div>
-      <div class="investmentAnalysisCard investmentAttributionCard">
-        <div class="analysisSwitch" id="analysisSwitch" role="tablist" aria-label="分析模块切换">
-          <button type="button" class="active" role="tab" aria-selected="true" data-analysis-panel-switch="return_attribution">收益归因</button>
-          <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="trade_attribution">交易归因</button>
-          <button type="button" role="tab" aria-selected="false" data-analysis-panel-switch="asset_master">资产底表</button>
-        </div>
-        <div class="lookthroughTwinGrid analysisPanelStack">
-          <div id="return-attribution" class="lookthroughPanel returnAttributionPanel analysisPanelPage" data-analysis-panel-page="return_attribution">
-            <div class="sectionTitle">
-              <h3>收益归因 <span class="miniBadge data" id="returnAttributionBadge">待计算</span></h3>
-            </div>
-            <div id="returnAttributionSummary" class="returnAttributionSummary"></div>
-            <div id="returnAttributionTabs" class="lookthroughTabs" aria-label="收益归因维度"></div>
-            <div id="returnAttributionList" class="lookthroughList">
-              <div class="skeletonLine"></div>
-              <div class="skeletonLine"></div>
-              <div class="skeletonLine"></div>
-            </div>
-          </div>
-          <div id="trade-attribution-analysis" class="lookthroughPanel tradeAttributionAnalysisPanel analysisPanelPage" data-analysis-panel-page="trade_attribution" hidden>
-            <div class="sectionTitle">
-              <h3>交易归因 <span class="miniBadge data">复盘标注</span></h3>
-              <a class="miniBtn" href="#investment-ledger">回到交易</a>
-            </div>
-            <div id="tradeAttributionPanel" class="tradeAttributionPanel tradeAttributionPanelV2">
-              <div class="muted">正在计算复盘概览...</div>
-            </div>
-          </div>
-          <div id="asset-master-panel" class="lookthroughPanel assetMasterPanel analysisPanelPage" data-analysis-panel-page="asset_master" hidden>
-            <div class="lookthroughPanelHead">
-              <h3>资产底表 <span class="miniBadge data" id="assetMasterBadge">待同步</span></h3>
-            </div>
-            <div id="assetMasterSummary" class="assetMasterSummary">
-              <div class="lookthroughEmpty">资产底表数据待加载</div>
-            </div>
-            <div id="assetMasterList" class="assetMasterList"></div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <details id="category-detail-shell" class="investmentDetailFold" hidden>

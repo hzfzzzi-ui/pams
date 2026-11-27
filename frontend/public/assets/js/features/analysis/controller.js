@@ -166,7 +166,7 @@ export function createAnalysisController({ root = document, host = window, viewS
   }
 
   function scheduleVisibleAnalysisLoad() {
-    if (!current() || !getElementById('return-attribution')) return;
+    if (!current() || (!getElementById('return-attribution') && !getElementById('performanceBenchmarkPanel'))) return;
     const hashPanel = analysisPanelFromHash(host.location?.hash);
     if (hashPanel && hashPanel !== state.activeAnalysisPanel) {
       state.activeAnalysisPanel = hashPanel;
