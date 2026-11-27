@@ -13,6 +13,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 from domain.market.quote_valuation import quote_price_as_of, quote_valuation_cte
 from domain.investments.trades.trade_snapshot_display import enrich_trade_snapshot_costs
+from domain.investments.holdings.ths_trade_rollforward import apply_ths_post_snapshot_trades
 from domain.brokers.ibkr.ibkr_holding_pnl import enrich_ibkr_holding_pnl
 from domain.market.overseas_return_calendar import MARKET_CURRENCIES, latest_completed_session
 from domain.investments.holdings.snapshot_coverage import annotate_snapshot_coverage, point_in_time_visible_sql
@@ -1139,6 +1140,7 @@ def build_holdings_by_category_payload(
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)
     current_rows = _enrich_realized_trade_pnl(cur, current_rows)
     current_rows = enrich_trade_snapshot_costs(cur, current_rows)
+    current_rows = apply_ths_post_snapshot_trades(cur, current_rows, view_as_of=view_as_of)
     current_rows = enrich_ibkr_holding_pnl(cur, current_rows)
     current_keys = {_holding_key(row) for row in current_rows}
     rows = [
@@ -1800,6 +1802,7 @@ def build_holdings_latest_payload(
     current_rows = _adjust_a_stock_daily_pnl_for_same_day_buys(cur, current_rows)
     current_rows = _enrich_realized_trade_pnl(cur, current_rows)
     current_rows = enrich_trade_snapshot_costs(cur, current_rows)
+    current_rows = apply_ths_post_snapshot_trades(cur, current_rows, view_as_of=view_as_of)
     current_rows = enrich_ibkr_holding_pnl(cur, current_rows)
     current_keys = {_holding_key(r) for r in current_rows}
     rows = [

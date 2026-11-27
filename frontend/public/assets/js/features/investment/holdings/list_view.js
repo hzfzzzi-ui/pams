@@ -138,6 +138,19 @@ function openHoldingDetail(row, summary, fields) {
   bindMarketDetail(sheet, row, metrics.shared);
 }
 
+function formatNativeCash(amount, currency) {
+  const ccy = String(currency || 'CNY').trim().toUpperCase();
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  const digits = ccy === 'KRW' || ccy === 'JPY' ? 0 : 2;
+  const sign = n < 0 ? '-' : '';
+  return `${sign}${formatNumber(Math.abs(n), digits)} ${ccy}`;
+}
+
+function isCashRow(row) {
+  return holdingGroupLabel(row) === '现金/活期' || row?.position_group === '现金/活期' || row?.major_category === '现金';
+}
+
 function renderFinancing(items) {
   clearRows();
   document.getElementById('holdings-smart-table').classList.add('showFinancing');
@@ -149,17 +162,26 @@ function renderFinancing(items) {
   }
   const fields = items.map(item => {
     const kind = item.kind === 'negative_cash' ? (item.amount_cny == null ? '现金余额待核验' : '账户负现金') : '投资借款';
+    const nativeText = item.currency && item.native_amount != null && String(item.currency).toUpperCase() !== 'CNY'
+      ? formatNativeCash(item.native_amount, item.currency) : '';
     return {
       title: item.name || `${item.account_name} · ${kind}`,
       amount: item.amount_cny == null ? '待核验' : formatCompactCurrency(item.amount_cny),
+      nativeText,
       share: item.share == null ? '—' : `${(Number(item.share) * 100).toFixed(2)}%`,
-      detail: [['所属账户', item.account_name], ['融资类型', kind], ['资料日期', item.as_of || '—']],
+      detail: [
+        ['所属账户', item.account_name],
+        ['融资类型', kind],
+        ...(item.currency ? [['原币种', String(item.currency).toUpperCase()]] : []),
+        ...(nativeText ? [['原币余额', nativeText]] : []),
+        ['资料日期', item.as_of || '—'],
+      ],
     };
   });
   list.innerHTML = '<div class="personalHoldingHeading"><span>融资明细</span><span>占融资负债</span></div>'
     + fields.map((row, i) => `<button class="mobileHoldingRow personalPosition" type="button" data-financing-index="${i}">
       <span class="personalPositionTitle"><strong>${esc(row.title)}</strong><b>${row.share}</b></span>
-      <span>负债余额　${row.amount}</span></button>`).join('');
+      <span>负债余额　${row.amount}${row.nativeText ? ` · ${esc(row.nativeText)}` : ''}</span></button>`).join('');
   list.querySelectorAll('[data-financing-index]').forEach(node => bindRow(node, 'click', () => {
     const row = fields[Number(node.dataset.financingIndex)];
     const details = [...row.detail, ['负债余额', row.amount], ['占融资负债', row.share]];
@@ -313,11 +335,37 @@ function renderMobileHoldingRows(rows, { summary, sortBy = 'value_desc' }) {
   el.innerHTML = displayRows.map((raw, index) => {
     const r = datedReturnRow(raw);
     const {weight, value, dailyPnl, dailyPending} = holdingMetrics(r, summary);
+    const name = shortHoldingName(r);
+    if (isCashRow(r)) {
+      const ccy = String(r.currency || 'CNY').trim().toUpperCase();
+      const nativeAmt = r.market_value_native ?? r.market_value;
+      const grossCny = r.gross_cash_base != null ? Number(r.gross_cash_base) : null;
+      const showGross = grossCny != null && Number.isFinite(grossCny) && value != null && Math.abs(grossCny - value) >= 0.01;
+      const dateStr = String(r.balance_as_of || r.as_of || '').slice(0, 10);
+      const subKind = r.is_cash_management ? '现金管理' : (value != null && value < 0 ? '融资负现金' : '券商现金');
+      const secondary = ccy !== 'CNY'
+        ? formatNativeCash(nativeAmt, ccy)
+        : (showGross ? `整户 ${formatCompactCurrency(grossCny)}` : (value != null && value < 0 ? '融资负现金' : '可用现金'));
+      const dateLabel = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `余额日 ${dateStr.slice(5)}` : '';
+      const acctName = holdingAccountName(r);
+      const subMeta = acctName && acctName !== name ? [acctName, subKind].filter(Boolean).join(' · ') : subKind;
+      return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
+        <span class="personalPositionIdentity">
+          ${assetIconMarkup(r, name)}
+          <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc(subMeta)}</small></span>
+        </span>
+        <span class="personalPositionValues">
+          <b class="${value != null && value < 0 ? 'down' : ''}" title="折合人民币">${value == null ? '—' : formatCompactCurrency(value)}</b>
+          <small class="personalPositionWeight" title="币种">${esc(ccy)}</small>
+          <small class="${value != null && value < 0 ? 'down' : ''}" title="原币/说明">${esc(secondary)}</small>
+          <small class="muted" title="余额日">${esc(dateLabel)}</small>
+        </span>
+      </button>`;
+    }
     const {amount, rate, label, rateLabel} = positionReturn(r);
     const daily = dailyPending ? null : dailyPnl;
     const dailyRate = dailyPending || r.reference_as_of ? null : holdingPriceChangePct(r);
     const dailyFallback = daily == null && dailyRate == null ? mobileDailyFallbackLabel(r, dailyPending) : '';
-    const name = shortHoldingName(r);
     const status = r.reference_as_of ? '历史参考' : r.is_closed ? '已平仓' : '';
     return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
       <span class="personalPositionIdentity">
@@ -342,6 +390,29 @@ function renderMobileHoldingRows(rows, { summary, sortBy = 'value_desc' }) {
 function openPosition(raw, summary) {
   const row = datedReturnRow(raw);
   const { value, weight, valueLabel, costValue, floatPnl, realized, totalPnl, dailyPnl, dailyPending } = holdingMetrics(row, summary);
+  if (isCashRow(row)) {
+    const ccy = String(row.currency || 'CNY').trim().toUpperCase();
+    const nativeAmt = row.market_value_native ?? row.market_value;
+    const grossCny = row.gross_cash_base != null ? Number(row.gross_cash_base) : null;
+    const showGross = grossCny != null && Number.isFinite(grossCny) && value != null && Math.abs(grossCny - value) >= 0.01;
+    const ratio = row.owner_ratio != null && Number.isFinite(Number(row.owner_ratio)) ? Number(row.owner_ratio) : null;
+    const dateStr = String(row.balance_as_of || row.as_of || '').slice(0, 10) || '—';
+    const html = `
+      <div class="rowDetailGrid">
+        <div><strong>名称</strong><span>${esc(row.name || row.symbol || '现金')}</span></div>
+        <div><strong>类别</strong><span>${esc(row.is_cash_management ? '现金管理 / 货基' : (value != null && value < 0 ? '券商融资负现金' : '券商现金'))}</span></div>
+        <div><strong>账户</strong><span>${esc(holdingAccountName(row) || '缺数据')}</span></div>
+        <div><strong>币种</strong><span>${esc(ccy)}</span></div>
+        ${ccy !== 'CNY' ? `<div><strong>原币余额</strong><span class="mono ${Number(nativeAmt) < 0 ? 'down' : ''}">${esc(formatNativeCash(nativeAmt, ccy))}</span></div>` : ''}
+        <div><strong>${showGross ? '个人折算' : '折合人民币'}</strong><span class="mono ${value != null && value < 0 ? 'down' : ''}">${value == null ? '—' : formatCompactCurrency(value)}</span></div>
+        ${showGross ? `<div><strong>整户原额</strong><span class="mono">${formatCompactCurrency(grossCny)}</span></div>` : ''}
+        ${showGross && ratio != null ? `<div><strong>个人归属</strong><span class="mono">${formatNumber(ratio * 100, 2)}%</span></div>` : ''}
+        <div><strong>余额日期</strong><span>${esc(dateStr)}</span></div>
+      </div>
+    `;
+    openHoldingDetail(row, summary, html);
+    return;
+  }
   const changePct = holdingPriceChangePct(row);
   const priceDailyPnl = safeNum(cnyValue(row, 'daily_pnl'));
   const detailNativeDaily = dailyNativeText(row);

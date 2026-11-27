@@ -272,6 +272,7 @@ export function cashRow({ symbol, name, account, currency = 'CNY', nativeAmount 
     account_code: account,
     major_category: '现金',
     minor_category: '现金/活期',
+    position_group: '现金/活期',
     type: '现金',
     currency,
     market_value: amount,
@@ -299,6 +300,25 @@ export function buildAccountCashRows(accountValues, existingRows) {
   for (const [account, label] of [['ibkr', 'IBKR'], ['tonghuashun', '同花顺']]) {
     if (snapshotAccounts.has(account)) continue;
     const evidence = values.get(account);
+    if (account === 'ibkr' && Array.isArray(evidence?.cash_by_currency) && evidence.cash_by_currency.length) {
+      for (const item of evidence.cash_by_currency) {
+        const ccy = String(item.currency || evidence.base_currency || 'USD').toUpperCase();
+        const cnyAmt = safeNum(item.amount_base);
+        rows.push({
+          ...cashRow({
+            symbol: `IBKR_CASH_${ccy}`,
+            name: `IBKR ${ccy} ${cnyAmt < 0 ? '负现金' : '现金'}`,
+            account,
+            currency: ccy,
+            nativeAmount: item.native_amount,
+            amountCny: item.amount_base,
+            source: evidence.status,
+          }),
+          balance_as_of: item.as_of || evidence.cash_as_of,
+        });
+      }
+      continue;
+    }
     if (evidence?.cash_base == null || !Number.isFinite(Number(evidence.cash_base))) {
       missing.push(label);
       continue;
@@ -306,8 +326,11 @@ export function buildAccountCashRows(accountValues, existingRows) {
     rows.push({
       ...cashRow({
         symbol: `${account.toUpperCase()}_CASH`, name: `${label}现金`, account,
-        currency: 'CNY', nativeAmount: evidence.cash_base, amountCny: evidence.cash_base, source: evidence.status,
+        currency: account === 'ibkr' ? String(evidence.base_currency || 'USD').toUpperCase() : 'CNY',
+        nativeAmount: evidence.cash_base, amountCny: evidence.cash_base, source: evidence.status,
       }),
+      gross_cash_base: evidence.gross_cash_base ?? null,
+      owner_ratio: evidence.owner_ratio ?? null,
       balance_as_of: evidence.cash_as_of,
     });
   }
@@ -352,5 +375,6 @@ export function aggregateMobileHoldingRows(rows) {
 
 export function isInvestmentRow(row) {
   if (row.major_category !== '现金') return true;
-  return ['ibkr', 'tonghuashun'].includes(row.account_code || row.account);
+  if (row.is_cash_management) return true;
+  return ['ibkr', 'tonghuashun', 'tencent_licaitong_current_plus', 'wechat_lqt'].includes(row.account_code || row.account);
 }

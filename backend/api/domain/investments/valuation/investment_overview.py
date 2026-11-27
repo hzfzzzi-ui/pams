@@ -90,24 +90,51 @@ def holdings_overview_card(page, config):
         cash = _decimal(cash_metric.get("value")) if broker else _total(money, "market_value_cny")
         loan = _total(loans, "market_value_cny", absolute=True)
         # Keep the list and its subtotal on the same personal-account cash/position evidence.
+        account_display_name = accounts.get(code, {}).get("display_name") or (settings.get(code) or {}).get("display_name") or code
+        cash_breakdown = card.get("cash_by_currency") if broker else None
         components = []
         for row in loans:
             amount = _decimal(row.get("market_value_cny"))
             components.append(("loan", row.get("name") or row.get("symbol"),
                                abs(amount) if amount is not None else None,
-                               row.get("as_of") or row.get("snapshot_as_of")))
-        if cash is None or cash < 0:
-            cash_day = cash_metric.get("as_of") if broker else max(
-                (str(r["as_of"]) for r in money if r.get("as_of")), default=None)
-            components.append(("negative_cash", None, -cash if cash is not None else None, cash_day))
-        for kind, name, amount, day in components:
+                               row.get("as_of") or row.get("snapshot_as_of"), None, None))
+        if isinstance(cash_breakdown, list) and cash_breakdown:
+            positive_cash = Decimal(0)
+            for entry in cash_breakdown:
+                amt = _decimal(entry.get("amount_base"))
+                if amt is None:
+                    continue
+                if amt > 0:
+                    positive_cash += amt
+                elif amt < 0:
+                    ccy = str(entry.get("currency") or "").upper() or None
+                    components.append((
+                        "negative_cash",
+                        f"{account_display_name} · {ccy} 负现金" if ccy else None,
+                        -amt,
+                        entry.get("as_of") or cash_metric.get("as_of"),
+                        ccy,
+                        entry.get("native_amount"),
+                    ))
+        else:
+            positive_cash = max(cash, Decimal(0)) if cash is not None else None
+            if cash is None or cash < 0:
+                cash_day = cash_metric.get("as_of") if broker else max(
+                    (str(r["as_of"]) for r in money if r.get("as_of")), default=None)
+                components.append(("negative_cash", None, -cash if cash is not None else None, cash_day, None, None))
+        for kind, name, amount, day, currency, native_amount in components:
             if amount != 0:
-                financing_items.append({
-                    "account_code": code, "account_name": accounts.get(code, {}).get("display_name") or code,
+                item = {
+                    "account_code": code, "account_name": account_display_name,
                     "kind": kind, "name": name, "amount_cny": str(amount) if amount is not None else None,
                     "as_of": str(day)[:10] if day else None,
-                })
-        totals["financing"].extend([amount for _, _, amount, _ in components] or [Decimal(0)])
+                }
+                if currency:
+                    item["currency"] = currency
+                if native_amount is not None:
+                    item["native_amount"] = str(native_amount)
+                financing_items.append(item)
+        totals["financing"].extend([amount for _, _, amount, _, _, _ in components] or [Decimal(0)])
         net = market + cash - loan if None not in (market, cash, loan) else None
         if official:
             net = _decimal(net_metric.get("value"))
@@ -122,27 +149,29 @@ def holdings_overview_card(page, config):
         evidence_day = max((str(r.get("snapshot_as_of") or r.get("as_of"))[:10] for r in positions
                             if r.get("snapshot_as_of") or r.get("as_of")), default=None)
         cash_only = bool(money) and not positions and not loans
+        cash_only_day = max((str(r.get("balance_as_of") or r.get("as_of"))[:10] for r in money
+                             if r.get("balance_as_of") or r.get("as_of")), default=None) if cash_only else None
         account_returns.append({
-            "account_code": code, "name": accounts.get(code, {}).get("display_name") or cfg.get("display_name") or code,
+            "account_code": code, "name": account_display_name,
             "shared": shared, "dedicated_loan": dedicated, "official_close": official, "cash_only": cash_only,
             "owner_ratio": _number_text(owner), "market_value_cny": _number_text(market),
             "remaining_cost_cny": _number_text(_total(positions, "cost_cny")),
             "personal_capital": cfg.get("personal_capital") if shared and funding.get("complete_personal_flows") else None,
             "account_capital": cfg.get("capital_base") if shared and funding.get("complete_personal_flows") else None,
             "net_value": net_metric if official or broker else None,
-            "cash": cash_metric if broker else _metric(cash) if cash_only else None,
+            "cash": cash_metric if broker else _metric(cash, cash_only_day) if cash_only else None,
             "leverage": card.get("leverage") if official else None,
             "position_equity_cny": positions[0].get("position_net_value_cny") if dedicated and len(positions) == 1 else None,
             "dedicated_debt_cny": _number_text(loan) if dedicated and loans else None,
             "dividends_cny": _number_text(_total(positions, "annual_dividend_income_cny")) if dedicated else None,
-            "as_of": net_metric.get("as_of") or evidence_day,
+            "as_of": net_metric.get("as_of") or evidence_day or cash_only_day,
             "reported_pnl": card.get("cumulative_pnl") if official else None,
         })
         account_nets[code] = net
         position_groups[code] = {r["position_group"] for r in positions}
         totals["net_value"].append(net)
         totals["market_value"].append(market)
-        totals["cash"].append(max(cash, 0) if cash is not None else None)
+        totals["cash"].append(positive_cash)
         totals["exposure"].append(exposure)
         profits.extend(_decimal(r.get("holding_pnl_cny")) for r in positions)
         if positions:
