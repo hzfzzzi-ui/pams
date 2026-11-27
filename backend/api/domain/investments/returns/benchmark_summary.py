@@ -157,6 +157,7 @@ def summarize_open_holdings_leaderboard(
     ex_esop_mv = 0.0
     esop_pnl = 0.0
     items: list[dict[str, Any]] = []
+    esop_items: list[dict[str, Any]] = []
     open_keys: set[tuple[str, str]] = set()
 
     for row in holdings or []:
@@ -190,6 +191,18 @@ def summarize_open_holdings_leaderboard(
         if is_esop:
             if pnl is not None:
                 esop_pnl += pnl
+                eff_cost = cost if (cost is not None and cost > 0) else (mv - pnl if (mv - pnl) > 0 else None)
+                pnl_pct = round((pnl / eff_cost) * 100.0, 2) if (eff_cost is not None and eff_cost > 0) else None
+                esop_items.append({
+                    "symbol": sym or name,
+                    "name": name,
+                    "account": _account_display(row),
+                    "market_value_cny": round(mv, 2),
+                    "pnl_cny": round(pnl, 2),
+                    "pnl_pct": pnl_pct,
+                    "is_closed": False,
+                    "is_esop": True,
+                })
             continue
         acct_code = str(row.get("account_code") or row.get("account") or "").strip()
         if acct_code and sym:
@@ -248,8 +261,9 @@ def summarize_open_holdings_leaderboard(
 
     winners = sorted([x for x in items if x["pnl_cny"] > 0], key=lambda x: x["pnl_cny"], reverse=True)[:3]
     losers = sorted([x for x in items if x["pnl_cny"] < 0], key=lambda x: x["pnl_cny"])[:3]
+    all_heatmap_candidates = [*items, *esop_items]
     heatmap_items = sorted(
-        [x for x in items if abs(x["pnl_cny"]) >= 0.01],
+        [x for x in all_heatmap_candidates if abs(x["pnl_cny"]) >= 0.01],
         key=lambda x: abs(x["pnl_cny"]),
         reverse=True,
     )
@@ -347,10 +361,12 @@ def _portfolio_total_return_series(cur, *, ref_day: date) -> dict[str, Any]:
     """Read YTD daily total portfolio return curve from the published analysis projection."""
     ytd_start = date(ref_day.year, 1, 1).isoformat()
     series: list[dict[str, Any]] = []
+    latest_total_pnl: float | None = None
     try:
         projected = read_page(cur, "analysis", business_date=ref_day, member="total")
         total = (projected or {}).get("data")
         rows = (total or {}).get("rows") if isinstance(total, dict) else None
+        first_pnl: float | None = None
         for row in rows or []:
             if not isinstance(row, dict):
                 continue
@@ -358,7 +374,12 @@ def _portfolio_total_return_series(cur, *, ref_day: date) -> dict[str, Any]:
             rate = _f(row.get("capital_return_rate"))
             if rate is None:
                 rate = _f(row.get("return_rate"))
+            pnl = _f(row.get("total_pnl"))
             if d >= ytd_start and rate is not None:
+                if first_pnl is None and pnl is not None:
+                    first_pnl = pnl
+                if pnl is not None:
+                    latest_total_pnl = round(pnl - (first_pnl or 0.0), 2)
                 series.append({"date": d, "return_pct": round(rate * 100.0, 2)})
     except Exception:
         series = []
@@ -368,6 +389,7 @@ def _portfolio_total_return_series(cur, *, ref_day: date) -> dict[str, Any]:
         "key": "total",
         "name": "我的总收益率",
         "ytd_return_pct": last["return_pct"] if last else None,
+        "ytd_pnl_cny": latest_total_pnl,
         "as_of": last["date"] if last else None,
         "series": series,
     }
@@ -426,6 +448,10 @@ def build_performance_summary_payload(cur, *, today: date | None = None) -> dict
         ),
     ]
     portfolio_curve = _portfolio_total_return_series(cur, ref_day=ref_day)
+    if portfolio_curve.get("ytd_pnl_cny") is not None:
+        summary["portfolio"]["total_pnl_cny"] = portfolio_curve["ytd_pnl_cny"]
+    if portfolio_curve.get("ytd_return_pct") is not None:
+        summary["portfolio"]["total_return_pct"] = portfolio_curve["ytd_return_pct"]
     return {
         "as_of": ref_day.isoformat(),
         **summary,

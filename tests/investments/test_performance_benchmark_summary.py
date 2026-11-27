@@ -27,7 +27,7 @@ def test_open_holdings_leaderboard_excludes_esop_and_ranks_top3():
     assert p["ex_esop_return_pct"] == round(23000.0 / 260000.0 * 100, 2)
     assert [w["symbol"] for w in res["leaderboard"]["winners"]] == ["601899", "QQQ"]
     assert [l["symbol"] for l in res["leaderboard"]["losers"]] == ["MU", "CBRS"]
-    assert [h["symbol"] for h in res["heatmap_items"]] == ["601899", "QQQ", "MU", "CBRS"]
+    assert [h["symbol"] for h in res["heatmap_items"]] == ["HUAWEI_ESOP", "601899", "QQQ", "MU", "CBRS"]
 
 
 def test_normalize_return_series_rebases_to_zero():
