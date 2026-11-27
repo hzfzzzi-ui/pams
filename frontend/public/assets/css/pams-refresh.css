@@ -413,15 +413,6 @@ html.pams-content body.page-investments .appBottomSheetPanel {
 }
 
 @media (max-width: 760px) {
-  body.page-investments .mobileHeroAll .mobileHeroPrimaryGrid {
-    row-gap: 9px;
-    padding: 4px 0 10px;
-  }
-  body.page-investments .mobileHeroAll .mobileHeroMiniGrid {
-    row-gap: 8px;
-    padding: 10px 0 2px;
-  }
-  body.page-investments .mobileHeroAll .mobileHeroPrimaryMetric:not(.main) strong { font-size: 17px; }
   body.page-investments #mobileHoldingList button.personalPosition { padding-block: 10px; }
   body.page-investments .holdingMarketDetail .hmHero { padding: 14px; }
   body.page-investments .holdingMarketDetail .hmPanel { margin-block: 8px; }
@@ -3773,6 +3764,13 @@ body.page-investments :is(
   .holdingMarketDetail .hmReadout,
   .portfolioRiskBlock,
   .portfolioConfigBlock,
+  .portfolioRuleList,
+  .portfolioRuleNode,
+  .portfolioRuleChildren,
+  .portfolioRebalanceList,
+  .portfolioRebalanceRow,
+  .portfolioRiskCategoryList,
+  .incrementalCalcCard,
   .transactionOverview,
   #lookthrough-exposure,
   #lookthrough-exposure details,
@@ -3787,6 +3785,7 @@ body.page-ledger :is(
   .ledgerLoanCard,
   .ledgerStreamDay
 ),
+body.page-accounts .accountPanel :is(.card, .tableWrap, .accountDetailGrid, .metricPanel, .appShortcutCard),
 body.page-account-import #screenshot-area {
   background: transparent !important;
   border: 0 !important;
@@ -3794,6 +3793,53 @@ body.page-account-import #screenshot-area {
   box-shadow: none !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
+}
+
+body.page-investments .portfolioConfigPanel :is(.portfolioRuleNode, .portfolioRebalanceRow) + :is(.portfolioRuleNode, .portfolioRebalanceRow) {
+  border-top: 1px solid var(--pams-line-subtle) !important;
+}
+body.page-accounts .accountPanel .card + .card {
+  border-top: 1px solid var(--pams-line-subtle) !important;
+}
+
+/* The filtered portfolio uses the same amount hierarchy as the holdings overview. */
+body.page-investments #mobilePortfolioHero .mobileHeroPrimaryGrid,
+body.page-investments #mobilePortfolioHero .mobileHeroMiniGrid:not(:empty) {
+  gap: 14px 0;
+  padding-block: 14px 0;
+  border: 0;
+}
+body.page-investments #mobilePortfolioHero .mobileHeroPrimaryMetric.main {
+  grid-column: 1 / -1;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--pams-line-subtle);
+}
+body.page-investments #mobilePortfolioHero .mobileHeroPrimaryMetric.main strong {
+  margin-top: 6px;
+  font-size: clamp(28px, 7.6vw, 34px) !important;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+}
+body.page-investments #mobilePortfolioHero .mobileHeroPrimaryMetric:not(.main),
+body.page-investments #mobilePortfolioHero .mobileHeroMiniMetric {
+  padding: 2px 14px 2px 0;
+}
+body.page-investments #mobilePortfolioHero .mobileHeroPrimaryMetric:nth-child(3),
+body.page-investments #mobilePortfolioHero .mobileHeroMiniMetric:nth-child(even) {
+  padding: 2px 0 2px 16px;
+  border-left: 1px solid var(--pams-line-subtle);
+}
+body.page-investments #mobilePortfolioHero :is(.mobileHeroPrimaryMetric, .mobileHeroMiniMetric) > span {
+  color: var(--pams-text-muted);
+  font-weight: 450;
+}
+body.page-investments #mobilePortfolioHero .mobileHeroMiniMetric strong {
+  font-size: 15px;
+  line-height: 1.3;
+}
+body.page-investments #mobilePortfolioHero .mobileAccountHeroTop {
+  border: 0;
+  padding-bottom: 0;
 }
 
 /* Clean horizontal hairline separation between flattened major blocks */

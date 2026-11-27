@@ -209,15 +209,6 @@ export function normalizeMobileHeroGroup(group) {
   return text;
 }
 
-export function shareTone(share) {
-  const value = safeNum(share);
-  if (value < 0) return 'risk';
-  const absValue = Math.abs(value);
-  if (absValue >= 0.35) return 'risk';
-  if (absValue >= 0.20) return 'warn';
-  return 'ok';
-}
-
 export function formatOptionalMoney(value, currency = 'CNY', options = {}) {
   return Number.isFinite(Number(value))
     ? formatCompactCurrency(Number(value), currency, options)
