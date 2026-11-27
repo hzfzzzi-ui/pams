@@ -1,23 +1,40 @@
 """Current, consistent inputs for the investment risk and allocation panels."""
-from datetime import date
+from datetime import datetime
 from functools import lru_cache
+from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 
 from domain.assets.lookthrough_state import build_lookthrough_payload
+from domain.investments.valuation.investment_overview import holdings_overview_card
 from domain.investments.valuation.page_projection import read_page
-from domain.investments.valuation.portfolio_state import current_risk_position_state, get_conn, load_current_portfolio_inputs
+from domain.investments.valuation.portfolio_state import (
+    _load_accounts_config,
+    current_risk_position_state,
+    get_conn,
+    load_current_portfolio_inputs,
+)
 from domain.investments.valuation.portfolio_valuation_state import latest_published_portfolio_valuation_state
 from domain.risk.portfolio_config import _asset_label_lookup, _asset_lookup_candidates, build_portfolio_config_payload_from_inputs
 from domain.risk.portfolio_risk_disclosure import build_portfolio_risk_disclosure_payload_from_inputs
 from domain.risk.risk_state import build_risk_state
 
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
+
 
 def _read_account_cards(cur):
     try:
-        projected = read_page(cur, 'holdings', business_date=date.today(), member='account_cards')
+        today = datetime.now(_SHANGHAI).date()
+        projected = read_page(cur, 'holdings', business_date=today, member='account_cards')
         data = (projected or {}).get('data')
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        if 'investment_overview' not in data:
+            full = read_page(cur, 'holdings', business_date=today)
+            page_data = (full or {}).get('data')
+            if isinstance(page_data, dict) and page_data.get('holdings') and page_data.get('accounts'):
+                data = {**data, 'investment_overview': holdings_overview_card(page_data, _load_accounts_config())}
+        return data
     except Exception:
         return {}
 

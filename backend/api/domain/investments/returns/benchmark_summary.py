@@ -1,11 +1,43 @@
 """Secondary-market performance benchmark comparison and open-holding PnL leaderboard."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from domain.investments.valuation.page_projection import read_page
 from domain.market.benchmark_history import benchmark_history, local_benchmark, overseas_history
+
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
+_ACCOUNT_LABELS = {
+    "tonghuashun": "同花顺",
+    "ibkr": "盈透证券",
+    "tencent_licaitong": "腾讯理财通",
+    "ccb_yhs300_fund": "建行理财",
+    "ccb_gold_accumulation": "建行黄金",
+    "huawei_stock": "华为 ESOP",
+    "wechat_lqt": "微信零钱通",
+    "tencent_licaitong_current_plus": "理财通活期+",
+}
+
+
+def _shanghai_today() -> date:
+    return datetime.now(_SHANGHAI).date()
+
+
+def _clean_display_name(name: str, symbol: str) -> str:
+    raw = str(name or "").strip()
+    sym = str(symbol or "").strip()
+    if sym and raw.startswith(f"{sym} - "):
+        return raw[len(sym) + 3:].strip() or raw
+    return raw or sym or "未命名"
+
+
+def _account_display(row: dict[str, Any]) -> str:
+    if row.get("account_name"):
+        return str(row["account_name"]).strip()
+    code = str(row.get("account_code") or row.get("account") or "").strip()
+    return _ACCOUNT_LABELS.get(code, code)
 
 
 def _f(value: Any) -> float | None:
@@ -81,20 +113,30 @@ def summarize_open_holdings_leaderboard(holdings: list[dict[str, Any]]) -> dict[
     for row in holdings or []:
         if not isinstance(row, dict):
             continue
-        if row.get("is_closed") or row.get("closed"):
+        if row.get("is_closed") or row.get("closed") or row.get("reference_as_of"):
             continue
-        mv = _f(row.get("market_value_cny") if row.get("market_value_cny") is not None else row.get("market_value"))
+        ccy = str(row.get("currency") or "CNY").strip().upper()
+        mv = _f(row.get("market_value_cny"))
+        if mv is None and ccy == "CNY":
+            mv = _f(row.get("market_value"))
         if mv is None or mv <= 1.0:
             continue
         cat = f"{row.get('major_category') or ''} {row.get('minor_category') or ''} {row.get('asset_type') or ''}"
         sym = str(row.get("symbol") or "").strip()
-        name = str(row.get("name") or row.get("asset_name") or sym or "未命名")
+        name = _clean_display_name(str(row.get("name") or row.get("asset_name") or sym or "未命名"), sym)
         if any(tok in cat for tok in ("现金", "负债", "借款", "货币", "银行")) or sym.upper().startswith("CASH") or "LOAN" in sym.upper():
             continue
-        pnl = _f(row.get("holding_pnl_cny") if row.get("holding_pnl_cny") is not None else row.get("pnl_cny"))
+        cost = _f(row.get("cost_cny"))
+        if cost is None and ccy == "CNY":
+            cost = _f(row.get("cost"))
+        # Use unrealized floating PnL (MV - remaining cost) to match method_note and Holdings page.
+        pnl = _f(row.get("floating_pnl_cny"))
+        if pnl is None and cost is not None:
+            pnl = mv - cost
         if pnl is None:
+            pnl = _f(row.get("holding_pnl_cny") if row.get("holding_pnl_cny") is not None else row.get("pnl_cny"))
+        if pnl is None and ccy == "CNY":
             pnl = _f(row.get("holding_pnl") if row.get("holding_pnl") is not None else row.get("pnl"))
-        cost = _f(row.get("cost_cny") if row.get("cost_cny") is not None else row.get("cost"))
         is_esop = "esop" in sym.lower() or "内部股份" in name or "非上市" in cat or "esop" in cat.lower()
         if is_esop:
             if pnl is not None:
@@ -114,7 +156,7 @@ def summarize_open_holdings_leaderboard(holdings: list[dict[str, Any]]) -> dict[
         items.append({
             "symbol": sym or name,
             "name": name,
-            "account": str(row.get("account_name") or row.get("account_code") or ""),
+            "account": _account_display(row),
             "market_value_cny": round(mv, 2),
             "pnl_cny": round(pnl, 2),
             "pnl_pct": pnl_pct,
@@ -141,7 +183,7 @@ def summarize_open_holdings_leaderboard(holdings: list[dict[str, Any]]) -> dict[
 
 
 def build_performance_summary_payload(cur, *, today: date | None = None) -> dict[str, Any]:
-    ref_day = today or date.today()
+    ref_day = today or _shanghai_today()
     holdings: list[dict[str, Any]] = []
     try:
         projected = read_page(cur, "holdings", business_date=ref_day, member="holdings")

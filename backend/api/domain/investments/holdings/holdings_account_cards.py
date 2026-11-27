@@ -97,6 +97,32 @@ def account_center_balances(positions, funds, cards):
     return balances
 
 
+def merge_account_center_balances(balances, card_balances):
+    """Overlay fresher holdings/card-derived balances onto valuation-book account balances."""
+    merged = {code: dict(val) if isinstance(val, dict) else val for code, val in (balances or {}).items()}
+    for code, fresh in (card_balances or {}).items():
+        if not isinstance(fresh, dict) or fresh.get("balance_amount") is None:
+            continue
+        fresh_day = str(fresh.get("balance_as_of") or "")[:10]
+        existing = merged.get(code)
+        if not isinstance(existing, dict) or existing.get("balance_amount") is None:
+            entry = dict(fresh)
+            if str(entry.get("balance_currency") or "").upper() == "CNY" and entry.get("personal_contribution") is None:
+                entry["personal_contribution"] = entry["balance_amount"]
+            merged[code] = entry
+            continue
+        existing_day = str(existing.get("balance_as_of") or "")[:10]
+        if fresh_day and (not existing_day or fresh_day > existing_day):
+            entry = {**existing, **fresh, "valuation_date": fresh_day}
+            if str(fresh.get("balance_currency") or "").upper() == "CNY":
+                entry["personal_contribution"] = fresh["balance_amount"]
+            merged[code] = entry
+        elif fresh_day and fresh_day == existing_day and str(fresh.get("balance_currency") or "").upper() == "CNY":
+            # Keep native-currency display (e.g., IBKR USD) while aligning CNY personal_contribution to official close.
+            merged[code] = {**existing, "personal_contribution": fresh["balance_amount"]}
+    return merged
+
+
 def build_holdings_account_cards(*, positions, overview, stock_performance, stock, funds, overseas,
                                  closed_returns):
     accounts = {row["account_code"]: row for row in overview.get("accounts", [])}
@@ -156,7 +182,12 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
         stock_cash["owner_ratio"] = stock_value.get("owner_ratio")
     stock_leverage = _metric(stock_value.get("leverage_ratio"), stock_value.get("as_of"),
                              status=stock_net["status"], basis=stock_net["basis"])
-    if (stock_rows and len(stock_rows) == stock_position.get("holdings_count")
+    expected_stock_count = (
+        stock_value["projected_holdings_count"]
+        if stock_value.get("projected_holdings_count") is not None
+        else stock_position.get("holdings_count")
+    )
+    if (stock_rows and len(stock_rows) == expected_stock_count
             and stock_market is not None and valuation_day and stock_cash["as_of"]
             and stock_value.get("status") in {"cash_carried_forward", "reconciled_cash"}
             and stock_cash["as_of"] <= valuation_day and stock_net["as_of"]

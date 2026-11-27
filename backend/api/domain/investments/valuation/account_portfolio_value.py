@@ -9,7 +9,7 @@ from domain.brokers.ibkr import ibkr_daily_close as close_parser
 from domain.brokers.ibkr.ibkr_daily_close import POSITION_FIELDS, parse_daily_close_evidence
 from domain.brokers.ibkr.ibkr_daily_close_read import historical_fx
 from domain.brokers.ibkr.ibkr_daily_holdings import last_publication
-from domain.investments.holdings.ths_trade_rollforward import ths_post_snapshot_position_delta
+from domain.investments.holdings.ths_trade_rollforward import ths_post_snapshot_delta_and_count
 from domain.investments.trades.nav_trade_source_v2 import read_reconciled_cash
 
 
@@ -151,15 +151,16 @@ def _reconciled_trade_cash_value(cur, row, *, as_of, base_currency, owner_ratio,
     effective_as_of = max(day, as_of) if as_of else day
     evidence = read_reconciled_cash(cur, as_of=effective_as_of, account_code=row['account_code'])
     pos_delta = Decimal(0)
+    projected_count = None
     if evidence and evidence[0] > day:
-        delta = ths_post_snapshot_position_delta(
+        res = ths_post_snapshot_delta_and_count(
             cur, snap_day=day, as_of=effective_as_of, account_code=row['account_code'],
         )
-        if delta is None:
-            # Fail-closed: if post-snapshot position delta cannot be priced, stay on snapshot date.
+        if res is None:
+            # Fail-closed: if post-snapshot position delta cannot be validated/priced, stay on snapshot date.
             evidence = read_reconciled_cash(cur, as_of=day, account_code=row['account_code'])
         else:
-            pos_delta = delta
+            pos_delta, projected_count = res
     if not evidence:
         return None
     cash_day, broker_cash = evidence
@@ -172,12 +173,15 @@ def _reconciled_trade_cash_value(cur, row, *, as_of, base_currency, owner_ratio,
         gross = gross + pos_delta
     val_day = max(day, cash_day)
     leverage = float(gross * owner_ratio / net_value) if gross is not None and net_value > 0 else None
-    return {'amount_base': _money(net_value), 'cash_base': _money(cash),
-            'gross_cash_base': _money(broker_cash), 'owner_ratio': str(owner_ratio),
-            'leverage_ratio': leverage,
-            'as_of': val_day.isoformat(), 'cash_as_of': cash_day.isoformat(),
-            'updated_at': updated_at.isoformat() if updated_at else None,
-            'status': 'cash_carried_forward' if cash_day < val_day else 'reconciled_cash'}
+    result = {'amount_base': _money(net_value), 'cash_base': _money(cash),
+              'gross_cash_base': _money(broker_cash), 'owner_ratio': str(owner_ratio),
+              'leverage_ratio': leverage,
+              'as_of': val_day.isoformat(), 'cash_as_of': cash_day.isoformat(),
+              'updated_at': updated_at.isoformat() if updated_at else None,
+              'status': 'cash_carried_forward' if cash_day < val_day else 'reconciled_cash'}
+    if projected_count is not None:
+        result['projected_holdings_count'] = projected_count
+    return result
 
 
 _PORTFOLIO_VALUE_READERS = {
