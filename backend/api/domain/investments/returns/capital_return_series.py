@@ -7,12 +7,14 @@ is computed alongside and retained for tooltip reference.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Callable
 
 from domain.investments.holdings.position_performance import build_position_return_series
 from domain.investments.returns.investment_return_math import norm
+from domain.investments.valuation.capital_ownership import funding_history
+from domain.investments.valuation.portfolio_state import _load_accounts_config
 from domain.investments.valuation.valuation_nav import series_dates
 from domain.ledger.cashflow.cashflow_read_v2 import load_cash_rows
 
@@ -82,6 +84,52 @@ def _history_rows_by_date(histories: dict[str, Any] | None, account_code: str) -
     return out
 
 
+def _align_external_flow_day(
+    tx_day: date,
+    amount_cny: Decimal,
+    nlv_by_day: dict[date, Decimal],
+    ordered_nlv_days: list[date],
+) -> date:
+    """Align a T+1 wire deposit/withdrawal to the exact Flex NLV settlement day.
+
+    IBKR cashflow facts record wire initiation date (`event_date`) with no
+    `posting_date`, whereas IBKR daily close NLV reflects the cash 1 business
+    day later. Crediting the deposit before it enters NLV creates a 1-day fake
+    drawdown spike.
+    """
+    if not ordered_nlv_days or amount_cny == ZERO:
+        return tx_day
+    threshold = abs(amount_cny) * Decimal("0.45")
+
+    def _step(day: date) -> Decimal | None:
+        if day not in nlv_by_day:
+            return None
+        prior = [d for d in ordered_nlv_days if d < day]
+        prev_val = nlv_by_day[prior[-1]] if prior else ZERO
+        return nlv_by_day[day] - prev_val
+
+    same_step = _step(tx_day)
+    matched_same = (
+        same_step is not None
+        and ((amount_cny > ZERO and same_step >= threshold) or (amount_cny < ZERO and same_step <= -threshold))
+    )
+    if matched_same:
+        return tx_day
+
+    max_lookahead = tx_day + timedelta(days=5)
+    for cand in ordered_nlv_days:
+        if cand <= tx_day:
+            continue
+        if cand > max_lookahead:
+            break
+        step = _step(cand)
+        if step is not None and (
+            (amount_cny > ZERO and step >= threshold) or (amount_cny < ZERO and step <= -threshold)
+        ):
+            return cand
+    return tx_day
+
+
 def _ibkr_leveraged_account_series(
     cur,
     *,
@@ -102,6 +150,7 @@ def _ibkr_leveraged_account_series(
             nlv_by_day[day] = val
     if not nlv_by_day:
         return {}
+    ordered_nlv_days = sorted(nlv_by_day.keys())
 
     # Load all verified external capital deposits/withdrawals for IBKR
     cash_rows = load_cash_rows(
@@ -123,7 +172,8 @@ def _ibkr_leveraged_account_series(
         tx_day = row.get("transaction_date") or row.get("event_date")
         if not isinstance(tx_day, date):
             tx_day = date.fromisoformat(str(tx_day)[:10])
-        ext_flows[tx_day] = ext_flows.get(tx_day, ZERO) + amt_cny
+        settled_day = _align_external_flow_day(tx_day, amt_cny, nlv_by_day, ordered_nlv_days)
+        ext_flows[settled_day] = ext_flows.get(settled_day, ZERO) + amt_cny
 
     # Opening NLV strictly before `start` so a deposit on `start` is never double-counted.
     opening_days = [d for d in nlv_by_day if d < start]
@@ -419,6 +469,51 @@ def _combine_capital_series(
     }
 
 
+def _apply_ths_personal_capital_base(
+    cur,
+    a_stock: dict[date, dict[str, Decimal | None]],
+) -> dict[date, dict[str, Decimal | None]]:
+    """Use Tonghuashun personal funding balance as capital denominator.
+
+    When A-share stocks are temporarily sold into broker cash for 1-2 days
+    before buying another stock, `stock_mv - stock_pnl` shrinks sharply and
+    creates artificial upward spikes in return rate. The true invested capital
+    in the brokerage account is the cumulative personal net deposit balance.
+    """
+    if not a_stock:
+        return a_stock
+    try:
+        ths_cfg = (_load_accounts_config().get("accounts") or {}).get("tonghuashun") or {}
+        history = funding_history(cur, "tonghuashun", ths_cfg)
+    except Exception:
+        return a_stock
+    if not history:
+        return a_stock
+    schedule: list[tuple[date, Decimal]] = []
+    for entry in history:
+        d = date.fromisoformat(str(entry["date"])[:10])
+        bal = _dec(entry.get("personal_balance"))
+        if bal is not None and bal > ZERO:
+            schedule.append((d, bal))
+    if not schedule:
+        return a_stock
+    schedule.sort(key=lambda x: x[0])
+
+    out: dict[date, dict[str, Decimal | None]] = {}
+    for day, item in a_stock.items():
+        personal_cap: Decimal | None = None
+        for s_day, s_bal in schedule:
+            if s_day <= day:
+                personal_cap = s_bal
+            else:
+                break
+        if personal_cap is not None and personal_cap > ZERO:
+            out[day] = {**item, "cumulative_capital": personal_cap}
+        else:
+            out[day] = item
+    return out
+
+
 def build_asset_type_capital_return_bundle(
     cur,
     *,
@@ -430,9 +525,12 @@ def build_asset_type_capital_return_bundle(
     histories: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build capital-return curves for total, stocks, a_fund, precious_metal, and wealth."""
-    a_stock = _position_kind_series(
-        cur, start=start, end=end, base_currency=base_currency,
-        owner_ratio=owner_ratio, excluded_accounts=excluded_accounts, position_kind="stock",
+    a_stock = _apply_ths_personal_capital_base(
+        cur,
+        _position_kind_series(
+            cur, start=start, end=end, base_currency=base_currency,
+            owner_ratio=owner_ratio, excluded_accounts=excluded_accounts, position_kind="stock",
+        ),
     )
     ibkr_leveraged = _ibkr_leveraged_account_series(
         cur, start=start, end=end, base_currency=base_currency, histories=histories,

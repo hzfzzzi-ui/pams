@@ -123,3 +123,31 @@ def test_combine_capital_series_does_not_truncate_on_closed_component():
     assert wealth_only["end"] == "2026-11-24"
     assert len(wealth_only["rows"]) == (d3 - d1).days + 1
     assert abs(Decimal(wealth_only["rows"][-1]["capital_return_rate"]) - Decimal("0.05")) < Decimal("0.0001")
+
+
+def test_align_external_flow_day_shifts_t1_wire_to_nlv_settlement_day():
+    d_fri = date(2026, 2, 27)
+    d_mon = date(2026, 3, 2)
+    nlv = {
+        date(2026, 2, 26): Decimal("46000"),
+        d_fri: Decimal("46500"),   # wire not yet settled in Flex NLV
+        d_mon: Decimal("87000"),   # +40k wire settled on Monday
+    }
+    ordered = sorted(nlv.keys())
+    assert crs._align_external_flow_day(d_fri, Decimal("40000"), nlv, ordered) == d_mon
+    # Same-day settlement stays on tx_day
+    nlv_same = {date(2026, 2, 26): Decimal("46000"), d_fri: Decimal("86500")}
+    assert crs._align_external_flow_day(d_fri, Decimal("40000"), nlv_same, sorted(nlv_same)) == d_fri
+
+
+def test_apply_ths_personal_capital_base_prevents_cash_rotation_spike(monkeypatch):
+    d1, d2 = date(2026, 1, 12), date(2026, 1, 13)
+    monkeypatch.setattr(crs, "_load_accounts_config", lambda: {"accounts": {"tonghuashun": {"capital_base": 100000}}})
+    monkeypatch.setattr(crs, "funding_history", lambda cur, code, cfg: [{"date": "2025-12-17", "personal_balance": "50000.00"}])
+    raw = {
+        d1: {"market_value": Decimal("52000"), "cumulative_capital": Decimal("48000"), "total_pnl": Decimal("4000")},
+        d2: {"market_value": Decimal("27000"), "cumulative_capital": Decimal("22500"), "total_pnl": Decimal("4500")},
+    }
+    fixed = crs._apply_ths_personal_capital_base(None, raw)
+    assert fixed[d1]["cumulative_capital"] == Decimal("50000.00")
+    assert fixed[d2]["cumulative_capital"] == Decimal("50000.00")
