@@ -1,6 +1,16 @@
 // Keep legacy investment-return formulas here. Personal NAV comparisons come from the API.
 import { safeNum } from '../../../utils.js';
-import { RETURN_WINDOW_OPTIONS } from '../../../shared/chart_window.js';
+import { RETURN_WINDOW_OPTIONS as sharedWindows } from '../../../shared/chart_window.js';
+
+const RETURN_WINDOW_OPTIONS = [...sharedWindows, {key: '3m', label: '近3月'}, {key: '6m', label: '近6月'}];
+const windowMonths = new Map([['1m', 1], ['3m', 3], ['6m', 6]]);
+
+function subtractMonths(end, months) {
+  const start = new Date(end);
+  start.setUTCMonth(end.getUTCMonth() - months + 1, 0);
+  start.setUTCDate(Math.min(end.getUTCDate(), start.getUTCDate()));
+  return start;
+}
 
 const RETURN_EVENT_LIMIT = 4;
 
@@ -26,9 +36,8 @@ function returnWindowStartDate(rows, windowKey) {
     start.setUTCDate(start.getUTCDate() - 7);
     return start;
   }
-  if (windowKey === '1m') {
-    start.setUTCMonth(start.getUTCMonth() - 1);
-    return start;
+  if (windowMonths.has(windowKey)) {
+    return subtractMonths(latest, windowMonths.get(windowKey));
   }
   start.setUTCMonth(0, 1);
   return start;
@@ -288,9 +297,8 @@ function cachedNavWindow(lastDate, windowKey) {
   const start = new Date(end);
   if (windowKey === '1w') {
     start.setUTCDate(end.getUTCDate() - 7);
-  } else if (windowKey === '1m') {
-    start.setUTCDate(0);
-    start.setUTCDate(Math.min(end.getUTCDate(), start.getUTCDate()));
+  } else if (windowMonths.has(windowKey)) {
+    start.setTime(subtractMonths(end, windowMonths.get(windowKey)).getTime());
   } else {
     start.setUTCMonth(0, 0);
   }

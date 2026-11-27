@@ -1,4 +1,6 @@
 import sys
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,3 +45,19 @@ def test_normalize_return_series_rebases_to_zero():
         {"date": "2026-01-06", "return_pct": 5.0},
         {"date": "2026-01-07", "return_pct": -5.0},
     ]
+
+
+def test_completed_local_session_needs_no_provider(monkeypatch):
+    from datetime import date
+    from domain.investments.returns import benchmark_summary as summary
+
+    day = date(2026, 11, 26)  # US Thanksgiving
+    closes = {"2026-11-24": 100, "2026-11-25": 101}
+    monkeypatch.setattr(summary, "local_benchmark", lambda cur, start, end, symbol: closes)
+    monkeypatch.setattr(summary, "missing_index_closes", lambda *args: pytest.fail("unexpected download"))
+    monkeypatch.setattr(summary, "overseas_history", lambda *args: pytest.fail("unexpected fallback"))
+    monkeypatch.setattr("domain.market.benchmark_history.latest_completed_session", lambda bucket: date(2026, 11, 27))
+    item = summary._load_benchmark_item(None, key="sp500", name="test", symbol="^GSPC",
+                                        today=day, bucket="us", secid="100.SPX")
+    assert item["as_of"] == "2026-11-25"
+    assert item["ytd_return_pct"] == 1

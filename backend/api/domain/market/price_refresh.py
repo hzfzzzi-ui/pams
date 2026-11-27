@@ -2,9 +2,14 @@
 市场行情刷新编排层。
 外部报价采集位于 domain.market.price_providers，快照与交易 roll-forward 位于 domain.market.price_snapshots。
 """
+from contextlib import closing
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
+from psycopg2.extras import RealDictCursor, execute_values
+
+from domain.market.benchmark_history import BENCHMARKS, benchmark_session, missing_index_closes
+from domain.market.price_history import normalize_price_instrument
 from domain.market.price_providers import (
     _A_STOCK_FUND_MINOR_CATEGORY,
     _A_STOCK_MAJOR_CATEGORY,
@@ -166,3 +171,35 @@ def _refresh_category(
     }
 
 
+def refresh_benchmark_closes():
+    today = _today_cst()
+    errors = []
+    inserted = 0
+    with closing(_get_conn()) as conn:
+        for _, _, symbol, secid, bucket in BENCHMARKS:
+            instrument = normalize_price_instrument(symbol, benchmark=True)
+            end = benchmark_session(bucket, today)
+            if end is None:
+                errors.append(symbol)
+                continue
+            start = date(end.year, 1, 1)
+            with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""SELECT max(trade_date) AS latest FROM pams_ohlcv_daily
+                               WHERE symbol=%s AND market=%s AND close>0 AND trade_date BETWEEN %s AND %s""",
+                            (instrument.symbol, instrument.market, start, end))
+                latest = cur.fetchone()["latest"]
+                try:
+                    rows = missing_index_closes(latest, secid, bucket, start, end)
+                except (OSError, ValueError):
+                    logger.exception("Benchmark close unavailable: %s", symbol)
+                    errors.append(symbol)
+                    continue
+                if rows:
+                    written = execute_values(cur, """INSERT INTO pams_ohlcv_daily (symbol, market, trade_date, close)
+                                   VALUES %s ON CONFLICT (symbol, market, trade_date) DO NOTHING RETURNING 1""",
+                                   [(instrument.symbol, instrument.market, day, price) for day, price in rows.items()],
+                                   fetch=True)
+                    inserted += len(written)
+                if latest != end and end.isoformat() not in rows:
+                    errors.append(symbol)
+    return {"inserted": inserted, "errors": errors}

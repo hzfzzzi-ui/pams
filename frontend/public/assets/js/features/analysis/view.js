@@ -387,45 +387,50 @@ function bindTreemapHover(rootEl, items) {
   canvas.addEventListener('focusout', hideTip);
 }
 
-function buildBenchmarkChartModel(comparison) {
+function buildBenchmarkChartModel(comparison, range) {
   const portfolio = comparison?.portfolio || {};
   const benchmarks = comparison?.benchmarks || [];
   const rawSeries = [
     {
       key: 'total',
       name: portfolio.name || '我的总收益率',
-      ytd: portfolio.ytd_return_pct,
       asOf: portfolio.as_of,
       points: Array.isArray(portfolio.series) ? portfolio.series : [],
     },
     ...benchmarks.map((b) => ({
       key: b.key,
       name: b.name,
-      ytd: b.ytd_return_pct,
       asOf: b.as_of,
       points: Array.isArray(b.series) ? b.series : [],
     })),
-  ].filter((s) => s.points.length >= 2);
+  ].map(s => ({
+    ...s,
+    points: s.points.filter(pt => pt?.date && pt.return_pct != null && pt.return_pct !== ''
+      && Number.isFinite(Number(pt.return_pct))
+      && (!range || (pt.date >= range.startDate && pt.date <= range.endDate)))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  })).filter(s => s.points.length && Number(s.points[0].return_pct) > -100);
 
   const dateSet = new Set();
   rawSeries.forEach((s) => s.points.forEach((pt) => { if (pt?.date) dateSet.add(String(pt.date)); }));
   const dates = [...dateSet].sort();
   const series = rawSeries.map((s) => {
-    const map = new Map(s.points.map((pt) => [String(pt.date), Number(pt.return_pct)]));
+    const base = Number(s.points[0].return_pct);
+    const map = new Map(s.points.map(pt => [pt.date, (Number(pt.return_pct) - base) / (100 + base) * 100]));
     let lastVal = null;
     const values = dates.map((d) => {
       if (map.has(d)) lastVal = map.get(d);
       return lastVal;
     });
     const meta = BENCH_LINE_META[s.key] || { color: '#94a3b8', width: 1.6, primary: false };
-    return { ...s, ...meta, values };
+    return { ...s, ...meta, values, windowReturn: values.at(-1) };
   });
   return { dates, series };
 }
 
 function renderBenchmarkLineChart(container, comparison) {
   if (!container) return;
-  const { dates, series } = buildBenchmarkChartModel(comparison);
+  const { dates, series } = buildBenchmarkChartModel(comparison, state.returnWindow);
   if (!dates.length || !series.length) {
     container.innerHTML = '<div class="lookthroughEmpty compact">基准走势数据待加载</div>';
     return;
@@ -451,11 +456,12 @@ function renderBenchmarkLineChart(container, comparison) {
   const xAt = (idx) => padL + (dates.length <= 1 ? 0 : (idx / (dates.length - 1)) * plotW);
 
   // Use a clean 2-zone piecewise linear scale when an outlier index (>55%) would squash the main [-30%, +30%] band.
-  const useTwoZone = rawMax > 55 && rawMin >= -35;
+  const peaks = drawn.map(s => Math.max(0, ...s.values)).sort((a, b) => b - a);
+  const useTwoZone = peaks.length > 1 && rawMax > 55 && peaks[1] <= 30 && rawMin >= -35;
   let yTicks;
   let yAt;
   if (useTwoZone) {
-    const lowBound = rawMin < -25 ? -30 : -25;
+    const lowBound = Math.min(-25, Math.floor(rawMin / 5) * 5);
     const midBreak = 30;
     const highBound = Math.ceil(rawMax / 30) * 30;
     const upperSplit = 0.32;
@@ -475,7 +481,7 @@ function renderBenchmarkLineChart(container, comparison) {
     const roughSpan = Math.max(rawMax - rawMin, 15);
     const step = roughSpan <= 30 ? 10 : roughSpan <= 70 ? 15 : 25;
     const minVal = Math.floor(rawMin / step) * step;
-    const maxVal = Math.ceil(rawMax / step) * step;
+    const maxVal = rawMin === rawMax ? step : Math.ceil(rawMax / step) * step;
     yAt = (val) => padT + ((maxVal - val) / (maxVal - minVal || 1)) * plotH;
     yTicks = [];
     for (let v = minVal; v <= maxVal + 0.01; v += step) yTicks.push(Math.round(v));
@@ -524,12 +530,12 @@ function renderBenchmarkLineChart(container, comparison) {
 
   const legendHtml = series.map((s) => {
     const hidden = state.hiddenBenchKeys.has(s.key);
-    const tone = s.ytd == null ? '' : Number(s.ytd) >= 0 ? 'good' : 'bad';
+    const tone = s.windowReturn == null ? '' : Number(s.windowReturn) >= 0 ? 'good' : 'bad';
     return `
       <button type="button" class="perfBenchPill ${hidden ? 'is-off' : ''} ${s.primary ? 'is-primary' : ''}" data-bench-toggle="${esc(s.key)}">
         <i style="background:${s.color}"></i>
         <span>${esc(s.name)}</span>
-        <strong class="${tone}">${esc(fmtSignedPct(s.ytd))}</strong>
+        <strong class="${tone}">${esc(fmtSignedPct(s.windowReturn))}</strong>
       </button>
     `;
   }).join('');
@@ -635,11 +641,6 @@ function renderPerformanceSummary() {
     ...(data.leaderboard?.winners || []),
     ...(data.leaderboard?.losers || []),
   ];
-  const comparison = data.benchmark_comparison || {
-    portfolio: { key: 'total', name: '我的总收益率', ytd_return_pct: p.ex_esop_return_pct, series: [] },
-    benchmarks: data.benchmarks || [],
-  };
-
   const treemap = buildPnlTreemap(heatmapItems, p);
   el.innerHTML = `
     <div class="perfSplitStack">
@@ -648,7 +649,19 @@ function renderPerformanceSummary() {
     </div>
   `;
   bindTreemapHover(el, treemap.items);
-  renderBenchmarkLineChart(el.querySelector('[data-perf-benchmark-chart]'), comparison);
+  renderBenchmarkWindow();
+}
+
+function renderBenchmarkWindow() {
+  const container = getElementById('performanceBenchmarkPanel')?.querySelector('[data-perf-benchmark-chart]');
+  const data = state.performanceSummaryData;
+  if (!container || !data) return;
+  const comparison = data.benchmark_comparison || {
+    portfolio: { key: 'total', name: '我的总收益率', ytd_return_pct: data.portfolio?.ex_esop_return_pct, series: [] },
+    benchmarks: data.benchmarks || [],
+  };
+
+  renderBenchmarkLineChart(container, comparison);
 }
 
 function renderReturnAttribution() {
@@ -761,5 +774,5 @@ function renderAssetMaster() {
   `;
 }
 
-  return { renderAnalysisPanelSwitch, renderTabs, renderExposureRows, renderQuality, qualityDrawerHtml, renderPerformanceSummary, renderReturnAttributionTabs, renderReturnAttributionSummary, renderReturnAttributionList, renderReturnAttribution, renderLookthrough, renderAssetMaster };
+  return { renderAnalysisPanelSwitch, renderTabs, renderExposureRows, renderQuality, qualityDrawerHtml, renderBenchmarkWindow, renderPerformanceSummary, renderReturnAttributionTabs, renderReturnAttributionSummary, renderReturnAttributionList, renderReturnAttribution, renderLookthrough, renderAssetMaster };
 }

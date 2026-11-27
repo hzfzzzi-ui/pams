@@ -18,7 +18,13 @@ export function createInvestmentChartController({ root = document, host = window
   owners.get(root)?.dispose();
   const reads = createReadScope({AbortController: host?.AbortController});
   const state = createInvestmentChartState(host);
-  const renderer = createInvestmentChartRenderer({ root, host, state, presenters, ChartClass });
+  function publishWindow(labels) {
+    if (!labels?.length) return;
+    const detail = { windowKey: state.activeWindow, startDate: labels[0], endDate: labels.at(-1) };
+    host.__investmentReturnWindow = detail;
+    host.dispatchEvent?.(new host.CustomEvent('pams:return-window-change', { detail }));
+  }
+  const renderer = createInvestmentChartRenderer({ root, host, state, presenters, ChartClass, onWindowChange: publishWindow });
   const sectionSpecs = RETURN_SECTION_SPECS.map((spec, index) => ({
     ...spec,
     color: MARKET_RETURN_COLORS.get(spec.key) ?? SERIES_COLORS[index],
@@ -79,13 +85,6 @@ export function createInvestmentChartController({ root = document, host = window
     const fresh = rows.length > 0 && (!cachedRows.length || rows.at(-1).date >= cachedRows.at(-1).date);
     if (fresh || !cachedRows.length) {
       showNav(rows, live?.period_comparisons);
-      if (projectionStatus) {
-        projectionStatus.textContent = '';
-        projectionStatus.hidden = true;
-      }
-    } else if (projectionStatus) {
-      projectionStatus.textContent = '暂未读到更新的净资产数据，显示已保存的记录';
-      projectionStatus.hidden = false;
     }
     if (!fresh) navPromise = null; // Reopening the overview can retry a failed or older direct read.
     return state.navChart;
@@ -153,6 +152,7 @@ export function createInvestmentChartController({ root = document, host = window
         && typeof host.IntersectionObserver === 'function');
       const result = renderer.renderReturns({ resp, sectionResponses, sectionSpecs, loadSection });
       publishCharts();
+      publishWindow(renderer.returnChart?.data.labels);
       if (state.contributionPending) {
         const observer = new host.IntersectionObserver(async entries => {
           if (!entries.some(entry => entry.isIntersecting)) return;
@@ -216,6 +216,7 @@ export function createInvestmentChartController({ root = document, host = window
       returnGeneration += 1;
       host.removeEventListener?.('pagehide', onPageHide);
       renderer.dispose();
+      delete host.__investmentReturnWindow;
       if (owners.get(root) === controller) owners.delete(root);
     },
   };

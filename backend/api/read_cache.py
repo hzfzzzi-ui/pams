@@ -18,7 +18,6 @@ import time
 
 CACHEABLE_PREFIX_TTLS: tuple[tuple[str, float], ...] = (
     ("/api/assets/monthly-overview", 1800.0),
-    ("/api/analysis/performance-summary", 300.0),
     ("/api/analysis/return-attribution", 180.0),
     ("/api/analysis/lookthrough", 180.0),
     ("/api/portfolio/risk-and-config", 180.0),

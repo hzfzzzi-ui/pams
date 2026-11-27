@@ -529,3 +529,35 @@ def test_account_contribution_ratios_falls_back_to_verified_trade_facts(monkeypa
     ]
     monkeypatch.setattr(trade_read_v2, "load_trade_rows", lambda cur, **kw: unverified_facts)
     assert capital_ownership.account_contribution_ratios(_FakeCur(), "tonghuashun", cfg, [d1, d2]) == {}
+
+
+def test_us_close_and_delayed_flex_complete_projection(monkeypatch, tmp_path):
+    import importlib.util
+    import types
+
+    if importlib.util.find_spec("schedule") is None:
+        monkeypatch.setitem(sys.modules, "schedule", types.ModuleType("schedule"))
+    import scheduler
+
+    monkeypatch.setattr(scheduler, "NORTH_AMERICA_REFRESH_TZ", "Asia/Shanghai")
+    monkeypatch.setattr(scheduler, "NORTH_AMERICA_REFRESH_TIME", "06:30")
+    for morning, friday in (("2026-07-11", "2026-07-10"), ("2026-11-21", "2026-11-20")):
+        now = datetime.fromisoformat(morning + "T06:30:00+08:00")
+        assert scheduler.north_america_due_date(now).isoformat() == friday
+        assert scheduler.north_america_due_date(now.replace(minute=29)) < date.fromisoformat(friday)
+
+    target = date(2026, 11, 20)
+    calls = []
+    monkeypatch.setattr(scheduler, "STATE_PATH", tmp_path / "refresh.json")
+    monkeypatch.setattr(scheduler, "close_broker_step", lambda: ("flex", lambda: {
+        "publication_verified": True, "statement_as_of": target.isoformat()}))
+    monkeypatch.setattr(scheduler, "refresh_investment_return_snapshots",
+                        lambda sections: calls.append(sections) or {"status": "ok"})
+    actual = "2026-11-19"
+    monkeypatch.setattr(scheduler, "refresh_investment_page_projection",
+                        lambda day: calls.append(day) or {"status": "published", "analysis_total_as_of": actual})
+    assert scheduler.run_daily_us_return_recovery()["status"] == "blocked"
+    actual = target.isoformat()
+    assert scheduler.run_daily_us_return_recovery()["status"] == "success"
+    assert scheduler.run_daily_us_return_recovery()["status"] == "skipped"
+    assert calls == [("total",), target] * 2
