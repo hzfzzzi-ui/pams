@@ -1,10 +1,33 @@
+/* Keep the instrument sheet opaque over charts and coloured account icons. */
+body.page-investments .appBottomSheetPanel:has(.holdingMarketDetail) {
+  background: var(--pams-bg-canvas) !important;
+  border-top: 1px solid var(--pams-line-strong) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+body.page-investments .appBottomSheetPanel:has(.holdingMarketDetail)::before {
+  content: none;
+}
+
 .holdingMarketDetail{font-variant-numeric:tabular-nums;min-width:0}
 .holdingMarketDetail .hmSubtitle,.holdingMarketDetail small,.holdingMarketDetail .hmLegend{color:var(--muted)}
-.holdingMarketDetail .hmHero,.holdingMarketDetail .hmBar,.holdingMarketDetail .hmLegend{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.holdingMarketDetail .hmHero{align-items:flex-end;margin:19px 0;padding-bottom:16px;border-bottom:1px solid var(--line,#39393c)}
+.holdingMarketDetail .hmBar,.holdingMarketDetail .hmLegend{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.holdingMarketDetail .hmHero {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--pams-space-3);
+  margin: var(--pams-space-2) 0 0;
+}
+.holdingMarketDetail .hmHero > div {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .holdingMarketDetail small{display:block;margin-bottom:3px;font-size:12px}
 .holdingMarketDetail .hmHero strong{display:block;font-size:clamp(25px,6vw,34px);letter-spacing:-.04em;line-height:1.16}
-.holdingMarketDetail .hmHero div+div{text-align:right}
+.holdingMarketDetail .hmHero b,.holdingMarketDetail .hmBreakdown b{font-size:var(--pams-font-size-base);font-weight:600}
 .holdingMarketDetail .hmBar button,.holdingMarketDetail .hmTrades button{border:0;background:transparent;color:var(--muted);min-height:36px;padding:5px 9px}
 .holdingMarketDetail .hmBar button[aria-pressed=true]{background:#35353a;color:white;border-radius:9px}
 .holdingMarketDetail .hmPanel{background:#19191d;border-radius:16px;padding:16px;margin:12px 0}
@@ -22,7 +45,7 @@
 .holdingMarketDetail .hmValue{stroke:#80baff;stroke-width:2.6;stroke-linejoin:round}
 .holdingMarketDetail .hmCursor{stroke:#919199;stroke-dasharray:2 3}
 .holdingMarketDetail .hmTag{fill:#18181a;font-weight:bold}
-.holdingMarketDetail .hmBreakdown{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}
+.holdingMarketDetail .hmBreakdown{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--pams-space-3);margin:0 0 var(--pams-space-3);overflow-wrap:anywhere}
 .holdingMarketDetail .hmReadout{font-size:13px;padding:10px 12px;background:#242428;border-radius:10px;margin:8px 0 14px}
 .holdingMarketDetail details{border-top:1px solid var(--line,#39393c);padding:12px 0}
 .holdingMarketDetail summary{font-weight:600}

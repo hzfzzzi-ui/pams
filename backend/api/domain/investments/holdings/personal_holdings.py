@@ -71,6 +71,45 @@ def position_dividend_return(members):
             "yield_on_cost": str(rate) if rate is not None else None}
 
 
+def _floating_pnl(market, cost):
+    if market is None or cost is None:
+        return None
+    return Decimal(str(market)) - Decimal(str(cost))
+
+
+def position_pnl(members):
+    """Use whole-position evidence when the current share cannot describe historical earnings."""
+    account_scope = any(row.get("owner_ratio") is not None and Decimal(str(row["owner_ratio"])) != 1
+                        for row in members)
+
+    def amount(row, field):
+        if account_scope:
+            gross = field + "_gross_cny"
+            if gross in row or row.get("owner_ratio") is None or Decimal(str(row["owner_ratio"])) != 1:
+                return row.get(gross)
+        return row.get(field + "_cny")
+
+    cumulative, realized, floating = [], [], []
+    for row in members:
+        trade_pnl = amount(row, "realized_trade_pnl")
+        total = amount(row, "holding_pnl")
+        if (trade_pnl is None and row.get("realized_trade_pnl_source")
+                or row.get("realized_income_status") == "partial"):
+            # On incomplete trade coverage holding_pnl may still contain the unrealized component.
+            total = None
+        cumulative.append(total)
+        realized.append(trade_pnl)
+        floating.append(_floating_pnl(amount(row, "market_value"), amount(row, "cost"))
+                        if not row.get("is_closed") and not row.get("reference_as_of") else None)
+
+    def sum_known(values):
+        return float(sum(Decimal(str(value)) for value in values)) if None not in values else None
+
+    return {"scope": "account" if account_scope else "personal",
+            "cumulative_cny": sum_known(cumulative), "realized_cny": sum_known(realized),
+            "floating_cny": sum_known(floating)}
+
+
 def attach_combined_positions(rows):
     groups = {}
     for row in rows:
@@ -81,7 +120,7 @@ def attach_combined_positions(rows):
     for group_index, members in enumerate(groups.values()):
         if len(members) < 2:
             continue
-        combined = {"position_dividend_return": position_dividend_return(members)}
+        combined = {"position_dividend_return": position_dividend_return(members), "position_pnl": position_pnl(members)}
         for field in ("quantity", "portfolio_weight", "cost", "cost_cny", "market_value", "market_value_cny",
                       "position_net_value_cny", "holding_pnl", "holding_pnl_cny", "realized_trade_pnl_cny", "net_distributions_cny",
                       "daily_total_pnl_cny", "daily_pnl_cny", "daily_fx_pnl_cny", "daily_pnl_native"):
@@ -127,6 +166,7 @@ def personal_holdings(payload, classes=None, *, accounts=None):
         group, segment = position_category(source, classes)
         row = dict(source, position_group=group, position_segment=segment, portfolio_weight=None)
         row["position_dividend_return"] = position_dividend_return([row])
+        row["position_pnl"] = position_pnl([row])
         rows.append(row)
         if group in {"现金/活期", "负债"} or row.get("reference_as_of") or row.get("is_closed"):
             continue
@@ -146,8 +186,8 @@ def personal_holdings(payload, classes=None, *, accounts=None):
         cost, pnl = item.get("cost_cny"), item.get("holding_pnl_cny")
         market = item.get("market_value_cny")
         floating = None
-        if market is not None and cost is not None and not item.get("is_closed") and not item.get("reference_as_of"):
-            floating = Decimal(str(market)) - Decimal(str(cost))
+        if not item.get("is_closed") and not item.get("reference_as_of"):
+            floating = _floating_pnl(market, cost)
         item["floating_pnl_cny"] = float(floating) if floating is not None else None
         item["floating_pnl_ratio"] = (float(floating / Decimal(str(cost)))
                                       if floating is not None and Decimal(str(cost)) > 0 else None)
