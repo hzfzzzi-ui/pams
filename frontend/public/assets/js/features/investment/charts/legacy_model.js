@@ -339,6 +339,10 @@ function sectionPeriodPnl(rows) {
 function sectionPeriodReturnRate(rows, pnl) {
   const first = rows?.[0];
   const last = rows?.[rows.length - 1];
+  if (last?.return_basis === 'capital_return' || last?.capital_return_rate != null) {
+    const rate = rebaseReturnRate(returnRateForChart(last), returnRateForChart(first));
+    if (rate != null && Number.isFinite(rate)) return rate;
+  }
   const baseValue = Math.abs(safeNum(first?.market_value));
   if (baseValue > 0.005) return safeNum(pnl) / baseValue;
   return rebaseReturnRate(returnRateForChart(last), returnRateForChart(first));

@@ -3302,6 +3302,73 @@ body.page-investments .portfolioRiskInlineSources span {
 }
 .page-investments .perfLeaderRow:last-child { border-bottom: 0 !important; }
 
+/* Compact contribution strip folded inside 组合收益率 card */
+.returnContributionStrip {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.returnContribHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.9);
+}
+.returnContribHead strong {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.returnContribHead strong.good { color: #4ade80; }
+.returnContribHead strong.bad { color: #f87171; }
+.returnContribGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+}
+.returnContribCell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  min-width: 0;
+}
+.returnContribName {
+  font-size: 12px;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.returnContribVals {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.returnContribVals strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+.returnContribVals strong.good { color: #4ade80; }
+.returnContribVals strong.bad { color: #f87171; }
+.returnContribVals em {
+  font-style: normal;
+  font-size: 10px;
+  opacity: 0.85;
+}
+.returnContribVals em.good { color: #4ade80; }
+.returnContribVals em.bad { color: #f87171; }
+
 /* PnL Treemap + Standalone Benchmark Comparison Line Chart */
 .perfSplitStack {
   display: flex;

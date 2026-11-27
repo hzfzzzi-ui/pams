@@ -363,22 +363,33 @@ function TopContributionPanel(model) {
     : '当前持仓收益贡献，不含自动调仓建议';
   const badge = mode === 'period' ? statusBadge(partial ? '部分覆盖' : '区间口径', 'data') : statusBadge('持仓快照', 'data');
   if (mode === 'period') {
+    const combined = [
+      ...winners,
+      ...losers,
+      ...(unattributed ? [{ name: 'ESOP/其他', pnl: unattributed.pnl, returnPct: null }] : []),
+    ].sort((a, b) => Math.abs(safeNum(b.pnl)) - Math.abs(safeNum(a.pnl)));
+    const cellsHtml = combined.map((item) => {
+      const pnl = safeNum(item.pnl);
+      const tone = pnl > 0 ? 'good' : pnl < 0 ? 'bad' : '';
+      const pctText = item.returnPct != null && Number.isFinite(Number(item.returnPct))
+        ? `${Number(item.returnPct) >= 0 ? '+' : ''}${(Number(item.returnPct) * 100).toFixed(1)}%`
+        : '';
+      return `
+        <div class="returnContribCell">
+          <span class="returnContribName">${esc(item.name || item.label)}</span>
+          <div class="returnContribVals">
+            <strong class="${tone}">${formatCompactCurrency(pnl, 'CNY', { signed: true })}</strong>
+            ${pctText ? `<em class="${tone}">${esc(pctText)}</em>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
     return `
-      <div class="returnInsightHead">
-        <div><h3>Top 贡献</h3><span>${esc(titleHint)}</span></div>
-        ${badge}
+      <div class="returnContribHead">
+        <span>${esc(partial ? '已覆盖盈亏' : `${windowLabel}盈亏`)}</span>
+        <strong class="${totalPnl >= 0 ? 'good' : 'bad'}">${formatCompactCurrency(totalPnl, 'CNY', { signed: true })}</strong>
       </div>
-      <div class="topMoverTotal ${totalPnl >= 0 ? 'good' : 'bad'}">
-        <span>${esc(partial ? '已覆盖合计' : `${windowLabel}合计`)}</span>
-        <strong>${formatCompactCurrency(totalPnl, 'CNY', { signed: true })}</strong>
-      </div>
-      <div class="topMoverGrid">
-        ${topMoverGroup('贡献最大', winners, '当前区间没有正贡献资产桶', { mode: 'period', totalPnl, partial })}
-        ${topMoverGroup('拖累最大', losers, '当前区间没有明显拖累资产桶', { mode: 'period', totalPnl, partial })}
-      </div>
-      ${unattributed ? `<div class="returnInsightEmpty">
-        未归因差额 ${formatCompactCurrency(unattributed.pnl, 'CNY', { signed: true })} · ${esc(unattributed.note)}
-      </div>` : ''}
+      ${cellsHtml ? `<div class="returnContribGrid">${cellsHtml}</div>` : '<div class="returnInsightEmpty">暂无区间收益数据</div>'}
     `;
   }
   return `
