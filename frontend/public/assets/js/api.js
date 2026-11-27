@@ -251,6 +251,7 @@ export const TYPE_LABELS = {
 
 export const ACCOUNT_LABELS = {
   tencent_licaitong: "腾讯理财通",
+  tencent_licaitong_current_plus: "理财通活期+",
   licaitong: "腾讯理财通",
   main: "腾讯理财通",
   alipay: "支付宝",
@@ -290,6 +291,7 @@ export const ACCOUNT_LABELS = {
   recv_loan: "借款",
   loan: "借款",
   wechat: "微信",
+  wechat_lqt: "微信零钱通",
   weixin: "微信",
   recv_reimburse: "报销应收款",
   manual: "手动录入",

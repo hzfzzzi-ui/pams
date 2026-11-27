@@ -364,6 +364,60 @@ export function makeMobileHeroProfiles({
     cashLabel: '投资账户现金',
     accountCard: accountCards.investment_overview ?? {},
   };
+  const overviewCard = accountCards.investment_overview ?? null;
+  const hasOverviewCash = overviewCard?.cash?.value != null && Number.isFinite(Number(overviewCard.cash.value));
+  const investCashPositive = hasOverviewCash ? safeNum(overviewCard.cash.value) : cashAssets;
+  const brokerNegCash = hasOverviewCash
+    ? (overviewCard.financing_items || [])
+      .filter(item => item.kind === 'negative_cash' && item.amount_cny != null)
+      .reduce((sum, item) => sum + Math.abs(safeNum(item.amount_cny)), 0)
+    : cashLiabilities;
+  const cashMgmtTotal = hasOverviewCash
+    ? (overviewCard.account_returns || [])
+      .filter(acct => acct.cash_only && acct.cash?.value != null)
+      .reduce((sum, acct) => sum + safeNum(acct.cash.value), 0)
+    : 0;
+  const brokerPosCash = Math.max(investCashPositive - cashMgmtTotal, 0);
+  const investNetCash = investCashPositive - brokerNegCash;
+  const cashHeroProfile = hasOverviewCash ? {
+    key: '现金/活期',
+    icon: '¥',
+    identity: '投资账户现金 / 货基',
+    valueLabel: '投资账户现金',
+    value: investCashPositive,
+    valueSigned: false,
+    dailyLabel: '今日盈亏',
+    dailyPnl: 0,
+    dailyRate: 0,
+    totalLabel: '总盈亏',
+    totalPnl: 0,
+    totalRate: 0,
+    miniMetrics: [
+      { label: '券商正现金', value: formatOptionalMoney(brokerPosCash) },
+      { label: '现金管理/货基', value: formatOptionalMoney(cashMgmtTotal) },
+      { label: '融资负现金', value: formatOptionalMoney(-brokerNegCash, 'CNY', { signed: brokerNegCash > 0 }), tone: brokerNegCash > 0 ? 'down' : '' },
+      { label: '投资净现金', value: formatOptionalMoney(investNetCash, 'CNY', { signed: investNetCash < 0 }), tone: investNetCash < 0 ? 'down' : '' },
+    ],
+  } : {
+    key: '现金/活期',
+    icon: '¥',
+    identity: '银行卡 / 券商 · 现金',
+    valueLabel: '净现金',
+    value: netCash,
+    valueSigned: true,
+    dailyLabel: '今日盈亏',
+    dailyPnl: 0,
+    dailyRate: 0,
+    totalLabel: '总盈亏',
+    totalPnl: 0,
+    totalRate: 0,
+    miniMetrics: [
+      { label: '现金资产', value: formatOptionalMoney(cashAssets) },
+      { label: '现金负债', value: formatOptionalMoney(-cashLiabilities, 'CNY', { signed: cashLiabilities > 0 }), tone: cashLiabilities > 0 ? 'down' : '' },
+      { label: '银行卡/支付', value: formatOptionalMoney(accountCash.netCash, 'CNY', { signed: accountCash.netCash < 0 }), tone: accountCash.netCash < 0 ? 'down' : '' },
+      { label: '券商现金', value: formatOptionalMoney(brokerageCash, 'CNY', { signed: brokerageCash < 0 }), tone: brokerageCash < 0 ? 'down' : '' },
+    ],
+  };
   const profiles = {
     '全部': allProfile,
     '负债': {key: '负债', hideHeader: true, financing: accountCards.investment_overview?.financing},
@@ -419,26 +473,7 @@ export function makeMobileHeroProfiles({
       totalRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
       portfolioShare: accountCards.investment_overview?.group_net_shares?.['员工持股'],
     },
-    '现金/活期': {
-      key: '现金/活期',
-      icon: '¥',
-      identity: '银行卡 / 券商 · 现金',
-      valueLabel: '净现金',
-      value: netCash,
-      valueSigned: true,
-      dailyLabel: '今日盈亏',
-      dailyPnl: 0,
-      dailyRate: 0,
-      totalLabel: '总盈亏',
-      totalPnl: 0,
-      totalRate: 0,
-      miniMetrics: [
-        { label: '现金资产', value: formatOptionalMoney(cashAssets) },
-        { label: '现金负债', value: formatOptionalMoney(-cashLiabilities, 'CNY', { signed: cashLiabilities > 0 }), tone: cashLiabilities > 0 ? 'down' : '' },
-        { label: '银行卡/支付', value: formatOptionalMoney(accountCash.netCash, 'CNY', { signed: accountCash.netCash < 0 }), tone: accountCash.netCash < 0 ? 'down' : '' },
-        { label: '券商现金', value: formatOptionalMoney(brokerageCash, 'CNY', { signed: brokerageCash < 0 }), tone: brokerageCash < 0 ? 'down' : '' },
-      ],
-    },
+    '现金/活期': cashHeroProfile,
   };
   return profiles;
 }

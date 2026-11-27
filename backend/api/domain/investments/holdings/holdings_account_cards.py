@@ -150,13 +150,17 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
     carried = cash_day and valuation_day and str(cash_day)[:10] < valuation_day
     stock_cash = _metric(stock_value.get("cash_base"), cash_day,
                          status="carried_forward" if carried else "confirmed", basis="reconciled_cash")
+    if stock_value.get("gross_cash_base") is not None:
+        stock_cash["gross_value"] = stock_value.get("gross_cash_base")
+    if stock_value.get("owner_ratio") is not None:
+        stock_cash["owner_ratio"] = stock_value.get("owner_ratio")
     stock_leverage = _metric(stock_value.get("leverage_ratio"), stock_value.get("as_of"),
                              status=stock_net["status"], basis=stock_net["basis"])
     if (stock_rows and len(stock_rows) == stock_position.get("holdings_count")
             and stock_market is not None and valuation_day and stock_cash["as_of"]
             and stock_value.get("status") in {"cash_carried_forward", "reconciled_cash"}
             and stock_cash["as_of"] <= valuation_day and stock_net["as_of"]
-            and stock_net["as_of"] < valuation_day):
+            and stock_net["as_of"] <= valuation_day):
         net = stock_market + Decimal(stock_cash["value"])
         stock_net = _metric(net, stock_day, status="estimated", basis="cash_carried_forward")
         gross = sum(abs(amount) for amount in amounts)
@@ -209,6 +213,7 @@ def build_holdings_account_cards(*, positions, overview, stock_performance, stoc
             "net_value": _metric(ibkr_value.get("amount_base"), ibkr_value.get("as_of"), basis="official_close"),
             "market_value": _metric(ibkr_value.get("position_value_base"), ibkr_value.get("as_of"), basis="official_close"),
             "cash": _metric(ibkr_value.get("cash_base"), ibkr_value.get("cash_as_of"), basis="official_close"),
+            **({"cash_by_currency": ibkr_value["cash_by_currency"]} if ibkr_value.get("cash_by_currency") else {}),
             "liabilities": _metric(None),
             "leverage": _metric(ibkr_value.get("leverage_ratio"), ibkr_value.get("as_of"), basis="official_close"),
             "recent_daily_pnl": _metric(ibkr_daily.get("amount_cny"), ibkr_daily.get("as_of"), basis="holding_daily"),

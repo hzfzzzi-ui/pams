@@ -14,6 +14,7 @@ from domain.accounts.monthly.valuation_book import current_balances, read_accoun
 from domain.investments.holdings.holdings_account_cards import build_holdings_account_cards
 from domain.investments.holdings.holding_market_history import holding_history, holding_price_comparison
 from domain.investments.holdings.personal_holdings import personal_holdings
+from domain.investments.holdings.ths_trade_rollforward import merge_cash_management_holding_rows
 from domain.investments.valuation import page_projection
 from domain.investments.valuation.portfolio_summary import build_holdings_by_account_payload
 from domain.investments.holdings.holding_return_snapshot import return_input_revisions, return_snapshot_revision
@@ -146,14 +147,27 @@ def create_compatibility_router(
             )
         return payload
 
-    def holdings_for_list(cur, context, *, limit=500, include_closed=False):
+    def holdings_for_list(cur, context, *, limit=500, include_closed=False, account_balances=None):
         holdings = read_holdings(cur, context, limit=None, include_closed=include_closed)
         account_config = _load_portfolio_accounts_config()
+        if account_balances is None:
+            try:
+                account_balances = read_account_view(cur, 'account_balances', accounts_endpoint._view_as_of())
+            except Exception:
+                account_balances = {}
+        holdings = merge_cash_management_holding_rows(
+            holdings,
+            account_config=account_config,
+            account_balances=account_balances,
+            excluded_accounts=context[2]["excluded_accounts"],
+            owner_ratio=_account_owner_ratio,
+        )
         holdings["historical_references"] = read_historical_position_references(
             cur, account_config=account_config, as_of=context[0],
             excluded_accounts=context[2]["excluded_accounts"], owner_ratio=_account_owner_ratio,
         )
         holdings = personal_holdings(holdings, accounts=account_config.get("accounts", {}))
+        holdings["cash_view_version"] = 2
         holdings["rows"] = holdings["rows"][:limit]
         return holdings
 
@@ -196,14 +210,11 @@ def create_compatibility_router(
                     cur, "holdings", business_date=_investment_today_label_date())
                 if published is not None:
                     data = published["data"]
-                    if ("personal_summary" not in data["holdings"] or
+                    if (data["holdings"].get("cash_view_version") != 2 or
+                            "personal_summary" not in data["holdings"] or
                             "daily_pnl_cny" not in (data["holdings"].get("personal_summary") or {}) or
                             any("position_dividend_return" not in r for r in data["holdings"]["rows"])):
-                        if len(data["holdings"]["rows"]) >= 500:
-                            published = None
-                        else:
-                            data = {**data, "holdings": personal_holdings(data["holdings"],
-                                    accounts=_load_portfolio_accounts_config()["accounts"])}
+                        published = None
                 if published is None:
                     data = build_holdings_page(cur, show_closed=show_closed)
                 else:
@@ -233,7 +244,7 @@ def create_compatibility_router(
                 balances = read_account_view(cur, 'account_balances', accounts_endpoint._view_as_of())
                 return json(accounts_endpoint._norm(balances))
 
-    def build_holdings_page(cur, *, show_closed):
+    def build_holdings_page(cur, *, show_closed, account_balances=None):
         with reuse_ibkr_holding_evidence(cur):
             context = holding_context(cur)
 
@@ -269,7 +280,9 @@ def create_compatibility_router(
                 stock=stock, funds=funds_all, overseas=overseas, closed_returns=closed_returns,
             )
             return {
-                "holdings": holdings_for_list(cur, context, limit=None, include_closed=show_closed),
+                "holdings": holdings_for_list(
+                    cur, context, limit=None, include_closed=show_closed, account_balances=account_balances,
+                ),
                 "a_stock": stock,
                 "funds": funds_all if show_closed else category('A股', 'A股基金'),
                 "funds_all": funds_all,
@@ -776,12 +789,13 @@ def create_compatibility_router(
                 revisions = return_input_revisions(cur)
             return _return_revision(cur, **settings, revisions=revisions)
 
-        holdings = build_holdings_page(cur, show_closed=False)
         histories = {}
         nav = _verified_nav_weekly(cur, latest=True, start_date=None, interval="daily", baseCurrency="CNY", account_histories=histories)
+        balances = accounts_endpoint._norm(current_balances(histories))
+        holdings = build_holdings_page(cur, show_closed=False, account_balances=balances)
         return {
             "account_histories": accounts_endpoint._norm(histories),
-            "account_balances": accounts_endpoint._norm(current_balances(histories)),
+            "account_balances": balances,
             "holdings": {
                 **holdings,
                 "fx_rates": build_latest_fx_rates_payload(cur, base_currency="CNY"),
