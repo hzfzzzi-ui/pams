@@ -250,17 +250,18 @@ function buildPnlTreemapHtml(items, portfolio) {
   const valid = (items || [])
     .filter((r) => r && Number.isFinite(Number(r.pnl_cny)) && Math.abs(Number(r.pnl_cny)) >= 0.01)
     .sort((a, b) => Math.abs(Number(b.pnl_cny)) - Math.abs(Number(a.pnl_cny)))
-    .slice(0, 20);
+    .slice(0, 12);
   const gainCount = valid.filter((r) => Number(r.pnl_cny) > 0).length;
   const lossCount = valid.filter((r) => Number(r.pnl_cny) < 0).length;
-  const myPct = portfolio?.ex_esop_return_pct;
-  const myTone = myPct == null ? '' : Number(myPct) >= 0 ? 'good' : 'bad';
+  const headerPnl = portfolio?.total_pnl_cny ?? portfolio?.ex_esop_pnl_cny;
+  const headerPct = portfolio?.total_return_pct ?? portfolio?.ex_esop_return_pct;
+  const myTone = headerPct == null ? '' : Number(headerPct) >= 0 ? 'good' : 'bad';
 
   if (!valid.length) {
     return `
       <div class="perfBlockCard perfTreemapCard">
         <div class="perfBlockHead">
-          <h3>盈亏热力图</h3>
+          <h3>盈亏分布图</h3>
           <span class="perfBlockSub">含已清仓</span>
         </div>
         <div class="lookthroughEmpty compact">暂无盈亏分布数据</div>
@@ -270,7 +271,7 @@ function buildPnlTreemapHtml(items, portfolio) {
 
   const weighted = valid.map((row) => ({
     row,
-    weight: Math.max(Math.pow(Math.abs(Number(row.pnl_cny)), 0.78), 1),
+    weight: Math.max(Math.pow(Math.abs(Number(row.pnl_cny)), 0.72), 1),
   }));
   const layout = treemapPartition(weighted, { x: 0, y: 0, w: 100, h: 100 });
 
@@ -278,30 +279,27 @@ function buildPnlTreemapHtml(items, portfolio) {
     const pnl = Number(row.pnl_cny);
     const pct = row.pnl_pct != null && Number.isFinite(Number(row.pnl_pct)) ? Number(row.pnl_pct) : null;
     const isGain = pnl >= 0;
-    const intensity = Math.max(0.28, Math.min(0.88, 0.34 + Math.min(Math.abs(pct ?? 20), 60) / 60 * 0.54));
+    const intensity = Math.max(0.32, Math.min(0.88, 0.36 + Math.min(Math.abs(pct ?? 20), 60) / 60 * 0.52));
     const bg = isGain
       ? `rgba(22, 163, 74, ${intensity.toFixed(2)})`
       : `rgba(220, 38, 38, ${intensity.toFixed(2)})`;
-    const border = isGain ? 'rgba(74, 222, 128, 0.42)' : 'rgba(248, 113, 113, 0.42)';
     const area = rect.w * rect.h;
     const shortSide = Math.min(rect.w, rect.h);
-    const sizeCls = area >= 480 && shortSide >= 18
+    const sizeCls = area >= 520 && shortSide >= 20
       ? 'is-lg'
-      : area >= 180 && shortSide >= 11
+      : area >= 240 && shortSide >= 14
         ? 'is-md'
-        : area >= 75 && shortSide >= 7
-          ? 'is-sm'
-          : 'is-xs';
-    const displayName = compactTileName(row.name || row.symbol, sizeCls === 'is-lg' ? 10 : sizeCls === 'is-md' ? 7 : 5);
+        : 'is-sm';
+    const displayName = compactTileName(row.name || row.symbol, sizeCls === 'is-lg' ? 10 : sizeCls === 'is-md' ? 7 : 6);
     const title = `${row.name || row.symbol} (${row.symbol || ''}${row.is_closed ? ' · 已清仓' : ''}) ${fmtSignedYuan(pnl)} (${fmtSignedPct(pct)})`;
     return `
       <button type="button"
         class="perfTreemapTile ${isGain ? 'is-gain' : 'is-loss'} ${sizeCls}"
-        style="left:${rect.x.toFixed(3)}%;top:${rect.y.toFixed(3)}%;width:${rect.w.toFixed(3)}%;height:${rect.h.toFixed(3)}%;background:${bg};border-color:${border};"
+        style="left:${rect.x.toFixed(3)}%;top:${rect.y.toFixed(3)}%;width:${rect.w.toFixed(3)}%;height:${rect.h.toFixed(3)}%;background:${bg};"
         title="${esc(title)}"
         data-jump-trade-review="${esc(row.symbol || '')}">
         <span class="perfTreemapName">${esc(displayName)}${row.is_closed && sizeCls === 'is-lg' ? ' <i>清仓</i>' : ''}</span>
-        ${sizeCls !== 'is-xs' ? `<strong class="perfTreemapPnl">${esc(fmtSignedYuan(pnl))}</strong>` : ''}
+        <strong class="perfTreemapPnl">${esc(fmtSignedYuan(pnl))}</strong>
         ${sizeCls === 'is-lg' && pct != null ? `<em class="perfTreemapPct">${esc(fmtSignedPct(pct))}</em>` : ''}
       </button>
     `;
@@ -312,10 +310,10 @@ function buildPnlTreemapHtml(items, portfolio) {
       <div class="perfBlockHead">
         <div>
           <h3>盈亏分布图</h3>
-          <span class="perfBlockSub">含已清仓 · 面积按盈亏金额</span>
+          <span class="perfBlockSub">含已清仓 · 前${valid.length}大盈亏标的</span>
         </div>
         <div class="perfTreemapMeta">
-          <strong class="${myTone}">${esc(fmtSignedYuan(portfolio?.ex_esop_pnl_cny))} <em>${esc(fmtSignedPct(myPct))}</em></strong>
+          <strong class="${myTone}">${esc(fmtSignedYuan(headerPnl))} <em>${esc(fmtSignedPct(headerPct))}</em></strong>
           <div class="perfTreemapLegend">
             <span class="good">盈 ${gainCount}</span>
             <span class="bad">亏 ${lossCount}</span>
@@ -379,34 +377,59 @@ function renderBenchmarkLineChart(container, comparison) {
 
   const allVals = [0];
   drawn.forEach((s) => s.values.forEach((v) => { if (v != null && Number.isFinite(v)) allVals.push(v); }));
-  let minVal = Math.min(...allVals);
-  let maxVal = Math.max(...allVals);
-  const span = Math.max(maxVal - minVal, 8);
-  minVal = Math.floor((minVal - span * 0.1) / 5) * 5;
-  maxVal = Math.ceil((maxVal + span * 0.1) / 5) * 5;
+  const rawMin = Math.min(...allVals);
+  const rawMax = Math.max(...allVals);
 
   const W = 360;
-  const H = 186;
-  const padL = 40;
+  const H = 206;
+  const padL = 42;
   const padR = 10;
   const padT = 10;
   const padB = 22;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const xAt = (idx) => padL + (dates.length <= 1 ? 0 : (idx / (dates.length - 1)) * plotW);
-  const yAt = (val) => padT + ((maxVal - val) / (maxVal - minVal || 1)) * plotH;
 
-  const tickCount = 4;
-  const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => minVal + ((maxVal - minVal) * i) / tickCount);
+  // Use a clean 2-zone piecewise linear scale when an outlier index (>55%) would squash the main [-30%, +30%] band.
+  const useTwoZone = rawMax > 55 && rawMin >= -35;
+  let yTicks;
+  let yAt;
+  if (useTwoZone) {
+    const lowBound = rawMin < -25 ? -30 : -25;
+    const midBreak = 30;
+    const highBound = Math.ceil(rawMax / 30) * 30;
+    const upperSplit = 0.32;
+    const midY = padT + plotH * upperSplit;
+    const botY = padT + plotH;
+    yAt = (val) => {
+      if (val >= midBreak) {
+        const t = Math.min(1, Math.max(0, (val - midBreak) / (highBound - midBreak || 1)));
+        return midY - t * (midY - padT);
+      }
+      const t = Math.min(1, Math.max(0, (midBreak - val) / (midBreak - lowBound || 1)));
+      return midY + t * (botY - midY);
+    };
+    const midHigh = Math.round((midBreak + highBound) / 2 / 5) * 5;
+    yTicks = [lowBound, -15, 0, 15, midBreak, midHigh, highBound];
+  } else {
+    const roughSpan = Math.max(rawMax - rawMin, 15);
+    const step = roughSpan <= 30 ? 10 : roughSpan <= 70 ? 15 : 25;
+    const minVal = Math.floor(rawMin / step) * step;
+    const maxVal = Math.ceil(rawMax / step) * step;
+    yAt = (val) => padT + ((maxVal - val) / (maxVal - minVal || 1)) * plotH;
+    yTicks = [];
+    for (let v = minVal; v <= maxVal + 0.01; v += step) yTicks.push(Math.round(v));
+  }
+
   const yGridHtml = yTicks.map((v) => {
     const y = yAt(v).toFixed(1);
     const isZero = Math.abs(v) < 0.05;
     return `
       <line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"
-        stroke="${isZero ? 'rgba(148,163,184,0.34)' : 'rgba(148,163,184,0.11)'}"
+        stroke="${isZero ? 'rgba(148,163,184,0.36)' : 'rgba(148,163,184,0.11)'}"
         stroke-dasharray="${isZero ? '3 3' : ''}" stroke-width="1" />
       <text x="${padL - 5}" y="${(Number(y) + 3).toFixed(1)}" text-anchor="end"
-        fill="rgba(148,163,184,0.75)" font-size="9">${v >= 0 ? '+' : ''}${Math.round(v)}%</text>
+        fill="rgba(148,163,184,0.75)" font-size="9">${v > 0 ? '+' : ''}${Math.round(v)}%</text>
     `;
   }).join('');
 
@@ -465,7 +488,6 @@ function renderBenchmarkLineChart(container, comparison) {
       <div class="perfBlockHead">
         <div>
           <h3>基准对比</h3>
-          <span class="perfBlockSub">今年以来累计收益率 (%)</span>
         </div>
       </div>
       <div class="perfBenchPills">${legendHtml}</div>
