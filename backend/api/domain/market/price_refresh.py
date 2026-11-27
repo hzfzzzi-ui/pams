@@ -171,8 +171,6 @@ def _refresh_category(
     }
 
 
-
-
 def refresh_benchmark_closes():
     today = _today_cst()
     errors = []
@@ -190,9 +188,8 @@ def refresh_benchmark_closes():
                                WHERE symbol=%s AND market=%s AND close>0 AND trade_date BETWEEN %s AND %s""",
                             (instrument.symbol, instrument.market, start, end))
                 latest = cur.fetchone()["latest"]
-                local = {latest.isoformat(): True} if latest else {}
                 try:
-                    rows = missing_index_closes(local, secid, bucket, start, end)
+                    rows = missing_index_closes(latest, secid, bucket, start, end)
                 except (OSError, ValueError):
                     logger.exception("Benchmark close unavailable: %s", symbol)
                     errors.append(symbol)

@@ -85,13 +85,6 @@ export function createInvestmentChartController({ root = document, host = window
     const fresh = rows.length > 0 && (!cachedRows.length || rows.at(-1).date >= cachedRows.at(-1).date);
     if (fresh || !cachedRows.length) {
       showNav(rows, live?.period_comparisons);
-      if (projectionStatus) {
-        projectionStatus.textContent = '';
-        projectionStatus.hidden = true;
-      }
-    } else if (projectionStatus) {
-      projectionStatus.textContent = '暂未读到更新的净资产数据，显示已保存的记录';
-      projectionStatus.hidden = false;
     }
     if (!fresh) navPromise = null; // Reopening the overview can retry a failed or older direct read.
     return state.navChart;

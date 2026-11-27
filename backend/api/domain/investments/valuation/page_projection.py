@@ -42,20 +42,14 @@ def read_page(cur, page, *, business_date, member=None):
     }
 
 
-def performance_summary(cur, business_date, pages=None):
-    def member(page, key):
-        if pages is not None:
-            return pages[page][key]
-        projected = read_page(cur, page, business_date=business_date, member=key)
-        return (projected or {}).get("data")
-
+def performance_summary(cur, business_date, pages):
     return build_performance_summary_payload(
-        cur, today=business_date, holdings_data=member("holdings", "holdings"),
-        sections=member("analysis", "sections"), total=member("analysis", "total"),
+        cur, today=business_date, holdings_data=pages["holdings"]["holdings"],
+        sections=pages["analysis"]["sections"], total=pages["analysis"]["total"],
     )
 
 
-def refresh(cur, *, business_date, build, connect):
+def refresh(cur, *, business_date, build, connect, expected_through=None):
     """Build under REPEATABLE READ and atomically replace the previous model."""
     if not schema_available(cur):
         return {"status": "unavailable"}
@@ -63,7 +57,7 @@ def refresh(cur, *, business_date, build, connect):
     if not cur.fetchone()["locked"]:
         return {"status": "busy"}
     cur.execute(
-        """SELECT published_revision,
+        """SELECT published_revision, payload #>> '{analysis,total,rows,-1,date}' AS total_as_of,
                   EXISTS (SELECT 1 FROM public.investment_projection_invalidation) AS dirty,
                   business_date = %s AND published_at >= now() - make_interval(mins => %s)
                   AND (payload ->> '_schema_version') = %s AS recent
@@ -71,8 +65,11 @@ def refresh(cur, *, business_date, build, connect):
         (business_date, _RECHECK_MINUTES, PROJECTION_SCHEMA_VERSION),
     )
     state = cur.fetchone()
-    if state["recent"] and not state["dirty"]:
-        return {"status": "current", "revision": state["published_revision"]}
+    if state["recent"] and not state["dirty"] and (
+        expected_through is None or (state["total_as_of"] or "") >= expected_through.isoformat()
+    ):
+        return {"status": "current", "revision": state["published_revision"],
+                "analysis_total_as_of": state.get("total_as_of")}
     # Evidence readers require REPEATABLE READ READ ONLY. Import the writer's
     # snapshot so the evidence and the markers being cleared are consistent.
     cur.execute("SELECT pg_export_snapshot() AS snapshot")
@@ -94,4 +91,11 @@ def refresh(cur, *, business_date, build, connect):
             WHERE singleton""",
         (Json(stored_payload), revision, business_date),
     )
+    if expected_through:
+        rows = payload["analysis"]["total"].get("rows") or []
+        actual = rows[-1].get("date") if rows else None
+        if not actual or str(actual) < expected_through.isoformat():
+            return {"status": "waiting", "revision": revision, "analysis_total_as_of": actual,
+                    "reason": "waiting_for_return_inputs"}
+        return {"status": "published", "revision": revision, "analysis_total_as_of": actual}
     return {"status": "published", "revision": revision}

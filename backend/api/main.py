@@ -538,6 +538,7 @@ _compatibility_router, (
     nav_drawdown,
     cashflow_series,
     risk_latest,
+    build_investment_pages,
 ) = create_compatibility_router(
     ANCHOR_NAV_DATE=ANCHOR_NAV_DATE,
     _account_initial_capital_cny=lambda *args, **kwargs: _account_initial_capital_cny(*args, **kwargs),
@@ -585,6 +586,7 @@ _compatibility_router, (
     get_conn=lambda *args, **kwargs: get_conn(*args, **kwargs),
     json=lambda *args, **kwargs: json(*args, **kwargs),
 )
+app.state.build_investment_pages = build_investment_pages
 app.include_router(_compatibility_router)
 
 

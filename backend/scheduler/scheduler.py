@@ -40,10 +40,15 @@ APP_BASE = os.environ.get("PAMS_APP_BASE") or (
     API_BASE[: -len("/api")] if API_BASE.rstrip("/").endswith("/api") else API_BASE
 )
 REQUEST_TIMEOUT = 60
-ASIA_PACIFIC_REFRESH_TIME = os.environ.get("PAMS_ASIA_PACIFIC_REFRESH_TIME", "15:05")
+ASIA_PACIFIC_REFRESH_TIME = os.environ.get("PAMS_ASIA_PACIFIC_REFRESH_TIME", "15:30")
 ASIA_PACIFIC_REFRESH_TZ = os.environ.get("PAMS_ASIA_PACIFIC_REFRESH_TZ", "Asia/Shanghai")
-NORTH_AMERICA_REFRESH_TIME = os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TIME", "16:30")
-NORTH_AMERICA_REFRESH_TZ = os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TZ", "America/New_York")
+# Existing explicit North America times were configured in New York local time.
+NORTH_AMERICA_REFRESH_TZ = os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TZ") or (
+    "America/New_York" if os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TIME") else "Asia/Shanghai"
+)
+NORTH_AMERICA_REFRESH_TIME = os.environ.get("PAMS_NORTH_AMERICA_REFRESH_TIME") or (
+    "06:30" if NORTH_AMERICA_REFRESH_TZ == "Asia/Shanghai" else "16:30"
+)
 INVESTMENT_RETURN_START = os.environ.get("PAMS_INVESTMENT_RETURN_START", "2026-01-01")
 STATE_PATH = Path(os.environ.get("PAMS_REFRESH_STATE_PATH", "/state/refresh.json"))
 
@@ -216,12 +221,22 @@ def run_daily_holdings_confirmation(now=None):
 
 def run_daily_us_return_recovery():
     """Finish IBKR returns independently of the current-price refresh window."""
-    holdings = run_daily_holdings_confirmation()
+    mode, confirm = close_broker_step()
+    holdings = confirm()
     if not holdings.get("publication_verified") or not holdings.get("statement_as_of"):
         return holdings
     target = date.fromisoformat(holdings["statement_as_of"])
 
+    def publish_total(day):
+        totals = refresh_investment_return_snapshots(("total",))
+        if result_issues(totals):
+            return {"status": "blocked", "steps": [{"name": "total", "issues": result_issues(totals)}]}
+        projection = publish_close_projection(day)
+        return {"status": "blocked" if projection["issues"] else "ok", "steps": [projection]}
+
     def publish(day):
+        if mode == "flex":
+            return publish_total(day)
         if not _historical_usd_cny(day):
             return {"status": "waiting", "steps": [{"name": "fx", "issues": ["waiting_for_fx"]}]}
         endpoint = (
@@ -236,13 +251,14 @@ def run_daily_us_return_recovery():
                 result = _post_root(endpoint, "Verified US return snapshot") or {}
         if (result.get("status") == "ok" and result.get("source_through") == day.isoformat()
                 and int(result.get("written") or 0) > 0):
-            return {"status": "ok"}
+            return publish_total(day)
         return {"status": "blocked", "steps": [{"name": "us_stock", "issues": [
             "missing_historical_fx" if result.get("missing_fx_date") else "verified_curve_not_ready",
         ]}]}
 
     try:
-        return RefreshJournal(STATE_PATH).run("ibkr_us_returns", target, publish)
+        key = "ibkr_us_returns" if mode == "ibkr_holdings" else "flex_total_returns"
+        return RefreshJournal(STATE_PATH).run(key, target, publish)
     except (OSError, ValueError):
         logger.exception("US return checkpoint unavailable")
         return {"status": "error", "reason": "checkpoint_unavailable"}
@@ -383,20 +399,47 @@ def refresh_investment_return_snapshots(sections: tuple[str, ...]):
     return {"status": "blocked", "errors": errors} if errors else {"status": "ok"}
 
 
-def refresh_investment_page_projection():
+def refresh_investment_page_projection(expected_through=None):
+    query = f"?expected_through={expected_through.isoformat()}" if expected_through else ""
     return _request_json(
-        "post", f"{API_BASE}/investment/page-projection/refresh", "投资页面结果发布",
+        "post", f"{API_BASE}/investment/page-projection/refresh{query}", "投资页面结果发布",
         max_attempts=1,
     )
 
 
+def publish_close_projection(target):
+    result = refresh_investment_page_projection(target) or {}
+    actual = result.get("analysis_total_as_of")
+    ready = result.get("status") in {"current", "published"} and actual and actual >= target.isoformat()
+    return {"name": "page_projection", "analysis_total_as_of": actual,
+            "issues": [] if ready else [result.get("reason") or "projection_pending"]}
+
+
+def north_america_due_date(now=None):
+    local = (now or datetime.now(UTC)).astimezone(ZoneInfo(NORTH_AMERICA_REFRESH_TZ))
+    hour, minute = map(int, NORTH_AMERICA_REFRESH_TIME.split(":"))
+    cutoff = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if local < cutoff:
+        cutoff -= timedelta(days=1)
+    session = cutoff.astimezone(ZoneInfo("America/New_York")).date()
+    while session.weekday() >= 5:
+        session -= timedelta(days=1)
+    return session
+
+
+def close_broker_step():
+    if _env_bool("PAMS_IBKR_HOLDINGS_SYNC_ENABLED"):
+        return ("ibkr_holdings", run_daily_holdings_confirmation)
+    return ("flex", run_flex_confirmation)
+
+
 def refresh_post_close_investments(target_date=None):
-    """Asia-Pacific post-close investment refresh at 15:05 Beijing time."""
+    """Asia-Pacific post-close refresh in the configured window."""
     logger.info("=== Asia-Pacific post-close investment refresh started ===")
     target = target_date or latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ)
     return _refresh_window(target, [
         ("fx", lambda: _call(f"fx-rates/refresh?as_of={target.isoformat()}", "FX rates")),
-        ("ibkr_holdings", run_daily_holdings_confirmation),
+        close_broker_step(),
         ("a_stock", lambda: _call("prices/refresh/a-stock", "A-share close")),
         ("korea", lambda: _call("prices/refresh/us-stock?market=kr&priceBasis=close", "Korea close")),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=True)),
@@ -407,12 +450,12 @@ def refresh_post_close_investments(target_date=None):
 
 
 def refresh_north_america_post_close_investments(target_date=None):
-    """North America post-close refresh in New York market time."""
+    """North America post-close refresh for the completed New York session."""
     logger.info("=== North America post-close investment refresh started ===")
-    target = target_date or latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ)
+    target = target_date or north_america_due_date()
     return _refresh_window(target, [
         ("fx", lambda: _call(f"fx-rates/refresh?as_of={target.isoformat()}", "FX rates")),
-        ("ibkr_holdings", run_daily_holdings_confirmation),
+        close_broker_step(),
         ("fund", lambda: refresh_fund_nav_estimates(use_intraday_estimate=False)),
         ("hk", lambda: _call("prices/refresh/us-stock?market=hk&priceBasis=close", "Hong Kong confirmed close")),
         ("us", lambda: _call("prices/refresh/us-stock?market=us&priceBasis=close&scheduled=true", "US confirmed close")),
@@ -422,7 +465,7 @@ def refresh_north_america_post_close_investments(target_date=None):
 _RETURN_SECTION_STEPS = {
     "a_stock": {"a_stock"},
     "a_fund": {"fund", "fx"},
-    "us_stock": {"us", "ibkr_holdings", "fx"},
+    "us_stock": {"us", "ibkr_holdings", "flex", "fx"},
     "precious_metal": {"metal", "fx"},
 }
 
@@ -475,6 +518,7 @@ def _refresh_window(target, steps, sections):
         result = refresh_investment_return_snapshots(ready)
         issues = result_issues(result)
         reports.append({"name": "snapshots", "issues": issues + (result.get("errors", []) if isinstance(result, dict) else [])})
+    reports.append(publish_close_projection(target))
     return {"status": "blocked" if any(report["issues"] for report in reports) else "ok", "steps": reports}
 
 
@@ -484,7 +528,7 @@ def run_due_window(key, now=None):
         target = latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ, current)
         callback = refresh_post_close_investments
     else:
-        target = latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ, current)
+        target = north_america_due_date(current)
         callback = refresh_north_america_post_close_investments
     beijing = current.astimezone(ZoneInfo("Asia/Shanghai"))
     writable_date = beijing.date()
@@ -505,7 +549,7 @@ def run_portfolio_valuation_publication(now=None):
     current = now or datetime.now(timezone.utc)
     target = max(
         latest_due_date(ASIA_PACIFIC_REFRESH_TIME, ASIA_PACIFIC_REFRESH_TZ, current),
-        latest_due_date(NORTH_AMERICA_REFRESH_TIME, NORTH_AMERICA_REFRESH_TZ, current),
+        north_america_due_date(current),
     )
 
     def publish(day):

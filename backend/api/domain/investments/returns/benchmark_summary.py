@@ -98,7 +98,8 @@ def _load_benchmark_item(
     closes = local_benchmark(cur, ytd_start, end, symbol) if end and end >= ytd_start else {}
     if end and end >= ytd_start and end.isoformat() not in closes:
         try:
-            closes.update(missing_index_closes(closes, secid, bucket, ytd_start, end))
+            latest = date.fromisoformat(max(closes)) if closes else None
+            closes.update(missing_index_closes(latest, secid, bucket, ytd_start, end))
         except (OSError, ValueError):
             pass
         if end.isoformat() not in closes and len(closes) < 25:

@@ -25,11 +25,10 @@ def overseas_history(symbol, start, end):
     return tuple(sorted(closes.get(symbol, {}).items()))
 
 
-def eastmoney_index_history(secid: str, start: date, end: date, cache_day: date | None = None):
+def eastmoney_index_history(secid: str, start: date, end: date):
     """Read daily index closes from Eastmoney push2his without mutating market facts."""
     from domain.imports.isolation import require_external_access
     require_external_access()
-    _ = cache_day
     beg = start.strftime('%Y%m%d')
     end_s = end.strftime('%Y%m%d')
     url = (
@@ -93,10 +92,10 @@ def benchmark_session(bucket, through):
     return market_calendar(bucket).date_to_session(through, direction="previous").date()
 
 
-def missing_index_closes(local, secid, bucket, start, end):
-    if end is None or start > end or end.isoformat() in local:
+def missing_index_closes(latest, secid, bucket, start, end):
+    if end is None or start > end or (latest is not None and latest >= end):
         return {}
-    since = max(start, date.fromisoformat(max(local)) + timedelta(days=1)) if local else start
+    since = max(start, latest + timedelta(days=1)) if latest else start
     calendar = market_calendar(bucket)
     sessions = {day.date().isoformat() for day in calendar.sessions_in_range(since, end)}
     return {day: price for day, price in eastmoney_index_history(secid, since, end)
