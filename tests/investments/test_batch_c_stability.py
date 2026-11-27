@@ -242,6 +242,11 @@ def test_import_inbox_scan_and_pull_use_savepoints(monkeypatch, tmp_path):
 
 
 def test_scheduler_imap_poll_sends_origin_and_registers_projection_early(monkeypatch):
+    import importlib.util
+    import types
+
+    if importlib.util.find_spec("schedule") is None:
+        monkeypatch.setitem(sys.modules, "schedule", types.ModuleType("schedule"))
     import scheduler
 
     captured = {}
