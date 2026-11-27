@@ -84,19 +84,21 @@
 .ledgerTransferSummary {
   display:grid;
   grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:1px;
+  gap:12px 0;
   margin-top:12px;
-  border-radius:16px;
-  overflow:hidden;
-  background:var(--pams-line-subtle);
+  padding-block:12px;
+  border-block:1px solid var(--pams-line-subtle);
 }
 .ledgerTransferSummary > div {
   display:grid;
   grid-template-columns:1fr auto;
   gap:5px;
   min-width:0;
-  padding:12px;
-  background:var(--pams-bg-soft);
+  padding-inline-end:12px;
+}
+.ledgerTransferSummary > div:nth-child(even) {
+  padding-inline:12px 0;
+  border-inline-start:1px solid var(--pams-line-subtle);
 }
 .ledgerTransferSummary strong { grid-column:1 / -1; grid-row:2; font-variant-numeric:tabular-nums }
 .ledgerTransferSummary small, .ledgerPair small { color:var(--text-secondary); overflow-wrap:anywhere }
@@ -535,8 +537,7 @@
 .ledgerOriginalAmount { font-variant-numeric:tabular-nums }
 .transferRoute { display:grid !important; grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr); gap:8px; align-items:stretch; padding:0 0 12px; border-bottom:1px solid var(--pams-line-subtle) }
 .transferRouteHeader { grid-column:1 / -1; color:var(--pams-text-primary); font-size:12px; line-height:1; font-weight:600 }
-.transferRouteNode { min-width:0; padding:9px 10px; border:1px solid var(--pams-line-subtle); border-radius:8px; background:var(--pams-bg-soft) }
-.transferRouteNode.is-target { border-color:var(--pams-line-subtle); background:var(--pams-bg-soft) }
+.transferRouteNode { min-width:0; padding:9px 0; border-bottom:1px solid var(--pams-line-subtle) }
 .transferRouteNode em { display:block; margin-bottom:5px; color:var(--muted); font-size:12px; line-height:1; font-style:normal; font-weight:600 }
 .transferRouteNode strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); font-size:14px; line-height:1.25; font-weight:600 }
 .transferRouteArrow { display:grid; place-items:center; color:var(--pams-text-primary); font-size:18px; line-height:1; font-weight:600 }

@@ -97,9 +97,8 @@ tr.accountCollapsed { display:none; }
   .accountMobileHero {
     display:block;
     margin:0 0 16px;
-    padding:16px;
-    border-radius:var(--pams-radius-panel);
-    background:var(--pams-bg-panel);
+    padding:16px 0;
+    border-bottom:1px solid var(--pams-line-subtle);
   }
   .accountMobileLabel { color:var(--muted); font-size:12px; font-weight:600; }
   .accountMobileValue {

@@ -3,7 +3,7 @@ import {
   fmtSignedCny, fmtPctValue, formatCurrency, formatCompactCurrency,
   formatTableNumber, formatPercentRate, profitColor, toneFromNumber,
   isInternalInvestmentLabel, pctFromAmount, signedPctText, formatSyncTimestamp,
-  normalizeMobileHeroGroup, shareTone, formatOptionalMoney,
+  normalizeMobileHeroGroup, formatOptionalMoney,
   contributionPct, formatNativeDaily, esc, displayPnlPct,
   fmtSignedPctFromRate, sectionTodayReturnAmount, annualizedRateFromPeriod, buildInvestmentConclusion
 } from './summary_legacy_model.js';
@@ -98,13 +98,11 @@ function mobileHeroMetaItem(label, value, tone = '', financingDetail = false) {
   `;
 }
 
-function filterWeightBadge(selection) {
+function filterWeightLabel(selection) {
   if (!selection) return '';
   const { value, partial, label } = selection;
   const pct = value == null ? '—' : (partial ? '≈' : '') + signedPctText(value).replace('+', '');
-  return `<div class="mobileAccountWeight ${shareTone(value)}" title="${esc(label)}持仓市值 / 全部个人持仓市值">
-    <span>持仓占比 ${pct}</span>
-    ${value == null ? '' : `<i aria-hidden="true"><b style="width:${Math.min(100, Math.abs(value) * 100)}%"></b></i>`}</div>`;
+  return `<span class="mobileAccountWeight" title="${esc(label)}持仓市值 / 全部个人持仓市值">持仓占比 ${pct}</span>`;
 }
 
 function netShareText(metric) {
@@ -145,10 +143,10 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null, sele
     const dailyLabel = dailyAsOf ? `最近一日盈亏 · ${dailyAsOf.slice(5).replace('-', '/')}${recent_daily_pnl.status === 'partial' ? '（部分）' : ''}` : '最近一日盈亏';
     const dailyValue = daily == null && profile.key === 'A股基金' ? '同日数据待齐' : money(daily, true);
     return `
-      ${profile.hideHeader ? (selection ? `<div class="mobileAccountHeroTop"><span>投资组合</span>${filterWeightBadge(selection)}</div>` : '') : `<div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
+      ${profile.hideHeader ? (selection ? `<div class="mobileAccountHeroTop"><span>投资组合</span>${filterWeightLabel(selection)}</div>` : '') : `<div class="mobileAccountHeroTop"><div class="mobileAccountIdentity">
         <span class="mobileAccountIcon">${esc(profile.icon)}</span>
         <span>${esc(profile.identity)}<small class="mobileAccountSubtitle">${esc(profile.accountSubtitle)}</small></span>
-      </div>${filterWeightBadge(selection)}</div>`}
+      </div>${filterWeightLabel(selection)}</div>`}
       <div class="mobileHeroPrimaryGrid">
         <div class="mobileHeroPrimaryMetric main"><span>${esc(metricLabel(netLabel, net_value))}</span><strong>${money(netValue)}</strong></div>
         <div class="mobileHeroPrimaryMetric"><span>${esc(dailyLabel)}</span><strong class="${valueTone(daily)}">${dailyValue}</strong></div>
@@ -186,7 +184,7 @@ function MobilePortfolioHero(profile, asOf, dataIssues = [], syncAt = null, sele
         <span class="mobileAccountIcon">${profile.icon || '◌'}</span>
         <span>${esc(profile.identity || 'CNY PAMS')}</span>
       </div>
-      ${filterWeightBadge(selection)}
+      ${filterWeightLabel(selection)}
     </div>`}
     <div class="mobileHeroPrimaryGrid">
       <div class="mobileHeroPrimaryMetric main">
@@ -213,18 +211,18 @@ function filteredPositionHero(category, segment, data, account, selection) {
   const known = data?.daily_pnl_valued_count || 0;
   const estimate = data?.daily_pnl_estimated_count ? '（含估算）' : '';
   const partial = known > 0 && known < data?.daily_pnl_total_count;
-  const metric = (label, value, signed = false) => {
+  const metric = (label, value, { signed = false, main = false } = {}) => {
     const tone = signed && value != null && Number(value) !== 0 ? (Number(value) > 0 ? 'up' : 'down') : '';
-    return `<div class="mobileHeroPrimaryMetric"><span>${esc(label)}</span><strong class="${tone}">${value == null ? '—' : signed ? fmtSignedCny(value) : fmtCny(value)}</strong></div>`;
+    return `<div class="mobileHeroPrimaryMetric${main ? ' main' : ''}"><span>${esc(label)}</span><strong class="${tone}">${value == null ? '—' : signed ? fmtSignedCny(value) : fmtCny(value)}</strong></div>`;
   };
   const showAccount = category === '股票' || segment !== '场内';
   const fundNav = category === '基金' && segment === '场外';
   const marketLabel = data?.missing_values ? '已知持仓市值' : '持仓市值';
-  return `<div class="mobileAccountHeroTop"><span>${esc(category === '基金' ? (segment ? segment + '基金' : '全部基金') : segment)}</span>${filterWeightBadge(selection)}</div>
+  return `<div class="mobileAccountHeroTop"><span>${esc(category === '基金' ? (segment ? segment + '基金' : '全部基金') : segment)}</span>${filterWeightLabel(selection)}</div>
     <div class="mobileHeroPrimaryGrid">
-      ${metric(fundNav ? '场外基金及活期净值（估算）' : marketLabel, fundNav ? account?.net_value?.value : data?.market_value_cny)}
-      ${metric(`今日盈亏${day ? ' · ' + day : ''}${partial ? '（部分）' : ''}${estimate}`, data?.daily_pnl_cny, true)}
-      ${metric(data?.floating_pnl_missing ? '已知持仓浮盈' : '持仓浮盈', data?.floating_pnl_cny, true)}
+      ${metric(fundNav ? '场外基金及活期净值（估算）' : marketLabel, fundNav ? account?.net_value?.value : data?.market_value_cny, { main: true })}
+      ${metric(`今日盈亏${day ? ' · ' + day : ''}${partial ? '（部分）' : ''}${estimate}`, data?.daily_pnl_cny, { signed: true })}
+      ${metric(data?.floating_pnl_missing ? '已知持仓浮盈' : '持仓浮盈', data?.floating_pnl_cny, { signed: true })}
     </div>
     <div class="mobileHeroMiniGrid">
       ${fundNav ? mobileHeroMetaItem(marketLabel, data?.market_value_cny == null ? '—' : fmtCny(data.market_value_cny)) : ''}
