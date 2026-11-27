@@ -110,7 +110,6 @@ def _refresh_category(
         updates.append((new_price, new_mv, h["id"]))
 
     # Quote-only jobs must not turn a market subset into a complete account snapshot.
-    updated = len(updates)
     daily_quote_rows = 0
     if category == "A股":
         close_rows = _upsert_cn_a_closes(holdings, prices, target_as_of)
@@ -121,9 +120,32 @@ def _refresh_category(
             source="tencent_a_stock_close",
             market="CN_A",
         )
+        updated = daily_quote_rows
     elif category == _OVERSEAS_MAJOR_CATEGORY:
         daily_quote_rows = _upsert_scheduled_us_quotes(holdings, prices, target_as_of, price_basis)
         updated = daily_quote_rows
+    elif category == "加密":
+        daily_quote_rows = _upsert_daily_return_quote_snapshots(
+            holdings,
+            prices,
+            target_as_of,
+            source="crypto_quote",
+            market="CRYPTO",
+            currency="USD",
+        )
+        updated = daily_quote_rows
+    elif category == "贵金属":
+        daily_quote_rows = _upsert_daily_return_quote_snapshots(
+            holdings,
+            prices,
+            target_as_of,
+            source="precious_metal_fund_nav",
+            market="CN_FUND",
+            currency="CNY",
+        )
+        updated = daily_quote_rows
+    else:
+        updated = 0
 
     return {
         "category": category,

@@ -7,9 +7,10 @@ investment return attribution, then leaves any residual visible.
 
 from __future__ import annotations
 
-from datetime import date as Date
+from datetime import date as Date, datetime
 from decimal import Decimal
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 import psycopg2.extras
 
@@ -809,8 +810,12 @@ def _funding_closure_checks(cur, *, start_date: Date, end_date: Date, account_cf
     return issues
 
 
+def _today_shanghai() -> Date:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
 def _terminal_nav_payload(state: dict[str, Any]) -> tuple[Date, dict[str, Decimal], Decimal]:
-    terminal_date = _date(state.get("valuation_date") or state.get("as_of")) or Date.today()
+    terminal_date = _date(state.get("valuation_date") or state.get("as_of")) or _today_shanghai()
     assets = _dec(state.get("assets_cny"))
     liabilities = _dec(state.get("liabilities_cny"))
     net_worth = _dec(state.get("net_liquidation_value") or state.get("net_worth") or state.get("market_value"))
@@ -838,7 +843,7 @@ def build_equity_bridge_payload(
                 status="draft",
             )
             if valuation_state.get("net_liquidation_value") is None:
-                terminal_date = _date(valuation_state.get("valuation_date") or valuation_state.get("as_of")) or Date.today()
+                terminal_date = _date(valuation_state.get("valuation_date") or valuation_state.get("as_of")) or _today_shanghai()
                 cashflows = _cashflow_breakdown(cur, start_date=start_date, end_date=terminal_date,
                     excluded_accounts=_bridge_cashflow_excluded_accounts(account_cfg))
                 return _norm({"start": start_date, "end": terminal_date, "base_currency": base,

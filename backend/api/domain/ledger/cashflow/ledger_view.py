@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from zoneinfo import ZoneInfo
 
 import yaml
 from domain.accounts.views.account_identity import account_display
@@ -160,16 +161,20 @@ def _serialize_date(value: Any) -> str | None:
     return str(value)
 
 
+def _today_shanghai() -> date:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
 def _month_bounds(month: str | None, latest_date: date | None = None) -> tuple[date, date]:
+    today = _today_shanghai()
     if month:
         year, month_no = [int(part) for part in month.split("-", 1)]
     else:
-        anchor = date.today()
+        anchor = today
         year, month_no = anchor.year, anchor.month
     end_day = calendar.monthrange(year, month_no)[1]
     month_start = date(year, month_no, 1)
     month_end = date(year, month_no, end_day)
-    today = date.today()
     if year == today.year and month_no == today.month:
         month_end = min(month_end, today)
     return month_start, month_end

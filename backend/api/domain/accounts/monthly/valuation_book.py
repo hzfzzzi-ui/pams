@@ -216,7 +216,8 @@ def _daily_row(day, values, records, fx, base):
         dates = point.get('evidence_dates') or (observed, observed)
         refs[code] = {'basis': observation.basis, 'from': str(dates[0]), 'through': str(dates[1]),
                       'balance_as_of': str(observed), 'native_balance': str(signed), 'currency': unit,
-                      'owner_ratio': str(ratio), 'fx_as_of': str(fixing[0]) if fixing else None,
+                      'owner_ratio': str(ratio) if ratio is not None else None,
+                      'fx_as_of': str(fixing[0]) if fixing else None,
                       'fx_rate': str(fixing[1]) if fixing else None}
         if point.get('price_dates'):
             refs[code]['price_dates'] = {k: str(v) for k, v in point['price_dates'].items()}

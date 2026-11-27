@@ -26,6 +26,7 @@ from domain.accounts.balances.balance_snapshot import load_verified_bank_balance
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
 from domain.investments.holdings.holdings_view import LATEST_KNOWN_HOLDINGS_CTE
 from domain.investments.holdings.snapshot_coverage import annotate_snapshot_coverage, load_account_snapshot_coverage
+from domain.investments.holdings.ths_trade_rollforward import apply_ths_post_snapshot_trades
 from domain.investments.valuation.valuation_state_reader import valuation_series_evidence, valuation_series_rows
 from domain.market.quote_valuation import quote_valuation_cte, snapshot_tables
 
@@ -560,7 +561,7 @@ def _asset_type(row: dict[str, Any]) -> str:
     minor = str(row.get("minor_category") or "")
     if "美股" in major:
         return "us_stock"
-    if "A股" in major and "基金" in major:
+    if "A股" in major and ("基金" in minor or "基金" in major):
         return "a_share_fund"
     if "A股" in major:
         return "a_share_stock"
@@ -693,7 +694,8 @@ def load_investment_positions(
     excluded = _excluded_accounts(account_cfg)
     fx_rates = _latest_fx_rates(cur, base_currency)
     quote_available = bool(tables.get("quote_available"))
-    quote_overlay = quote_valuation_cte(quote_available)
+    source_schema = _table_exists(cur, "source_records")
+    quote_overlay = quote_valuation_cte(quote_available, position_prices=source_schema)
     price_evidence_columns = ", qm.quote_date AS market_price_as_of, qm.valuation_price_source" if quote_available else ""
     price_evidence_join = "LEFT JOIN quote_marks qm ON qm.id = h.id AND qm.valuation_price_source IS NOT NULL" if quote_available else ""
     cur.execute(
@@ -709,6 +711,7 @@ def load_investment_positions(
         (_view_as_of(), sorted(excluded)),
     )
     snapshot_rows = annotate_snapshot_coverage(cur, [dict(row) for row in cur.fetchall()])
+    snapshot_rows = apply_ths_post_snapshot_trades(cur, snapshot_rows, view_as_of=_view_as_of())
     unverified_snapshot_accounts = {str(row.get("account_code")) for row in snapshot_rows
                                     if row.get("account_code") and row.get("snapshot_scope_status") != "complete"}
     carried_cash_rows = _cash_like_carry_forward_rows(

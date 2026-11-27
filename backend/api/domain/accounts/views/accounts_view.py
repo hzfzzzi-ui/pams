@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from decimal import Decimal, localcontext
-from datetime import date as Date
+from datetime import date as Date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from domain.investments.holdings.holdings_view import COMPLETE_ACCOUNT_SNAPSHOT_CTE
 from domain.investments.holdings.snapshot_coverage import point_in_time_visible_sql
@@ -66,7 +67,7 @@ def build_account_detail_payload(cur, *, account_code: str) -> dict[str, Any] | 
         FROM pams_holdings_snapshot hs JOIN latest_account la
           ON la.account_code=hs.account_code AND la.account_as_of=hs.as_of
         WHERE hs.account_code=%s AND {point_in_time_visible_sql("hs", "SELECT as_of FROM snapshot_view_cutoff")} GROUP BY la.account_as_of,hs.currency""",
-        (Date.today(), account_code),
+        (datetime.now(ZoneInfo("Asia/Shanghai")).date(), account_code),
     )
     holdings = [dict(item) for item in cur.fetchall()]
     account_data = {key: _norm(value) for key, value in dict(row).items()}

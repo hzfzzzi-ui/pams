@@ -331,12 +331,16 @@ def inbox_scan_local(request: Request):
                 decision = route_file_to_accounts(item["filename"], item["rel_path"])
                 if decision is None:
                     continue
+                cur.execute("SAVEPOINT inbox_stage_local_one")
                 try:
                     raw_bytes = file_path.read_bytes()
                     staged_all.extend(
                         _stage_bytes_for_decision(cur, content=raw_bytes, filename=item["filename"], decision=decision)
                     )
+                    cur.execute("RELEASE SAVEPOINT inbox_stage_local_one")
                 except Exception as exc:
+                    cur.execute("ROLLBACK TO SAVEPOINT inbox_stage_local_one")
+                    cur.execute("RELEASE SAVEPOINT inbox_stage_local_one")
                     errors.append({"file": item["rel_path"], "error": str(exc)})
         conn.commit()
 
@@ -384,6 +388,7 @@ def inbox_pull_email(request: Request):
                 decision = route_file_to_accounts(filename)
                 if decision is None:
                     continue
+                cur.execute("SAVEPOINT inbox_stage_email_one")
                 try:
                     staged_all.extend(
                         _stage_bytes_for_decision(
@@ -393,7 +398,10 @@ def inbox_pull_email(request: Request):
                             decision=decision,
                         )
                     )
+                    cur.execute("RELEASE SAVEPOINT inbox_stage_email_one")
                 except Exception as exc:
+                    cur.execute("ROLLBACK TO SAVEPOINT inbox_stage_email_one")
+                    cur.execute("RELEASE SAVEPOINT inbox_stage_email_one")
                     errors.append({"file": filename, "error": str(exc)})
         conn.commit()
 

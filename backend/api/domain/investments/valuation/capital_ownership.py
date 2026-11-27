@@ -122,7 +122,28 @@ def account_contribution_ratios(cur, code, cfg, dates):
         return None
     from domain.investments.trades.nav_trade_source_v2 import _read_event_prefix
     events, gap = _read_event_prefix(cur, code)
-    return load_contribution_ratios(cur, cfg, events, dates, unverified_from=gap)
+    ratios = load_contribution_ratios(cur, cfg, events, dates, unverified_from=gap)
+    if ratios:
+        return ratios
+    from domain.investments.trades.trade_read_v2 import load_trade_rows
+    cur.execute("SELECT to_regclass('public.source_records') IS NOT NULL AS ready")
+    if not (cur.fetchone() or {}).get('ready'):
+        return {}
+    facts = load_trade_rows(cur, account_code=code, start=date.min, end=date.max)
+    if not facts:
+        return {}
+    unverified_dates = [
+        row['trade_date'] for row in facts
+        if row.get('source_evidence_status') != 'verified'
+        or row.get('currency') != 'CNY'
+        or row.get('net_cash') is None
+    ]
+    unverified_from = min(unverified_dates, default=None)
+    verified_events = [
+        row for row in facts
+        if unverified_from is None or row['trade_date'] < unverified_from
+    ]
+    return load_contribution_ratios(cur, cfg, verified_events, dates, unverified_from=unverified_from)
 
 
 def position_ownership(cur, accounts, dates, owner_ratio):
