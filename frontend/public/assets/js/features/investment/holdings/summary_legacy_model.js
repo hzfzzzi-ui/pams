@@ -96,7 +96,7 @@ export function formatNumber(value, options = {}) {
 export function formatCurrency(value, currency = 'CNY', options = {}) {
   const n = safeNum(value);
   const symbol = currency === 'USD' ? '$' : currency === 'CNY' ? '¥' : `${currency} `;
-  const sign = options.signed ? (n >= 0 ? '+' : '-') : '';
+  const sign = options.signed ? (n >= 0 ? '+' : '-') : (n < 0 ? '-' : '');
   return `${sign}${symbol}${formatNumber(Math.abs(n), {
     minimumFractionDigits: options.minimumFractionDigits ?? options.maximumFractionDigits ?? (currency === 'USD' ? 2 : 2),
     maximumFractionDigits: options.maximumFractionDigits ?? options.minimumFractionDigits ?? (currency === 'USD' ? 2 : 2),
@@ -472,6 +472,19 @@ export function makeMobileHeroProfiles({
       totalPnl: safeNum(esopSummary.totalPnl),
       totalRate: safeNum(esopSummary.holdingReturnRate ?? categoryByLabel(categories, '内部股份/分红').holdingReturnRate),
       portfolioShare: accountCards.investment_overview?.group_net_shares?.['员工持股'],
+    },
+    '银行理财': {
+      key: '银行理财',
+      icon: '理',
+      identity: '银行理财 · CNY',
+      valueLabel: '理财市值',
+      value: safeNum(categoryByLabel(categories, '银行理财').totalValue),
+      dailyLabel: '今日盈亏',
+      dailyPnl: safeNum(categoryByLabel(categories, '银行理财').dailyPnl),
+      totalLabel: '总盈亏',
+      totalPnl: safeNum(categoryByLabel(categories, '银行理财').totalPnl),
+      totalRate: safeNum(categoryByLabel(categories, '银行理财').holdingReturnRate),
+      portfolioShare: accountCards.investment_overview?.group_net_shares?.['银行理财'],
     },
     '现金/活期': cashHeroProfile,
   };

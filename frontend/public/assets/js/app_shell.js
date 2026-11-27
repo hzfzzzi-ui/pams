@@ -16,22 +16,25 @@ function readPrivacyMode() {
 }
 
 function applyPrivacyMode(enabled) {
-  document.documentElement.dataset.privacy = enabled ? '1' : '0';
+  const on = Boolean(enabled);
+  document.documentElement.dataset.privacy = on ? '1' : '0';
   if (privacyToggle) {
-    privacyToggle.setAttribute('aria-pressed', String(enabled));
-    privacyToggle.setAttribute('aria-label', enabled ? '显示金额' : '隐藏金额');
-    privacyToggle.title = enabled ? '隐私模式：已隐藏金额' : '隐私模式：点击隐藏金额';
+    privacyToggle.setAttribute('aria-pressed', String(on));
+    privacyToggle.setAttribute('aria-label', on ? '显示金额' : '隐藏金额');
+    privacyToggle.title = on ? '隐私模式：已隐藏金额' : '隐私模式：点击隐藏金额';
     const openIcon = privacyToggle.querySelector('.icon-eye-open');
     const closedIcon = privacyToggle.querySelector('.icon-eye-closed');
-    if (openIcon) openIcon.hidden = enabled;
-    if (closedIcon) closedIcon.hidden = !enabled;
+    if (openIcon) openIcon.toggleAttribute('hidden', on);
+    if (closedIcon) closedIcon.toggleAttribute('hidden', !on);
   }
   try {
     const childDoc = frame.contentDocument;
     if (childDoc?.documentElement) {
-      if (enabled) childDoc.documentElement.dataset.privacy = '1';
+      if (on) childDoc.documentElement.dataset.privacy = '1';
       else delete childDoc.documentElement.dataset.privacy;
+      childDoc.body?.classList.toggle('is-privacy-masked', on);
     }
+    frame.contentWindow?.postMessage({ type: 'pams-privacy', enabled: on }, location.origin);
   } catch { /* Cross-origin or unloaded frame. */ }
 }
 
@@ -380,15 +383,21 @@ if (reminderBtn && reminderBackdrop && reminderBody) {
     const action = trigger.dataset.reminderAction;
     if (action === 'review') {
       closeReminders();
-      const target = new URL('investments.html#investment-ledger', location.href);
-      navigate(target);
-      window.setTimeout(() => {
+      const openCampaignReview = () => {
         try {
           const childDoc = frame.contentDocument;
           childDoc?.querySelector('[data-invest-tab="transactions"]')?.click();
           window.setTimeout(() => childDoc?.querySelector('[data-trade-view-mode="campaigns"]')?.click(), 160);
         } catch { /* ignore */ }
-      }, 280);
+      };
+      let currentPage = '';
+      try { currentPage = frame.contentWindow.location.pathname.split('/').pop(); } catch { /* ignore */ }
+      if (currentPage === 'investments.html') {
+        openCampaignReview();
+      } else {
+        frame.addEventListener('load', () => window.setTimeout(openCampaignReview, 80), { once: true });
+        navigate(new URL('investments.html#investment-ledger', location.href));
+      }
       return;
     }
     if (action === 'ledger-todo') {
@@ -412,18 +421,34 @@ if (reminderBtn && reminderBackdrop && reminderBody) {
       reminderState.note = '正在刷新全市场行情…';
       renderReminders();
       try {
-        const res = await fetch('/api/prices/refresh/investments', {
+        const priceResp = await fetch('/api/prices/refresh/investments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scopes: ['a_stock', 'us_stock', 'a_fund', 'precious_metal'] }),
-        }).then(r => r.json());
+        });
+        const res = await priceResp.json().catch(() => null);
+        if (!priceResp.ok) {
+          throw new Error(res?.detail || `HTTP ${priceResp.status}`);
+        }
         reminderState.note = `已更新 ${Number(res?.total_updated || 0)} 项，正在重算持仓估值…`;
         renderReminders();
-        await fetch('/api/investment/page-projection/refresh', {
+        const projResp = await fetch('/api/investment/page-projection/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
-        }).catch(() => {});
+        });
+        if (!projResp.ok) {
+          const errBody = await projResp.json().catch(() => null);
+          throw new Error(errBody?.detail || `估值刷新失败 (HTTP ${projResp.status})`);
+        }
+        try {
+          for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+            const key = sessionStorage.key(i);
+            if (key?.startsWith('pams.api.cache.') || key?.startsWith('pams:page-memory:')) {
+              sessionStorage.removeItem(key);
+            }
+          }
+        } catch { /* ignore storage errors */ }
         reminderState.refreshing = false;
         reminderState.note = '刷新完成，已同步最新估值。';
         await loadReminders();

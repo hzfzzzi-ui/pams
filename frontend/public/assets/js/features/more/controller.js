@@ -32,6 +32,7 @@ export function mount(root, context) {
   let navGrowthPending;
   let reviewPanel;
   let accountsReady = null;
+  let renderedGroups = null;
   let inboxWidget = null;
   const overview = createAssetOverview(root, {
     win, isActive: () => alive, readAccounts: ensureAccounts,
@@ -39,8 +40,10 @@ export function mount(root, context) {
   });
   mountNetworthDebtsPanel(root, get);
   function ensureAccounts() {
+    if (renderedGroups) return Promise.resolve(renderedGroups);
     accountsReady ??= loadAccountSync().then(() => {
       if (accountRetry && !accountRetry.hidden) accountsReady = null;
+      return renderedGroups;
     });
     return accountsReady;
   }
@@ -71,6 +74,7 @@ export function mount(root, context) {
     reviewPanel.prepend(actions);
   }
   function locateAccount(container, groups) {
+    renderedGroups = groups;
     overview.renderCreditCards(groups);
     if (!targetAccount) return;
     const item = [...container.querySelectorAll('[data-account-code]')].find(el => el.dataset.accountCode === targetAccount);

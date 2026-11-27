@@ -71,9 +71,15 @@ export function createAssetOverview(root, {win, read, isActive, readAccounts}) {
   async function onCards() {
     if (!cards.open) return;
     const output = cards.querySelector('div');
-    if (!output.childElementCount) output.textContent = '正在读取…';
-    await readAccounts();
-    if (isActive() && !find('retryAccountSync').hidden) output.textContent = '账户明细暂未读到，请重新展开';
+    if (!output.childElementCount && !output.dataset.loaded) output.textContent = '正在读取…';
+    const groups = await readAccounts();
+    if (!isActive()) return;
+    if (Array.isArray(groups)) {
+      renderCreditCards(groups);
+      output.dataset.loaded = '1';
+    } else if (!find('retryAccountSync').hidden) {
+      output.textContent = '账户明细暂未读到，请重新展开';
+    }
   }
   financing?.addEventListener('toggle', readFinancing);
   cards?.addEventListener('toggle', onCards);

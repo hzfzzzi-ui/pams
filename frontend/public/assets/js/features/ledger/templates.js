@@ -39,6 +39,27 @@ function transferRouteHtml(row) {
   `;
 }
 
+const RAW_FLOW_TYPE_LABELS = {
+  expense: '支出',
+  operating_expense: '支出',
+  income: '收入',
+  operating_income: '收入',
+  transfer: '内部转账',
+  internal_transfer: '内部转账',
+  repayment: '还款',
+  loan: '借入',
+  personal_loan_drawdown: '借款转入',
+  personal_loan_repayment: '借款归还',
+  fee: '手续费',
+  unclassified: '待分类',
+};
+
+function flowTypeLabel(value) {
+  const key = String(value || '').trim();
+  if (!key) return '-';
+  return RAW_FLOW_TYPE_LABELS[key] || RAW_FLOW_TYPE_LABELS[key.toLowerCase()] || key;
+}
+
 function rowDetailHtml(row) {
   const originalAmount = originalCurrencyText(row);
   const editButton = !state.streamIsRemembered && isEditableLedgerRow(row)
@@ -56,7 +77,7 @@ function rowDetailHtml(row) {
       <div><strong>日期</strong><span>${escapeHtml(row.transaction_date || '—')}</span></div>
       <div><strong>对方账户</strong><span>${escapeHtml(row.counter_account_code || '不适用')}</span></div>
       <div><strong>对方</strong><span>${escapeHtml(row.counterparty || '不适用')}</span></div>
-      <div><strong>原始类型</strong><span>${escapeHtml(row.flow_type || '-')}</span></div>
+      <div><strong>原始类型</strong><span>${escapeHtml(flowTypeLabel(row.flow_type))}</span></div>
       ${originalAmount ? `<div><strong>原币金额</strong><span>${escapeHtml(originalAmount)}</span></div>` : ''}
       <div><strong>粗分类</strong><span>${escapeHtml(row.coarse_category || '-')}</span></div>
       <div><strong>摘要</strong><span>${escapeHtml(row.summary || row.source_summary || '-')}</span></div>
