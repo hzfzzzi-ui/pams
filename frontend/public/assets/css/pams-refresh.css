@@ -3364,7 +3364,7 @@ body.page-investments .portfolioRiskInlineSources span {
 .perfTreemapCanvas {
   position: relative;
   width: 100%;
-  height: 268px;
+  height: 280px;
   border-radius: 0;
   overflow: hidden;
   background: #0b1120;
@@ -3374,13 +3374,13 @@ body.page-investments .portfolioRiskInlineSources span {
   box-sizing: border-box;
   border: 1px solid #0b1120;
   border-radius: 0;
-  padding: 4px 5px;
+  padding: 2px 3px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  gap: 2px;
+  gap: 1px;
   overflow: hidden;
   cursor: pointer;
   color: #f8fafc;
@@ -3388,29 +3388,21 @@ body.page-investments .portfolioRiskInlineSources span {
 }
 .perfTreemapTile:hover,
 .perfTreemapTile:focus-visible {
-  filter: brightness(1.14);
+  filter: brightness(1.18);
   z-index: 2;
 }
 .perfTreemapName {
-  font-size: 11px;
+  font-size: var(--tile-name-fs, 11px);
   font-weight: 600;
-  line-height: 1.15;
+  line-height: 1.12;
   max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
-.perfTreemapName i {
-  font-style: normal;
-  font-size: 9px;
-  padding: 0 3px;
-  border-radius: 2px;
-  background: rgba(15, 23, 42, 0.45);
-  vertical-align: middle;
-}
 .perfTreemapPnl {
-  font-size: 11px;
+  font-size: var(--tile-pnl-fs, 10.5px);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
@@ -3419,15 +3411,49 @@ body.page-investments .portfolioRiskInlineSources span {
 }
 .perfTreemapPct {
   font-style: normal;
-  font-size: 10px;
+  font-size: var(--tile-pct-fs, 9.5px);
   opacity: 0.9;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.perfTreemapTile.is-lg .perfTreemapName { font-size: 13px; }
-.perfTreemapTile.is-lg .perfTreemapPnl { font-size: 13px; }
-.perfTreemapTile.is-sm .perfTreemapName { font-size: 10px; }
-.perfTreemapTile.is-sm .perfTreemapPnl { font-size: 10px; }
+.perfTreemapTooltip {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  min-width: 148px;
+  max-width: 220px;
+  padding: 8px 10px;
+  background: rgba(10, 15, 28, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  color: #f8fafc;
+  text-align: left;
+}
+.perfTreemapTipName {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  word-break: break-word;
+}
+.perfTreemapTipMeta {
+  margin-top: 2px;
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.85);
+}
+.perfTreemapTipVal {
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.perfTreemapTipVal.good { color: #4ade80; }
+.perfTreemapTipVal.bad { color: #f87171; }
+.perfTreemapTipVal span {
+  font-size: 11px;
+  opacity: 0.9;
+}
 
 .perfBenchPills {
   display: flex;
