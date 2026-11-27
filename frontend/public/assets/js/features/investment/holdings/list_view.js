@@ -236,11 +236,34 @@ function renderRows(rows, options = {}){
       <td class="mono num ${dailyPending ? 'muted' : pnlTone(dailyPnl)}">${dailyPending ? '待更新' : pnlText(dailyPnl)}</td>
       <td title="${listed.label}" class="mono num ${pnlTone(listed.amount)}">${pnlText(listed.amount)}</td>
       <td class="mono">${realizedPnlNote(realized) || '—'}</td>
-      <td>${dataBadge(r)}</td>
+      <td>${holdingDateLabel(r)}${dataBadge(r)}</td>
     `;
     tbody.appendChild(tr);
     bindRow(tr, 'click', () => openPosition(r, summary));
   }
+}
+
+function holdingDateLabel(row) {
+  const members = row.__accountRows || [row];
+  const dates = members.map(item => {
+    let source = item.reference_as_of || item.balance_as_of || item.snapshot_as_of || item.as_of;
+    if (!item.reference_as_of && item.fund_nav_raw_status === 'estimated' && item.fund_nav_estimate_time
+      && Number(item.fund_nav_estimated_unit_nav) > 0 && Number(item.fund_nav_estimated_unit_nav) === Number(item.current_price)) {
+      source = item.fund_nav_estimate_time;
+    } else if (!item.reference_as_of && item.fund_nav_confirmed_date && Number(item.fund_nav_confirmed_unit_nav) > 0
+      && Number(item.fund_nav_confirmed_unit_nav) === Number(item.current_price)) {
+      source = item.fund_nav_confirmed_date;
+    }
+    return /^(\d{4}-\d{2}-\d{2})(?:$|[T ])/.exec(String(source || ''))?.[1];
+  });
+  if (!dates.length || dates.some(day => !day)) {
+    return '<span class="holdingValuationDate" title="更新日期未知" aria-label="更新日期未知">—</span>';
+  }
+  const day = dates.sort()[0];
+  const label = row.reference_as_of ? '历史参考日' : isCashRow(row) ? '余额日' : '估值日';
+  const title = `${label} ${day}${members.length > 1 ? '（各账户最早日期）' : ''}`;
+  const short = day.startsWith(new Date().getFullYear() + '-') ? day.slice(5) : day;
+  return `<time class="holdingValuationDate" datetime="${day}" title="${title}" aria-label="${title}">${short.replaceAll('-', '/')}</time>`;
 }
 
 function holdingSyncTime(row) {
@@ -323,12 +346,10 @@ function renderMobileHoldingRows(rows, { summary, sortBy = 'value_desc' }) {
       const nativeAmt = r.market_value_native ?? r.market_value;
       const grossCny = r.gross_cash_base != null ? Number(r.gross_cash_base) : null;
       const showGross = grossCny != null && Number.isFinite(grossCny) && value != null && Math.abs(grossCny - value) >= 0.01;
-      const dateStr = String(r.balance_as_of || r.as_of || '').slice(0, 10);
       const subKind = r.is_cash_management ? '现金管理' : (value != null && value < 0 ? '融资负现金' : '券商现金');
       const secondary = ccy !== 'CNY'
         ? formatNativeCash(nativeAmt, ccy)
         : (showGross ? `整户 ${formatCompactCurrency(grossCny)}` : (value != null && value < 0 ? '融资负现金' : '可用现金'));
-      const dateLabel = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `余额日 ${dateStr.slice(5)}` : '';
       const acctName = holdingAccountName(r);
       const subMeta = acctName && acctName !== name ? [acctName, subKind].filter(Boolean).join(' · ') : subKind;
       return `<button class="mobileHoldingRow personalPosition" type="button" data-mobile-holding-index="${index}">
@@ -337,10 +358,10 @@ function renderMobileHoldingRows(rows, { summary, sortBy = 'value_desc' }) {
           <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc(subMeta)}</small></span>
         </span>
         <span class="personalPositionValues">
+          ${holdingDateLabel(raw)}
           <b class="${value != null && value < 0 ? 'down' : ''}" title="折合人民币">${value == null ? '—' : formatCompactCurrency(value)}</b>
           <small class="personalPositionWeight" title="币种">${esc(ccy)}</small>
           <small class="${value != null && value < 0 ? 'down' : ''}" title="原币/说明">${esc(secondary)}</small>
-          <small class="muted" title="余额日">${esc(dateLabel)}</small>
         </span>
       </button>`;
     }
@@ -355,6 +376,7 @@ function renderMobileHoldingRows(rows, { summary, sortBy = 'value_desc' }) {
         <span class="personalPositionName"><strong>${esc(name)}</strong><small>${esc([status || holdingGroupLabel(r), assetIconCaption(r)].filter(Boolean).join(' · '))}</small></span>
       </span>
       <span class="personalPositionValues">
+          ${holdingDateLabel(raw)}
         <b title="个人持仓市值"><span class="metricCaption">个人持仓市值</span>${value == null ? '—' : formatCompactCurrency(value)}</b>
         <small class="personalPositionWeight" title="仓位占比"><span class="metricCaption">仓位占比</span>${weight}</small>
         <small class="${pnlTone(amount)}" title="${label}"><span class="metricCaption">${label}</span>${pnlText(amount)}</small>
